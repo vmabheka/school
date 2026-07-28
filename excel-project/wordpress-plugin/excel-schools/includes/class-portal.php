@@ -212,16 +212,7 @@ class ESM_Portal {
             exit;
         }
         check_admin_referer('esm_portal_json_import', 'esm_import_nonce');
-        $result = ['error' => 'Select a JSON file to import.'];
-        if (!empty($_FILES['json_file']['tmp_name']) && is_uploaded_file($_FILES['json_file']['tmp_name'])) {
-            $content = file_get_contents($_FILES['json_file']['tmp_name']);
-            $payload = json_decode($content, true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($payload)) {
-                $result = ESM_Sync_Engine::import_json_payload($payload);
-            } else {
-                $result = ['error' => 'The uploaded file is not valid JSON.'];
-            }
-        }
+        $result = esm_process_manual_json_upload('json_file');
         set_transient('esm_manual_import_' . get_current_user_id(), $result, 120);
         wp_safe_redirect(home_url('/sms/dashboard/'));
         exit;

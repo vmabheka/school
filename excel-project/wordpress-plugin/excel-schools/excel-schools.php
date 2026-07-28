@@ -5,7 +5,7 @@
  * Description: Excel Schools management portal for WordPress — a direct mirror of the
  *              offline Flask school-management app, exposed at /sms/ on this site, kept
  *              in sync with the offline app via the bundled sync engine and REST API.
- * Version: 3.1.0
+ * Version: 3.1.1
  * Author: Valentine T Mabheka
  * Author URI: https://excelgroup.edu.zw
  * License: GPL v2 or later
@@ -18,7 +18,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ESM_VERSION', '3.1.0');
+define('ESM_VERSION', '3.1.1');
 define('ESM_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ESM_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('ESM_PLUGIN_FILE', __FILE__);
@@ -201,20 +201,37 @@ add_filter('wp_is_application_passwords_available', '__return_true');
 
 add_action('admin_menu', 'esm_admin_menu');
 function esm_admin_menu() {
+    // The parent menu must be visible to every Excel Schools user. Each
+    // submenu retains its own capability check, so bursars can reach Sync
+    // Center without gaining access to system settings.
     add_menu_page(
         'Excel Schools',
         'Excel Schools',
-        'esm_manage_settings',
+        'esm_view_dashboard',
         'excel-schools',
-        'esm_page_settings',
+        'esm_page_admin_landing',
         'dashicons-welcome-learn-more',
         30
     );
-    add_submenu_page('excel-schools', 'Settings', 'Settings', 'esm_manage_settings', 'excel-schools', 'esm_page_settings');
-    add_submenu_page('excel-schools', 'Sync Center', 'Sync Center', 'esm_manage_sync', 'excel-schools-sync', 'esm_page_sync_dashboard');
+    add_submenu_page('excel-schools', 'Excel Schools', 'Overview', 'esm_view_dashboard', 'excel-schools', 'esm_page_admin_landing');
+    add_submenu_page('excel-schools', 'Settings', 'Settings', 'esm_manage_settings', 'excel-schools-settings', 'esm_page_settings');
+    add_submenu_page('excel-schools', 'Sync Center', 'Sync Center & JSON Import', 'esm_manage_sync', 'excel-schools-sync', 'esm_page_sync_dashboard');
     add_submenu_page('excel-schools', 'Sync Settings', 'Sync Settings', 'esm_manage_sync', 'excel-schools-sync-settings', 'esm_page_sync_settings');
     add_submenu_page('excel-schools', 'Sync Logs', 'Sync Logs', 'esm_manage_sync', 'excel-schools-sync-logs', 'esm_page_sync_logs');
     add_submenu_page('excel-schools', 'Open Portal', '⇱ Open Portal (/sms/)', 'esm_view_dashboard', 'excel-schools-portal-link', 'esm_portal_link_page');
+}
+
+function esm_page_admin_landing() {
+    $portal_url = esc_url(home_url('/sms/'));
+    echo '<div class="wrap"><h1>Excel Schools</h1><p>Open your role dashboard or manage synchronization.</p>';
+    echo '<p><a href="' . $portal_url . '" class="button button-primary">Open Online Portal</a> ';
+    if (current_user_can('esm_manage_sync')) {
+        echo '<a href="' . esc_url(admin_url('admin.php?page=excel-schools-sync')) . '" class="button">Sync Center &amp; JSON Import</a> ';
+    }
+    if (current_user_can('esm_manage_settings')) {
+        echo '<a href="' . esc_url(admin_url('admin.php?page=excel-schools-settings')) . '" class="button">Settings</a>';
+    }
+    echo '</p></div>';
 }
 
 function esm_portal_link_page() {
@@ -227,9 +244,40 @@ function esm_page_settings() {
     include ESM_PLUGIN_DIR . 'templates/settings.php';
 }
 
+function esm_process_manual_json_upload($field_name = 'json_file') {
+    if (!current_user_can('esm_manage_sync')) {
+        return ['error' => 'You do not have permission to import synchronization data.'];
+    }
+    if (empty($_FILES[$field_name]) || empty($_FILES[$field_name]['tmp_name'])) {
+        return ['error' => 'Select a JSON export file to import.'];
+    }
+    if ((int) ($_FILES[$field_name]['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+        return ['error' => 'The JSON file upload failed. Please try again.'];
+    }
+    if ((int) ($_FILES[$field_name]['size'] ?? 0) > 16 * 1024 * 1024) {
+        return ['error' => 'The JSON export exceeds the 16 MB upload limit.'];
+    }
+
+    $filename = sanitize_file_name($_FILES[$field_name]['name'] ?? '');
+    if (strtolower(pathinfo($filename, PATHINFO_EXTENSION)) !== 'json') {
+        return ['error' => 'Only .json sync export files are accepted.'];
+    }
+    $content = file_get_contents($_FILES[$field_name]['tmp_name']);
+    $payload = json_decode($content, true);
+    if (json_last_error() !== JSON_ERROR_NONE || !is_array($payload)) {
+        return ['error' => 'The uploaded file does not contain valid JSON.'];
+    }
+    return ESM_Sync_Engine::import_json_payload($payload);
+}
+
 function esm_page_sync_dashboard() {
     global $wpdb;
     $pfx = $wpdb->prefix;
+    $import_result = null;
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['esm_sync_json_import'])) {
+        check_admin_referer('esm_sync_json_import', 'esm_sync_import_nonce');
+        $import_result = esm_process_manual_json_upload('sync_json_file');
+    }
     $pending = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$pfx}esm_sync_log WHERE sync_status='pending'");
     $synced  = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$pfx}esm_sync_log WHERE sync_status='synced'");
     $failed  = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$pfx}esm_sync_log WHERE sync_status='failed'");

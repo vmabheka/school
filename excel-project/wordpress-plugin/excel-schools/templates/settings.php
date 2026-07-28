@@ -55,8 +55,8 @@ function esm_setting($school_settings, $key, $default = '') {
 <div class="wrap">
     <h1>Excel Schools Settings</h1>
     <h2 class="nav-tab-wrapper">
-        <a href="?page=excel-schools&tab=general" class="nav-tab <?php echo $tab === 'general' ? 'nav-tab-active' : ''; ?>">General</a>
-        <a href="?page=excel-schools&tab=appearance" class="nav-tab <?php echo $tab === 'appearance' ? 'nav-tab-active' : ''; ?>">Appearance</a>
+        <a href="?page=excel-schools-settings&tab=general" class="nav-tab <?php echo $tab === 'general' ? 'nav-tab-active' : ''; ?>">General</a>
+        <a href="?page=excel-schools-settings&tab=appearance" class="nav-tab <?php echo $tab === 'appearance' ? 'nav-tab-active' : ''; ?>">Appearance</a>
     </h2>
 
     <?php if ($tab === 'general'): ?>
