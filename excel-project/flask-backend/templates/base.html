@@ -707,6 +707,11 @@
             <a href="{{ url_for('students_list') }}" class="nav-item {% if 'student' in request.endpoint %}active{% endif %}">
                 <i class="fas fa-user-graduate"></i> Students
             </a>
+            {% if user_role in ('super_admin', 'bursar') %}
+            <a href="{{ url_for('classes_list') }}" class="nav-item {% if 'class' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-school"></i> Classes
+            </a>
+            {% endif %}
             {% if user_role == 'super_admin' %}
             <a href="{{ url_for('staff_list') }}" class="nav-item {% if 'staff' in request.endpoint %}active{% endif %}">
                 <i class="fas fa-chalkboard-teacher"></i> Staff

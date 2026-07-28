@@ -15,6 +15,7 @@ class ESM_Webhook_Handler {
         add_action('esm_after_student_save', [__CLASS__, 'on_student_change'], 10, 2);
         add_action('esm_after_staff_save', [__CLASS__, 'on_staff_change'], 10, 2);
         add_action('esm_after_fee_payment', [__CLASS__, 'on_fee_payment'], 10, 2);
+        add_action('esm_after_class_save', [__CLASS__, 'on_class_change'], 10, 2);
         add_action('rest_api_init', [__CLASS__, 'register_webhook_endpoint']);
     }
 
@@ -31,6 +32,11 @@ class ESM_Webhook_Handler {
     public static function on_fee_payment($payment_id, $action) {
         if (!get_option('esm_webhook_enabled', false)) return;
         self::fire_webhook('FeePayment', $payment_id, $action, 'esm_fee_payments');
+    }
+
+    public static function on_class_change($class_id, $action) {
+        if (!get_option('esm_webhook_enabled', false)) return;
+        self::fire_webhook('Class', $class_id, $action, 'esm_classes');
     }
 
     private static function fire_webhook($entity_type, $entity_id, $action, $table_suffix) {

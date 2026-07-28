@@ -37,6 +37,7 @@
 - **WordPress Portal Home:** `/sms/dashboard/`
 - Student admissions & registration
 - Student CRUD (add, edit, view)
+- Class creation and class assignment
 - Fee management — structures, payments, receipts
 - Fee balance checking
 - Scholarship classification
@@ -130,6 +131,7 @@ All routes use `@role_required()` decorator. Unauthorized access redirects to th
 - `/reports/fees`
 
 ### Super Admin + Bursar
+- `/classes`, `/settings/class/add`
 - `/sync`, `/sync/export`, `/sync/import`, `/sync/push`
 - `/api/sync/check-internet`, `/api/sync/one-button`, `/api/sync/auto-sync-settings`, `/api/sync/status`, `/api/sync/access-point-status`
 - `/students/add`, `/students/<id>/edit`, `/students/<id>/delete`
@@ -162,12 +164,19 @@ All routes use `@role_required()` decorator. Unauthorized access redirects to th
 
 ## WordPress Portal Access
 
+The online portal provides role-specific dashboards:
+- **Super Admin:** whole-school overview plus view/download controls for student, staff, fee, exam, and combined reports.
+- **Bursar:** admissions, class, finance, sync status, and manual JSON import controls.
+
+Class changes and imported JSON data use the same stable sync IDs and entity maps as scheduled and webhook-based automatic sync.
+
 ### Portal Pages (`/sms/`)
 
 | Page | Super Admin | Accountant | Bursar | Teacher | Parent | Student |
 |------|:-----------:|:----------:|:------:|:-------:|:------:|:-------:|
 | `/sms/dashboard/` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `/sms/students/` | ✓ | | ✓ | ✓ | | |
+| `/sms/classes/` | ✓ | | ✓ | | | |
 | `/sms/staff/` | ✓ | | | | | |
 | `/sms/fees/` | ✓ | ✓ | ✓ | | | |
 | `/sms/fee-levels/` | ✓ | ✓ | | | | |

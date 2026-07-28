@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Classes{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1><i class="fas fa-school" style="color:var(--primary)"></i> Classes</h1>
+        <p>Create and manage classes. New classes are included in manual and automatic sync.</p>
+    </div>
+</div>
+
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-plus"></i> Add Class</h3></div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('add_class') }}">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Level *</label>
+                    <input class="form-control" name="level" required placeholder="e.g. Grade 5 or Form 3">
+                </div>
+                <div class="form-group">
+                    <label>Stream</label>
+                    <input class="form-control" name="stream" placeholder="e.g. A, Blue or Sciences">
+                </div>
+                <div class="form-group">
+                    <label>Class Name</label>
+                    <input class="form-control" name="name" placeholder="Generated from level and stream if blank">
+                </div>
+                <div class="form-group">
+                    <label>Capacity</label>
+                    <input class="form-control" type="number" name="capacity" value="40" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label>Academic Year</label>
+                    <select class="form-control" name="academic_year_id">
+                        <option value="">Not assigned</option>
+                        {% for year in academic_years %}
+                        <option value="{{ year.id }}" {% if year.is_current %}selected{% endif %}>{{ year.name }}{% if year.is_current %} (Current){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Form Teacher</label>
+                    <select class="form-control" name="teacher_id">
+                        <option value="">Not assigned</option>
+                        {% for teacher in teachers %}
+                        <option value="{{ teacher.id }}">{{ teacher.first_name }} {{ teacher.last_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <button class="btn btn-primary" type="submit"><i class="fas fa-save"></i> Create Class</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>All Classes ({{ classes|length }})</h3></div>
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Name</th><th>Level</th><th>Stream</th><th>Teacher</th><th>Capacity</th><th>Students</th></tr></thead>
+            <tbody>
+            {% for cls in classes %}
+                <tr>
+                    <td><strong>{{ cls.name }}</strong></td>
+                    <td>{{ cls.level or '-' }}</td>
+                    <td>{{ cls.stream or '-' }}</td>
+                    <td>{{ (cls.teacher.first_name ~ ' ' ~ cls.teacher.last_name) if cls.teacher else 'Not assigned' }}</td>
+                    <td>{{ cls.capacity }}</td>
+                    <td>{{ cls.students|length }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="6" class="text-center" style="padding:30px;color:var(--text-light)">No classes have been created.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

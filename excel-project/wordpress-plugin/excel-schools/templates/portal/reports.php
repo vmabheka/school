@@ -2,7 +2,12 @@
 /** Reports hub — port of the offline app's templates/reports/dashboard.html. */
 if (!defined('ABSPATH')) exit;
 ?>
-<div class="page-header"><div><h1>Reports &amp; Analytics</h1><p>Generate and view school reports</p></div></div>
+<div class="page-header">
+    <div><h1>Reports &amp; Analytics</h1><p>Generate and view school reports</p></div>
+    <?php if ($role === 'esm_super_admin'): ?>
+    <div class="actions"><a class="btn btn-primary" href="<?php echo esc_url(home_url('/sms/reports/?download=all')); ?>"><i class="fas fa-download"></i> Download All Reports</a></div>
+    <?php endif; ?>
+</div>
 
 <div class="stats-grid">
     <a href="<?php echo esc_url(home_url('/sms/reports/?type=students')); ?>" class="stat-card" style="text-decoration:none;color:inherit;">

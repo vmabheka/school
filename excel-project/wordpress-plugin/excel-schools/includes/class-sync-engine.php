@@ -209,6 +209,107 @@ class ESM_Sync_Engine {
     }
 
     /**
+     * Apply an uploaded manual JSON export. Supports both the event-list
+     * format produced by Flask's Sync Center and full exports grouped under
+     * a data object. The same entity map is used by automatic sync, ensuring
+     * classes and related foreign keys behave consistently in both modes.
+     */
+    public static function import_json_payload($payload) {
+        global $wpdb;
+        $pfx = $wpdb->prefix;
+        $events = [];
+
+        if (isset($payload['data']) && is_array($payload['data'])) {
+            $type_map = [
+                'academic_years' => 'AcademicYear', 'terms' => 'Term',
+                'classes' => 'Class', 'subjects' => 'Subject',
+                'fee_levels' => 'FeeLevel', 'fee_structures' => 'FeeStructure',
+                'students' => 'Student', 'staff' => 'Staff',
+                'fee_payments' => 'FeePayment', 'exam_results' => 'ExamResult',
+                'notices' => 'Notice', 'invoices' => 'Invoice',
+            ];
+            // Keep parent records ahead of rows that refer to them.
+            foreach (self::$exportable_entities as $entity) {
+                if (!isset($type_map[$entity]) || empty($payload['data'][$entity])) continue;
+                foreach ($payload['data'][$entity] as $record) {
+                    $events[] = ['entity_type' => $type_map[$entity], 'action' => 'UPDATE', 'data' => $record, 'preserve_id' => true];
+                }
+            }
+        } elseif (empty($payload) || array_keys($payload) === range(0, count($payload) - 1)) {
+            $events = $payload;
+        } else {
+            return ['error' => 'Unsupported JSON format. Upload a Sync Center event export or a full data export.'];
+        }
+
+        $imported = $skipped = $failed = 0;
+        $wpdb->query('START TRANSACTION');
+        foreach ($events as $event) {
+            $entity_type = sanitize_text_field($event['entity_type'] ?? '');
+            $action = strtoupper(sanitize_text_field($event['action'] ?? 'UPDATE'));
+            $data = $event['data'] ?? [];
+            if (is_string($data)) $data = json_decode($data, true);
+            if (!isset(self::$entity_tables[$entity_type]) || !is_array($data)) {
+                $skipped++;
+                continue;
+            }
+
+            $table = $pfx . self::$entity_tables[$entity_type];
+            $sync_id = sanitize_text_field($data['sync_id'] ?? ($event['sync_id'] ?? ''));
+            $existing = $sync_id && self::table_has_column($table, 'sync_id')
+                ? $wpdb->get_var($wpdb->prepare("SELECT id FROM $table WHERE sync_id=%s", $sync_id))
+                : null;
+            if (!$existing && $entity_type === 'Class' && !empty($data['name'])) {
+                $existing = $wpdb->get_var($wpdb->prepare(
+                    "SELECT id FROM $table WHERE name=%s AND (academic_year_id=%d OR (%d=0 AND academic_year_id IS NULL))",
+                    sanitize_text_field($data['name']), intval($data['academic_year_id'] ?? 0), intval($data['academic_year_id'] ?? 0)
+                ));
+            }
+
+            if ($action === 'DELETE') {
+                $delete_id = $existing ?: intval($event['entity_id'] ?? 0);
+                if ($delete_id) {
+                    $wpdb->delete($table, ['id' => $delete_id]);
+                    $imported++;
+                } else {
+                    $skipped++;
+                }
+                continue;
+            }
+            if (!in_array($action, ['CREATE', 'UPDATE'], true)) {
+                $skipped++;
+                continue;
+            }
+
+            $clean = [];
+            foreach ($data as $key => $value) {
+                $key = sanitize_key($key);
+                if (!$key || !self::table_has_column($table, $key)) continue;
+                $clean[$key] = is_string($value) ? sanitize_text_field($value) : $value;
+            }
+            if (!$clean) {
+                $skipped++;
+                continue;
+            }
+
+            if ($existing) {
+                unset($clean['id']);
+                $ok = $wpdb->update($table, $clean, ['id' => $existing]);
+            } else {
+                if (empty($event['preserve_id'])) unset($clean['id']);
+                $ok = $wpdb->insert($table, $clean);
+            }
+            if ($ok === false) $failed++; else $imported++;
+        }
+
+        if ($failed) {
+            $wpdb->query('ROLLBACK');
+            return ['error' => "Import rolled back because $failed record(s) could not be saved.", 'imported' => 0, 'skipped' => $skipped, 'failed' => $failed];
+        }
+        $wpdb->query('COMMIT');
+        return ['imported' => $imported, 'skipped' => $skipped, 'failed' => 0];
+    }
+
+    /**
      * Full import — pull every entity (including invoices/invoice_items,
      * which the previous plugin build could not import at all) from the
      * Flask app's /api/export/<entity> endpoints into WordPress.
@@ -370,10 +471,9 @@ class ESM_Sync_Engine {
             return strtotime($timestamp_str);
         }
     }
-}
 
     /**
-     * New: Test handshake with Flask offline app
+     * Test handshake with Flask offline app
      */
     public static function handshake($endpoint, $api_key = '') {
         $url = rtrim($endpoint, '/') . '/api/sync/handshake';
@@ -397,3 +497,4 @@ class ESM_Sync_Engine {
             'timestamp'     => $body['timestamp'] ?? ''
         ];
     }
+}

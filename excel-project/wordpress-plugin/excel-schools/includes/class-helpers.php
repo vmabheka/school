@@ -186,13 +186,13 @@ class ESM_Helpers {
     // app.py ROLE_NAV_ITEMS, translated to this plugin's /sms/ page slugs)
     public static function role_nav_items() {
         return [
-            'esm_super_admin' => ['dashboard', 'students', 'staff', 'exams', 'timetable',
+            'esm_super_admin' => ['dashboard', 'students', 'classes', 'staff', 'exams', 'timetable',
                                    'fees', 'invoices', 'debtors', 'fee-levels', 'hostel',
                                    'communication', 'reports', 'sync', 'settings',
                                    'parent-portal', 'student-portal', 'users'],
             'esm_accountant'  => ['dashboard', 'fees', 'invoices', 'debtors', 'fee-levels',
                                    'reports', 'communication', 'users'],
-            'esm_bursar'      => ['dashboard', 'students', 'fees', 'invoices', 'debtors',
+            'esm_bursar'      => ['dashboard', 'students', 'classes', 'fees', 'invoices', 'debtors',
                                    'communication', 'reports', 'sync'],
             'esm_teacher'     => ['dashboard', 'students', 'exams', 'timetable',
                                    'communication', 'reports'],

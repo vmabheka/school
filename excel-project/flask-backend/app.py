@@ -124,10 +124,11 @@ class Class(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), nullable=False)  # e.g., "Grade 1A"
     level = db.Column(db.String(20))  # e.g., "Grade 1", "Form 1"
-    stream = db.Column(db.String(10))  # e.g., "A", "B"
+    stream = db.Column(db.String(30))  # e.g., "A", "Blue"
     teacher_id = db.Column(db.Integer, db.ForeignKey('staff.id'))
     capacity = db.Column(db.Integer, default=40)
     academic_year_id = db.Column(db.Integer, db.ForeignKey('academic_year.id'))
+    sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()), unique=True)
     students = db.relationship('Student', backref='class_', lazy=True)
 
 
@@ -966,7 +967,7 @@ ROLE_NAV_SECTIONS = {
 
 # Which specific nav items each role can access (route endpoint keywords)
 ROLE_NAV_ITEMS = {
-    'super_admin': ['dashboard', 'students_list', 'staff_list', 'exams_list',
+    'super_admin': ['dashboard', 'students_list', 'classes_list', 'staff_list', 'exams_list',
                     'timetable_view', 'fees_dashboard', 'invoices_list', 'debtors_list',
                     'fee_levels_list',
                     'hostel_dashboard', 'communication_dashboard',
@@ -975,7 +976,7 @@ ROLE_NAV_ITEMS = {
     'accountant': ['dashboard', 'fees_dashboard', 'invoices_list', 'debtors_list',
                    'fee_levels_list', 'reports_dashboard',
                    'communication_dashboard', 'user_management'],
-    'bursar': ['dashboard', 'students_list', 'fees_dashboard', 'invoices_list',
+    'bursar': ['dashboard', 'students_list', 'classes_list', 'fees_dashboard', 'invoices_list',
                'debtors_list', 'communication_dashboard',
                'reports_dashboard', 'sync_dashboard'],
     'teacher': ['dashboard', 'students_list', 'exams_list',
@@ -3426,24 +3427,82 @@ def sync_export():
 @login_required
 @role_required('super_admin', 'bursar')
 def sync_import():
-    """Import data from online system (JSON file)."""
+    """Import a manual JSON export, including classes, into the offline app."""
     if request.method == 'POST':
         file = request.files.get('sync_file')
-        if file and file.filename.endswith('.json'):
-            content = file.read().decode('utf-8')
-            data = json.loads(content)
-            imported = 0
-            for entry in data:
-                # Process each entry based on entity type
-                entity_type = entry.get('entity_type')
-                action = entry.get('action')
-                entity_data = json.loads(entry.get('data', '{}'))
-                # Apply changes to local database
-                # This is a simplified import - production would need full merge logic
+        if not file or not file.filename.lower().endswith('.json'):
+            flash('Please upload a valid JSON file.', 'danger')
+            return render_template('sync/import.html')
+
+        try:
+            payload = json.loads(file.read().decode('utf-8'))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            flash('The uploaded file is not valid JSON.', 'danger')
+            return render_template('sync/import.html')
+
+        # Accept event exports and full exports grouped below data.classes.
+        if isinstance(payload, dict) and isinstance(payload.get('data'), dict):
+            entries = [
+                {'entity_type': 'Class', 'action': 'UPDATE', 'data': row}
+                for row in payload['data'].get('classes', [])
+            ]
+        elif isinstance(payload, list):
+            entries = payload
+        else:
+            entries = []
+
+        imported = skipped = failed = 0
+        for entry in entries:
+            if entry.get('entity_type') != 'Class':
+                skipped += 1
+                continue
+            action = str(entry.get('action', 'UPDATE')).upper()
+            class_data = entry.get('data') or {}
+            if isinstance(class_data, str):
+                try:
+                    class_data = json.loads(class_data)
+                except json.JSONDecodeError:
+                    failed += 1
+                    continue
+            sync_id_val = class_data.get('sync_id') or entry.get('sync_id')
+            try:
+                existing = Class.query.filter_by(sync_id=sync_id_val).first() if sync_id_val else None
+                if not existing and class_data.get('name'):
+                    existing = Class.query.filter_by(
+                        name=class_data['name'],
+                        academic_year_id=class_data.get('academic_year_id'),
+                    ).first()
+
+                if action == 'DELETE':
+                    if existing:
+                        db.session.delete(existing)
+                        imported += 1
+                    else:
+                        skipped += 1
+                    continue
+
+                if not class_data.get('name'):
+                    skipped += 1
+                    continue
+                cls = existing or Class()
+                for field in ('name', 'level', 'stream', 'teacher_id', 'capacity', 'academic_year_id'):
+                    if field in class_data:
+                        setattr(cls, field, class_data[field] or None)
+                if sync_id_val:
+                    cls.sync_id = sync_id_val
+                if not existing:
+                    db.session.add(cls)
                 imported += 1
-            flash(f'Successfully imported {imported} records.', 'success')
-            return redirect(url_for('sync_dashboard'))
-        flash('Please upload a valid JSON file.', 'danger')
+            except (TypeError, ValueError):
+                failed += 1
+
+        if failed:
+            db.session.rollback()
+            flash(f'Import failed validation for {failed} class record(s); no changes were saved.', 'danger')
+        else:
+            db.session.commit()
+            flash(f'Import complete: {imported} class record(s) applied, {skipped} unrelated or duplicate record(s) skipped.', 'success')
+        return redirect(url_for('sync_dashboard'))
     return render_template('sync/import.html')
 
 
@@ -3878,9 +3937,25 @@ def add_subject():
     return redirect(url_for('settings'))
 
 
+@app.route('/classes')
+@login_required
+@role_required('super_admin', 'bursar')
+def classes_list():
+    """List classes and expose class creation to admins and bursars."""
+    classes = Class.query.order_by(Class.level, Class.name).all()
+    academic_years = AcademicYear.query.order_by(AcademicYear.start_date.desc()).all()
+    teachers = Staff.query.filter_by(status='Active').order_by(Staff.last_name, Staff.first_name).all()
+    return render_template(
+        'classes/list.html',
+        classes=classes,
+        academic_years=academic_years,
+        teachers=teachers,
+    )
+
+
 @app.route('/settings/class/add', methods=['POST'])
 @login_required
-@role_required('super_admin')
+@role_required('super_admin', 'bursar')
 def add_class():
     level = request.form.get('level')
     stream = request.form.get('stream', '')
@@ -3888,16 +3963,22 @@ def add_class():
     if not name:
         # Auto-generate name from level + stream
         name = f"{level} {stream}" if stream else level
+    academic_year_id = request.form.get('academic_year_id') or None
+    duplicate = Class.query.filter_by(name=name, academic_year_id=academic_year_id).first()
+    if duplicate:
+        flash('A class with that name already exists for the selected academic year.', 'warning')
+        return redirect(url_for('classes_list'))
+
     cls = Class(
         name=name,
         level=level,
         stream=stream,
         teacher_id=request.form.get('teacher_id') or None,
-        capacity=int(request.form.get('capacity', 40)),
-        academic_year_id=request.form.get('academic_year_id') or None,
+        capacity=max(1, int(request.form.get('capacity', 40))),
+        academic_year_id=academic_year_id,
     )
     db.session.add(cls)
-    db.session.commit()
+    db.session.flush()
 
     # Auto-assign primary subjects if this is a primary level class
     if is_primary_level(level):
@@ -3910,8 +3991,18 @@ def add_class():
                 db.session.add(subj)
                 db.session.flush()
 
+    db.session.commit()
+    log_sync('Class', cls.id, 'CREATE', {
+        'name': cls.name,
+        'level': cls.level,
+        'stream': cls.stream,
+        'teacher_id': cls.teacher_id,
+        'capacity': cls.capacity,
+        'academic_year_id': cls.academic_year_id,
+        'sync_id': cls.sync_id,
+    })
     flash('Class added.' + (' Primary subjects auto-assigned.' if is_primary_level(level) else ''), 'success')
-    return redirect(url_for('settings'))
+    return redirect(url_for('classes_list'))
 
 
 # ─── Teacher Portal (My Classes / Subjects) ──────────────────────────
@@ -5740,7 +5831,7 @@ def api_sync():
                     if hasattr(new_record, key) and key != 'id':
                         try: setattr(new_record, key, value)
                         except: pass
-                if not new_record.sync_id and sync_id_val:
+                if hasattr(new_record, 'sync_id') and not new_record.sync_id and sync_id_val:
                     new_record.sync_id = sync_id_val
                 db.session.add(new_record)
                 db.session.flush()
@@ -6174,12 +6265,19 @@ def init_db():
             ('fee_structure', 'textbook_levy', 'FLOAT', '0'),
             ('student', 'is_new_learner', 'BOOLEAN', '1'),
             ('student', 'billed_once_off_levies', 'BOOLEAN', '0'),
+            ('class', 'sync_id', 'VARCHAR(36)', 'NULL'),
         ]:
             try:
                 conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type} DEFAULT {def_val}"))
                 conn.commit()
             except Exception:
                 pass
+
+    # Stable IDs let classes created on either installation upsert instead of
+    # duplicating during manual or automatic bidirectional sync.
+    for cls in Class.query.filter(Class.sync_id.is_(None)).all():
+        cls.sync_id = str(uuid.uuid4())
+    db.session.commit()
 
     # Provision the default super admin. Existing installations that still use
     # the previous bootstrap account are migrated once, without resetting the

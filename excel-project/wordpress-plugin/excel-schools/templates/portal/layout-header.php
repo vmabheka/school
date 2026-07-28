@@ -146,6 +146,9 @@ $avatar_letter = strtoupper(substr($user->display_name ?: $user->user_login, 0, 
             <?php if (in_array($role, ['esm_super_admin', 'esm_bursar', 'esm_teacher'], true)): ?>
             <div class="nav-section">People</div>
             <?php esm_nav_link('students', 'Students', 'fa-user-graduate', $page); ?>
+            <?php if (in_array($role, ['esm_super_admin', 'esm_bursar'], true)): ?>
+            <?php esm_nav_link('classes', 'Classes', 'fa-school', $page); ?>
+            <?php endif; ?>
             <?php if ($role === 'esm_super_admin'): ?>
             <?php esm_nav_link('staff', 'Staff', 'fa-chalkboard-teacher', $page); ?>
             <?php endif; ?>
