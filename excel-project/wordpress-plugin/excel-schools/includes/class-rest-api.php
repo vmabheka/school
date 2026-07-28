@@ -132,6 +132,16 @@ class ESM_REST_API {
             'notices'        => 'esm_notices',
             'invoices'       => 'esm_invoices',
             'invoice_items'  => 'esm_invoice_items',
+            'parents'        => 'esm_parents',
+            'student_parent' => 'esm_student_parent',
+            'staff_subjects' => 'esm_staff_subjects',
+            'exams'          => 'esm_exams',
+            'hostels'        => 'esm_hostels',
+            'rooms'          => 'esm_rooms',
+            'room_allocations' => 'esm_room_allocations',
+            'timetable_slots'=> 'esm_timetable_slots',
+            'messages'       => 'esm_messages',
+            'school_settings'=> 'esm_school_settings',
         ];
     }
 
@@ -143,6 +153,11 @@ class ESM_REST_API {
             'FeeLevel' => 'esm_fee_levels', 'Class' => 'esm_classes',
             'Subject' => 'esm_subjects', 'AcademicYear' => 'esm_academic_years',
             'Term' => 'esm_terms', 'Invoice' => 'esm_invoices',
+            'InvoiceItem' => 'esm_invoice_items', 'Parent' => 'esm_parents',
+            'StudentParent' => 'esm_student_parent', 'StaffSubject' => 'esm_staff_subjects',
+            'Exam' => 'esm_exams', 'Hostel' => 'esm_hostels', 'Room' => 'esm_rooms',
+            'RoomAllocation' => 'esm_room_allocations', 'TimetableSlot' => 'esm_timetable_slots',
+            'Message' => 'esm_messages', 'SchoolSetting' => 'esm_school_settings',
         ];
     }
 

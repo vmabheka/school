@@ -35,6 +35,17 @@ class ESM_Sync_Engine {
         'AcademicYear' => 'esm_academic_years',
         'Term'         => 'esm_terms',
         'Invoice'      => 'esm_invoices',
+        'InvoiceItem'  => 'esm_invoice_items',
+        'Parent'       => 'esm_parents',
+        'StudentParent'=> 'esm_student_parent',
+        'StaffSubject' => 'esm_staff_subjects',
+        'Exam'         => 'esm_exams',
+        'Hostel'       => 'esm_hostels',
+        'Room'         => 'esm_rooms',
+        'RoomAllocation' => 'esm_room_allocations',
+        'TimetableSlot'=> 'esm_timetable_slots',
+        'Message'      => 'esm_messages',
+        'SchoolSetting'=> 'esm_school_settings',
     ];
 
     // Entities exposed via /api/export/<entity> and /api/import/<entity>
@@ -42,9 +53,12 @@ class ESM_Sync_Engine {
     // plus invoices/invoice_items which the offline app also has but the
     // previous plugin build never wired up.
     public static $exportable_entities = [
-        'academic_years', 'terms', 'classes', 'subjects', 'fee_levels',
-        'fee_structures', 'students', 'staff', 'fee_payments',
-        'invoices', 'invoice_items', 'exam_results', 'notices',
+        'academic_years', 'terms', 'staff', 'classes', 'subjects',
+        'staff_subjects', 'parents', 'students', 'student_parent',
+        'exams', 'exam_results', 'fee_levels', 'fee_structures',
+        'fee_payments', 'invoices', 'invoice_items', 'hostels', 'rooms',
+        'room_allocations', 'timetable_slots', 'notices', 'messages',
+        'school_settings',
     ];
 
     public static function run_sync() {
@@ -222,11 +236,16 @@ class ESM_Sync_Engine {
         if (isset($payload['data']) && is_array($payload['data'])) {
             $type_map = [
                 'academic_years' => 'AcademicYear', 'terms' => 'Term',
-                'classes' => 'Class', 'subjects' => 'Subject',
+                'staff' => 'Staff', 'classes' => 'Class', 'subjects' => 'Subject',
+                'staff_subjects' => 'StaffSubject', 'parents' => 'Parent',
+                'students' => 'Student', 'student_parent' => 'StudentParent',
+                'exams' => 'Exam', 'exam_results' => 'ExamResult',
                 'fee_levels' => 'FeeLevel', 'fee_structures' => 'FeeStructure',
-                'students' => 'Student', 'staff' => 'Staff',
-                'fee_payments' => 'FeePayment', 'exam_results' => 'ExamResult',
-                'notices' => 'Notice', 'invoices' => 'Invoice',
+                'fee_payments' => 'FeePayment', 'invoices' => 'Invoice',
+                'invoice_items' => 'InvoiceItem', 'hostels' => 'Hostel',
+                'rooms' => 'Room', 'room_allocations' => 'RoomAllocation',
+                'timetable_slots' => 'TimetableSlot', 'notices' => 'Notice',
+                'messages' => 'Message', 'school_settings' => 'SchoolSetting',
             ];
             // Keep parent records ahead of rows that refer to them.
             foreach (self::$exportable_entities as $entity) {
@@ -258,14 +277,31 @@ class ESM_Sync_Engine {
             $existing = $sync_id && self::table_has_column($table, 'sync_id')
                 ? $wpdb->get_var($wpdb->prepare("SELECT id FROM $table WHERE sync_id=%s", $sync_id))
                 : null;
+            if (!$existing && !empty($event['preserve_id']) && !empty($data['id']) && self::table_has_column($table, 'id')) {
+                $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM $table WHERE id=%d", intval($data['id'])));
+            }
             if (!$existing && $entity_type === 'Class' && !empty($data['name'])) {
                 $existing = $wpdb->get_var($wpdb->prepare(
                     "SELECT id FROM $table WHERE name=%s AND (academic_year_id=%d OR (%d=0 AND academic_year_id IS NULL))",
                     sanitize_text_field($data['name']), intval($data['academic_year_id'] ?? 0), intval($data['academic_year_id'] ?? 0)
                 ));
             }
+            if (!$existing && $entity_type === 'StudentParent' && isset($data['student_id'], $data['parent_id'])) {
+                $existing = $wpdb->get_var($wpdb->prepare(
+                    "SELECT student_id FROM $table WHERE student_id=%d AND parent_id=%d",
+                    intval($data['student_id']), intval($data['parent_id'])
+                ));
+            }
 
             if ($action === 'DELETE') {
+                if ($entity_type === 'StudentParent' && isset($data['student_id'], $data['parent_id'])) {
+                    $wpdb->delete($table, [
+                        'student_id' => intval($data['student_id']),
+                        'parent_id' => intval($data['parent_id']),
+                    ]);
+                    $imported++;
+                    continue;
+                }
                 $delete_id = $existing ?: intval($event['entity_id'] ?? 0);
                 if ($delete_id) {
                     $wpdb->delete($table, ['id' => $delete_id]);
@@ -291,7 +327,10 @@ class ESM_Sync_Engine {
                 continue;
             }
 
-            if ($existing) {
+            if ($existing && $entity_type === 'StudentParent') {
+                $skipped++;
+                continue;
+            } elseif ($existing) {
                 unset($clean['id']);
                 $ok = $wpdb->update($table, $clean, ['id' => $existing]);
             } else {

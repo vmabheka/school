@@ -95,11 +95,11 @@ docker run -p 5000:5000 \
 ### Offline-Online Synchronization
 
 **Method 1: Manual Export/Import (Recommended for periodic sync)**
-1. On the offline system, go to **Sync Center → Export Data**
-2. Download the JSON file
+1. On the offline system, go to **Sync Center → Export All Data (JSON)**
+2. Download the complete school-data snapshot (academic setup, classes, people, finance, exams, accommodation, timetables, and communication)
 3. Transfer the file to the online system (USB, email, etc.)
-4. On the online system, go to **Sync Center → Import Data**
-5. Upload the JSON file
+4. In WordPress, go to **Excel Schools → Sync Center & JSON Import**
+5. Upload the JSON file; records are merged by stable sync ID/source ID, so the same export can safely be imported again
 
 **Method 2: Automatic API Push (Requires internet on offline system)**
 1. Configure `SYNC_ENDPOINT` and `SYNC_API_KEY` environment variables

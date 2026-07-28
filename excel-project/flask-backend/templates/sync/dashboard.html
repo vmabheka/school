@@ -174,8 +174,9 @@
 <div class="card mb-2">
     <div class="card-header"><h3>Manual Actions</h3></div>
     <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap">
-        <a href="{{ url_for('sync_export') }}" class="btn btn-success"><i class="fas fa-download"></i> Export Data (JSON)</a>
+        <a href="{{ url_for('sync_export') }}" class="btn btn-success"><i class="fas fa-download"></i> Export All Data (JSON)</a>
         <a href="{{ url_for('sync_import') }}" class="btn btn-info"><i class="fas fa-upload"></i> Import Data</a>
+        <p style="width:100%;margin:8px 0 0;color:var(--text-light);font-size:12px">The export contains the complete school dataset—not only pending changes—and can be uploaded directly to the WordPress Sync Center.</p>
     </div>
 </div>
 
@@ -208,7 +209,7 @@
         <p><strong><i class="fas fa-globe"></i> One-Button Sync:</strong> Click "Sync Now" to push all local changes to WordPress and pull any new data back. This is the recommended way to sync manually.</p>
         <p><strong><i class="fas fa-satellite-dish"></i> Access Point Monitor:</strong> A background thread that continuously checks if the internet is available via your school's network access point. When it detects connectivity, it automatically triggers a full sync. This works even when no one is logged in.</p>
         <p><strong><i class="fas fa-robot"></i> Auto-Sync:</strong> When enabled, the Access Point Monitor automatically detects when internet is available and triggers a full sync. Perfect for schools that go offline and reconnect periodically. Settings are saved to the database and persist across restarts.</p>
-        <p><strong><i class="fas fa-download"></i> Export/Import:</strong> For environments with no direct connection, export a JSON file and manually upload it to the online system.</p>
+        <p><strong><i class="fas fa-download"></i> Export/Import:</strong> For environments with no direct connection, export a complete JSON snapshot containing academic years, classes, people, finance, exams, accommodation, timetables, and communication data, then upload it to the online system.</p>
         <p><strong><i class="fas fa-clock"></i> Conflict Resolution:</strong> When both systems have modified the same record, the newest change wins (timestamp-based). Sync storms are prevented by enforcing a 60-second minimum between auto-syncs.</p>
     </div>
 </div>

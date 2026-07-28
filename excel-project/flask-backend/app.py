@@ -3365,6 +3365,98 @@ def message_send():
 
 # ─── Sync System (Offline → Online) ───────────────────────────────────
 
+# Full-data export order keeps parent records before rows that reference
+# them. These names match the WordPress esm_* table suffixes exactly.
+SYNC_EXPORT_MODELS = {
+    'academic_years': AcademicYear,
+    'terms': Term,
+    'staff': Staff,
+    'classes': Class,
+    'subjects': Subject,
+    'staff_subjects': StaffSubject,
+    'parents': Parent,
+    'students': Student,
+    'exams': Exam,
+    'exam_results': ExamResult,
+    'fee_levels': FeeLevel,
+    'fee_structures': FeeStructure,
+    'fee_payments': FeePayment,
+    'invoices': Invoice,
+    'invoice_items': InvoiceItem,
+    'hostels': Hostel,
+    'rooms': Room,
+    'room_allocations': RoomAllocation,
+    'timetable_slots': TimetableSlot,
+    'notices': Notice,
+    'messages': Message,
+    'school_settings': SchoolSetting,
+}
+
+
+def _sync_json_value(value):
+    """Convert SQLAlchemy values to portable JSON values."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, timedelta):
+        return str(value)
+    if hasattr(value, 'isoformat'):
+        try:
+            return value.isoformat()
+        except (TypeError, ValueError):
+            pass
+    return value
+
+
+def _serialize_sync_record(record):
+    row = {
+        column.name: _sync_json_value(getattr(record, column.name))
+        for column in record.__table__.columns
+    }
+    # WordPress uses setting_key/setting_value for these mirrored columns.
+    if isinstance(record, SchoolSetting):
+        row['setting_key'] = row.pop('key', None)
+        row['setting_value'] = row.pop('value', None)
+    return row
+
+
+def build_full_sync_export():
+    """Return every portable school-data table in WordPress import format."""
+    export_data = {
+        entity: [_serialize_sync_record(record) for record in model.query.all()]
+        for entity, model in SYNC_EXPORT_MODELS.items()
+    }
+    # student_parent is a many-to-many SQLAlchemy table rather than a model.
+    links = db.session.execute(db.select(student_parent)).mappings().all()
+    export_data['student_parent'] = [dict(row) for row in links]
+
+    pending_events = []
+    for log in SyncLog.query.filter_by(sync_status='pending').order_by(SyncLog.created_at).all():
+        snapshot = None
+        if log.data_snapshot:
+            try:
+                snapshot = json.loads(log.data_snapshot)
+            except (TypeError, json.JSONDecodeError):
+                snapshot = log.data_snapshot
+        pending_events.append({
+            'id': log.id,
+            'entity_type': log.entity_type,
+            'entity_id': log.entity_id,
+            'action': log.action,
+            'data': snapshot,
+            'timestamp': log.created_at.isoformat() if log.created_at else None,
+        })
+
+    return {
+        'format': 'excel-schools-full-sync',
+        'version': APP_VERSION,
+        'source': 'offline-flask',
+        'exported_at': datetime.utcnow().isoformat() + 'Z',
+        'data': export_data,
+        'counts': {entity: len(records) for entity, records in export_data.items()},
+        'pending_events': pending_events,
+    }
+
+
 @app.route('/sync')
 @login_required
 @role_required('super_admin', 'bursar')
@@ -3401,26 +3493,16 @@ def sync_dashboard():
 @login_required
 @role_required('super_admin', 'bursar')
 def sync_export():
-    """Export all pending changes as a JSON file for manual upload to online system."""
-    pending_logs = SyncLog.query.filter_by(sync_status='pending').all()
-    export_data = []
-    for log in pending_logs:
-        entry = {
-            'sync_id': str(uuid.uuid4()),
-            'entity_type': log.entity_type,
-            'entity_id': log.entity_id,
-            'action': log.action,
-            'data': log.data_snapshot,
-            'timestamp': log.created_at.isoformat(),
-        }
-        export_data.append(entry)
-
+    """Download a complete school-data snapshot for WordPress manual import."""
+    payload = build_full_sync_export()
+    content = json.dumps(payload, indent=2, ensure_ascii=False).encode('utf-8')
     filename = f"sync_export_{date.today().isoformat()}.json"
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    with open(filepath, 'w') as f:
-        json.dump(export_data, f, indent=2)
-
-    return send_file(filepath, as_attachment=True, download_name=filename)
+    return send_file(
+        io.BytesIO(content),
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/json',
+    )
 
 
 @app.route('/sync/import', methods=['GET', 'POST'])
@@ -5941,30 +6023,15 @@ def api_export_entity(entity):
     api_key = request.headers.get('X-ESM-API-Key', '')
     if api_key != app.config['SYNC_API_KEY']:
         return jsonify({'error': 'Invalid API key'}), 403
-    entity_map = {
-        'students': Student, 'staff': Staff, 'fee_payments': FeePayment,
-        'fee_levels': FeeLevel, 'fee_structures': FeeStructure,
-        'classes': Class, 'subjects': Subject,
-        'academic_years': AcademicYear, 'terms': Term,
-        'exam_results': ExamResult,
-        'notices': Notice,
-    }
-    model = entity_map.get(entity)
-    if not model:
-        return jsonify({'error': f'Unknown entity: {entity}'}), 400
-    records = model.query.all()
-    data = []
-    for r in records:
-        row = {}
-        for c in r.__table__.columns:
-            val = getattr(r, c.name)
-            if isinstance(val, (datetime, date)):
-                val = val.isoformat()
-            elif isinstance(val, timedelta):
-                val = str(val)
-            row[c.name] = val
-        data.append(row)
-    return jsonify({'entity': entity, 'data': data, 'count': len(data), 'version': '2.0.0'})
+    if entity == 'student_parent':
+        records = db.session.execute(db.select(student_parent)).mappings().all()
+        data = [dict(row) for row in records]
+    else:
+        model = SYNC_EXPORT_MODELS.get(entity)
+        if not model:
+            return jsonify({'error': f'Unknown entity: {entity}'}), 400
+        data = [_serialize_sync_record(record) for record in model.query.all()]
+    return jsonify({'entity': entity, 'data': data, 'count': len(data), 'version': APP_VERSION})
 
 
 # ─── One-Button Sync & Auto-Sync APIs ────────────────────────────────
