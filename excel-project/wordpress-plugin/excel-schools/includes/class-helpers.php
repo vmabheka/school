@@ -163,7 +163,7 @@ class ESM_Helpers {
         return [
             'esm_super_admin' => 'Directors & Principals — Full system access',
             'esm_accountant'  => 'Financial management — Fees, payments, reports',
-            'esm_bursar'      => 'Student admissions & financial oversight',
+            'esm_bursar'      => 'Student admissions, financial oversight & sync management',
             'esm_teacher'     => 'Academic access — Exams, class management',
             'esm_parent'      => 'View child information — Fees, results, attendance',
             'esm_student'     => 'Personal portal — Results, timetable, attendance',
@@ -175,7 +175,7 @@ class ESM_Helpers {
         return [
             'esm_super_admin' => ['main', 'people', 'academic', 'finance', 'resources', 'communication', 'analytics', 'system'],
             'esm_accountant'  => ['main', 'finance', 'analytics', 'communication'],
-            'esm_bursar'      => ['main', 'people', 'finance', 'communication', 'analytics'],
+            'esm_bursar'      => ['main', 'people', 'finance', 'communication', 'analytics', 'system'],
             'esm_teacher'     => ['main', 'people', 'academic', 'resources', 'communication', 'analytics'],
             'esm_parent'      => ['main', 'communication'],
             'esm_student'     => ['main', 'academic', 'communication'],
@@ -193,7 +193,7 @@ class ESM_Helpers {
             'esm_accountant'  => ['dashboard', 'fees', 'invoices', 'debtors', 'fee-levels',
                                    'reports', 'communication', 'users'],
             'esm_bursar'      => ['dashboard', 'students', 'fees', 'invoices', 'debtors',
-                                   'communication', 'reports'],
+                                   'communication', 'reports', 'sync'],
             'esm_teacher'     => ['dashboard', 'students', 'exams', 'timetable',
                                    'communication', 'reports'],
             'esm_parent'      => ['dashboard', 'parent-portal', 'communication'],

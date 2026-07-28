@@ -925,6 +925,7 @@ ROLE_PRIVILEGES = {
         'Communication management',
         'Reports — students, fees',
         'Dashboard with student & financial stats',
+        'Sync management — manual, automatic, import & export',
     ],
     'teacher': [
         'Exam & results entry',
@@ -957,7 +958,7 @@ ROLE_PRIVILEGES = {
 ROLE_NAV_SECTIONS = {
     'super_admin': ['main', 'people', 'academic', 'finance', 'resources', 'communication', 'analytics', 'system'],
     'accountant': ['main', 'finance', 'analytics', 'communication'],
-    'bursar': ['main', 'people', 'finance', 'communication', 'analytics'],
+    'bursar': ['main', 'people', 'finance', 'communication', 'analytics', 'system'],
     'teacher': ['main', 'people', 'academic', 'resources', 'communication', 'analytics'],
     'parent': ['main', 'communication'],
     'student': ['main', 'academic', 'communication'],

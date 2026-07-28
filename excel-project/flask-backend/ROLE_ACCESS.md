@@ -44,6 +44,7 @@
 - Communication management (WhatsApp + Email)
 - Reports — students, fees
 - Dashboard with student & financial stats
+- Sync management — manual, automatic, JSON import/export
 
 ### Teacher
 - **Home Page:** Dashboard (`/`)
@@ -98,7 +99,7 @@
 | `esm_manage_communication` | ✓ | ✓ | ✓ | ✓ | | |
 | `esm_manage_reports` | ✓ | ✓ | ✓ | ✓ | | |
 | `esm_manage_settings` | ✓ | | | | | |
-| `esm_manage_sync` | ✓ | | | | | |
+| `esm_manage_sync` | ✓ | | ✓ | | | |
 | `esm_manage_users` | ✓ | | | | | |
 | `esm_view_parent_portal` | ✓ | | | | ✓ | |
 | `esm_view_student_portal` | ✓ | | | | | ✓ |
@@ -111,7 +112,6 @@ All routes use `@role_required()` decorator. Unauthorized access redirects to th
 
 ### Super Admin Only
 - `/users`, `/users/add`, `/users/<id>/edit`, `/users/<id>/delete`
-- `/sync`, `/sync/export`, `/sync/import`, `/sync/push`
 - `/appearance`, `/appearance/reset`
 - `/settings`
 - `/upload-logo`
@@ -130,6 +130,8 @@ All routes use `@role_required()` decorator. Unauthorized access redirects to th
 - `/reports/fees`
 
 ### Super Admin + Bursar
+- `/sync`, `/sync/export`, `/sync/import`, `/sync/push`
+- `/api/sync/check-internet`, `/api/sync/one-button`, `/api/sync/auto-sync-settings`, `/api/sync/status`, `/api/sync/access-point-status`
 - `/students/add`, `/students/<id>/edit`, `/students/<id>/delete`
 - `/students/bulk-import`
 - `/upload-student-photo/<id>`

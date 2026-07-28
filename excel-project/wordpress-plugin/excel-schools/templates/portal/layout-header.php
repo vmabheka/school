@@ -190,9 +190,11 @@ $avatar_letter = strtoupper(substr($user->display_name ?: $user->user_login, 0, 
             <?php esm_nav_link('student-portal', 'Student Portal', 'fa-home', $page); ?>
             <?php endif; ?>
 
-            <?php if ($role === 'esm_super_admin'): ?>
+            <?php if (in_array($role, ['esm_super_admin', 'esm_bursar'], true)): ?>
             <div class="nav-section">System</div>
             <a href="<?php echo esc_url(admin_url('admin.php?page=excel-schools-sync')); ?>" class="nav-item"><i class="fas fa-sync-alt"></i> Sync Center</a>
+            <?php endif; ?>
+            <?php if ($role === 'esm_super_admin'): ?>
             <a href="<?php echo esc_url(admin_url('admin.php?page=excel-schools')); ?>" class="nav-item"><i class="fas fa-cog"></i> Settings</a>
             <?php esm_nav_link('users', 'User Management', 'fa-users-cog', $page); ?>
             <?php endif; ?>

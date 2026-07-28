@@ -3,7 +3,7 @@
  * Plugin Name: Excel Schools
  * Plugin URI: https://crm.egs.ac.zw
  * Description: Excel Schools management portal for WordPress — a direct mirror of the offline Flask school-management app.
- * Version: 3.0.1
+ * Version: 3.0.2
  * Author: Valentine T Mabheka
  * License: GPL v2 or later
  */
@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ESM_VERSION', '3.0.1');
+define('ESM_VERSION', '3.0.2');
 define('ESM_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ESM_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -27,6 +27,7 @@ function esm_activate() {
     ESM_Database::create_tables();
     ESM_Database::seed_defaults();
     esm_setup_roles();
+    update_option('esm_roles_version', ESM_VERSION);
     esm_schedule_cron();
     ESM_Portal::register_rewrite_rules();
     flush_rewrite_rules();
@@ -47,12 +48,31 @@ function esm_setup_roles() {
 
     add_role('esm_super_admin', 'Excel Schools: Super Admin', ['read' => true]);
     $r = get_role('esm_super_admin');
-    foreach ($all_caps as $cap) { $r->add_cap($cap); }
+    if ($r) {
+        foreach ($all_caps as $cap) { $r->add_cap($cap); }
+    }
 
     add_role('esm_bursar', 'Excel Schools: Bursar', ['read' => true]);
     $r = get_role('esm_bursar');
-    foreach (['esm_manage_students', 'esm_manage_fees', 'esm_manage_reports', 'esm_manage_sync', 'esm_view_dashboard'] as $cap) { $r->add_cap($cap); }
+    if ($r) {
+        foreach (['esm_manage_students', 'esm_manage_fees', 'esm_manage_reports', 'esm_manage_sync', 'esm_view_dashboard'] as $cap) { $r->add_cap($cap); }
+    }
 }
+
+/**
+ * Apply capability changes to existing installations after a plugin update.
+ * Activation hooks do not run during an in-place update, so relying on the
+ * activation hook alone can leave an existing bursar role without sync access.
+ */
+function esm_maybe_upgrade_roles() {
+    if (get_option('esm_roles_version') === ESM_VERSION) {
+        return;
+    }
+
+    esm_setup_roles();
+    update_option('esm_roles_version', ESM_VERSION);
+}
+add_action('init', 'esm_maybe_upgrade_roles', 5);
 
 function esm_schedule_cron() {
     if (!wp_next_scheduled('esm_scheduled_sync')) {
