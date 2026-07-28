@@ -45,7 +45,7 @@ def main():
     print(f"  Version: 2.0.0")
     print(f"  Deployment Mode: {mode.upper()}")
     print(f"  Server: http://{args.host}:{args.port}")
-    print(f"  Default Login: admin / admin123")
+    print(f"  Default Login: edusync / edusync26")
     print(f"{'='*60}\n")
     
     app.run(

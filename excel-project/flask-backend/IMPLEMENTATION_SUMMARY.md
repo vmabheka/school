@@ -133,7 +133,7 @@
 
 | Username | Password | Role |
 |----------|----------|------|
-| admin | admin123 | super_admin |
+| edusync | edusync26 | super_admin |
 
 ---
 

@@ -52,8 +52,8 @@ python run.py --online
 
 ### First Login
 - **URL:** http://localhost:5000
-- **Username:** admin
-- **Password:** admin123
+- **Username:** edusync
+- **Password:** edusync26
 
 ⚠️ **Change the default password immediately after first login!**
 

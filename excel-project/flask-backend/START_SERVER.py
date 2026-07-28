@@ -10,7 +10,7 @@ import sys
 # Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app import app, db
+from app import app, init_db
 
 def main():
     print("=" * 65)
@@ -20,7 +20,7 @@ def main():
     
     # Initialize database
     with app.app_context():
-        db.create_all()
+        init_db()
         print("✓ Database initialized successfully")
     
     print("✓ CORS enabled for cross-origin handshake")
@@ -31,7 +31,7 @@ def main():
     print("  • Sync Center:     http://127.0.0.1:5000/sync")
     print("  • Handshake API:   http://127.0.0.1:5000/api/sync/handshake")
     print()
-    print("Default Login: admin / admin123")
+    print("Default Login: edusync / edusync26")
     print("=" * 65)
     print()
     
