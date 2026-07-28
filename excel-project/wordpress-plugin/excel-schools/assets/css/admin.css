@@ -1,0 +1,81 @@
+/**
+ * Excel Schools Management - Admin Styles
+ * Version: 2.0.0 | Author: Valentine T Mabheka
+ */
+.esm-wrap { max-width: 1200px; margin: 20px auto; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+.esm-wrap h1 { font-size: 22px; font-weight: 700; color: #1F2080; }
+.esm-wrap h2 { font-size: 18px; color: #13145A; }
+.esm-wrap h3 { font-size: 15px; font-weight: 600; }
+
+/* Cards */
+.esm-card { background: #fff; border-radius: 12px; border: 1px solid #e5e7eb; margin-bottom: 20px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.esm-card-header { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
+.esm-card-header h3 { margin: 0; }
+.esm-card-body { padding: 20px; }
+
+/* Stats Grid */
+.esm-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.esm-stat-card { background: #fff; border-radius: 12px; padding: 20px; border: 1px solid #e5e7eb; display: flex; align-items: center; gap: 16px; }
+.esm-stat-card .icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+.esm-stat-card .icon.green { background: #d1fae5; color: #065f46; }
+.esm-stat-card .icon.blue { background: #dbeafe; color: #1e40af; }
+.esm-stat-card .icon.yellow { background: #fef3c7; color: #92400e; }
+.esm-stat-card .icon.red { background: #fee2e2; color: #991b1b; }
+.esm-stat-card .icon.purple { background: #ede9fe; color: #5b21b6; }
+.esm-stat-card .info h3 { font-size: 24px; font-weight: 700; }
+.esm-stat-card .info p { font-size: 12px; color: #6b7280; }
+
+/* Grid Layouts */
+.esm-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.esm-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.esm-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+
+/* Tables */
+.esm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.esm-table th { background: #F5F5F7; padding: 12px 16px; text-align: left; font-weight: 600; color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.esm-table td { padding: 12px 16px; border-bottom: 1px solid #e5e7eb; }
+.esm-table tr:hover td { background: #f9fafb; }
+
+/* Buttons */
+.esm-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; transition: all 0.2s; }
+.esm-btn-primary { background: #1F2080; color: #fff; }
+.esm-btn-primary:hover { background: #3F4099; color: #fff; }
+.esm-btn-secondary { background: #F5F5F7; color: #1a1a2e; border: 1px solid #e5e7eb; }
+.esm-btn-danger { background: #ef4444; color: #fff; }
+.esm-btn-sm { padding: 5px 10px; font-size: 12px; }
+
+/* Badges */
+.esm-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.esm-badge-success { background: #d1fae5; color: #065f46; }
+.esm-badge-info { background: #dbeafe; color: #1e40af; }
+.esm-badge-warning { background: #fef3c7; color: #92400e; }
+.esm-badge-danger { background: #fee2e2; color: #991b1b; }
+
+/* Forms */
+.esm-form-group { margin-bottom: 16px; }
+.esm-form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.esm-form-group input, .esm-form-group select, .esm-form-group textarea { width: 100%; padding: 10px 14px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13px; }
+.esm-form-group input:focus, .esm-form-group select:focus { outline: none; border-color: #1F2080; box-shadow: 0 0 0 3px rgba(26,86,50,0.1); }
+.esm-required { color: #ef4444; }
+
+/* Messages */
+.esm-notice { padding: 12px 20px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+.esm-notice.success { background: #d1fae5; color: #065f46; border-left: 4px solid #10b981; }
+.esm-notice.error { background: #fee2e2; color: #991b1b; border-left: 4px solid #ef4444; }
+
+/* Header */
+.esm-page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.esm-page-header .actions { display: flex; gap: 8px; }
+
+/* Level tags */
+.esm-level-tag { display: inline-block; padding: 2px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+.esm-level-ecd { background: #dbeafe; color: #1e40af; }
+.esm-level-junior { background: #d1fae5; color: #065f46; }
+.esm-level-olevel { background: #fef3c7; color: #92400e; }
+.esm-level-alevel { background: #ede9fe; color: #5b21b6; }
+
+@media (max-width: 782px) {
+    .esm-grid-2, .esm-grid-3 { grid-template-columns: 1fr; }
+    .esm-stats-grid { grid-template-columns: 1fr 1fr; }
+    .esm-form-grid { grid-template-columns: 1fr; }
+}

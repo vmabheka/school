@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Timetable{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Timetable</h1><p>View and manage class timetables</p></div>
+    <div class="actions">
+        {% if session.get('user_role') in ['admin', 'staff'] %}
+        <a href="{{ url_for('timetable_add') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Add Slot</a>
+        <a href="{{ url_for('timetable_generate') }}" class="btn btn-secondary"><i class="fas fa-magic"></i> Auto-Generate</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form method="GET" class="d-flex gap-1" style="align-items:center;">
+        <select name="class_id" class="form-control" onchange="this.form.submit()">
+            <option value="">Select Class</option>
+            {% for c in classes %}<option value="{{ c.id }}" {% if class_id == c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+        </select>
+    </form>
+</div>
+
+{% if timetable %}
+<div class="card">
+    <div class="card-header"><h3>{{ selected_class.name }} Timetable</h3></div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Period</th>
+                    <th>Time</th>
+                    {% for day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] %}
+                    <th>{{ day }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% set periods = namespace(list=[]) %}
+                {% for slot in timetable %}
+                    {% if slot.period not in periods.list %}
+                        {% set _ = periods.list.append(slot.period) %}
+                    {% endif %}
+                {% endfor %}
+                {% for period in periods.list|sort %}
+                <tr>
+                    <td style="font-weight:600;">Period {{ period }}</td>
+                    {% set slot = timetable|selectattr('period', 'equalto', period)|first %}
+                    <td style="font-size:12px;">{{ slot.start_time.strftime('%H:%M') if slot.start_time else '' }}-{{ slot.end_time.strftime('%H:%M') if slot.end_time else '' }}</td>
+                    {% for day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] %}
+                    {% set day_slot = timetable|selectattr('period', 'equalto', period)|selectattr('day_of_week', 'equalto', day)|first %}
+                    <td style="text-align:center;font-size:12px;padding:8px;">
+                        {% if day_slot %}
+                            <strong>{{ day_slot.subject.name[:4] if day_slot.subject else '-' }}</strong><br>
+                            <span style="color:var(--text-light);font-size:11px;">{{ day_slot.staff.last_name if day_slot.staff else '' }}</span>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% elif class_id %}
+<div class="card">
+    <div class="card-body text-center" style="padding:40px;color:var(--text-light);">
+        <p>No timetable found for this class.</p>
+        <a href="{{ url_for('timetable_generate') }}" class="btn btn-primary mt-2"><i class="fas fa-magic"></i> Generate Timetable</a>
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body text-center" style="padding:40px;color:var(--text-light);">
+        <i class="fas fa-calendar-alt" style="font-size:48px;opacity:0.3;"></i>
+        <h3>Select a Class</h3>
+        <p>Choose a class to view its timetable</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

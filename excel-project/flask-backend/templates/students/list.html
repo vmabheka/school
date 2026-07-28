@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Students{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Students</h1>
+        <p>Manage student enrollment and records</p>
+    </div>
+    <div class="actions">
+        {% if session.get('user_role') in ['super_admin', 'bursar', 'admin', 'staff'] %}
+        <a href="{{ url_for('student_add') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Add Student</a>
+        <a href="{{ url_for('students_bulk_import') }}" class="btn btn-success"><i class="fas fa-file-excel"></i> Bulk Import</a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="filter-bar">
+    <form method="GET" class="d-flex gap-1 flex-wrap" style="align-items:center;">
+        <input type="text" name="search" class="form-control" placeholder="Search by name or admission no." value="{{ search }}" style="min-width:250px;">
+        <select name="class" class="form-control">
+            <option value="">All Classes</option>
+            {% for c in classes %}
+            <option value="{{ c.id }}" {% if class_filter == c.id|string %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+        </select>
+        <select name="status" class="form-control">
+            <option value="">All Status</option>
+            <option value="Active" {% if status_filter == 'Active' %}selected{% endif %}>Active</option>
+            <option value="Inactive" {% if status_filter == 'Inactive' %}selected{% endif %}>Inactive</option>
+            <option value="Graduated" {% if status_filter == 'Graduated' %}selected{% endif %}>Graduated</option>
+            <option value="Transferred" {% if status_filter == 'Transferred' %}selected{% endif %}>Transferred</option>
+        </select>
+        <select name="scholarship" class="form-control">
+            <option value="">All Classifications</option>
+            <option value="Regular" {% if scholarship_filter == 'Regular' %}selected{% endif %}>Regular</option>
+            <option value="Any Scholarship" {% if scholarship_filter == 'Any Scholarship' %}selected{% endif %}>Any Scholarship</option>
+            <option value="Staff Scholarship" {% if scholarship_filter == 'Staff Scholarship' %}selected{% endif %}>Staff Scholarship</option>
+            <option value="Academic Scholarship" {% if scholarship_filter == 'Academic Scholarship' %}selected{% endif %}>Academic Scholarship</option>
+            <option value="Sports Scholarship" {% if scholarship_filter == 'Sports Scholarship' %}selected{% endif %}>Sports Scholarship</option>
+            <option value="Bursary" {% if scholarship_filter == 'Bursary' %}selected{% endif %}>Bursary</option>
+            <option value="Orphan" {% if scholarship_filter == 'Orphan' %}selected{% endif %}>Orphan</option>
+        </select>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Search</button>
+        <a href="{{ url_for('students_list') }}" class="btn btn-secondary"><i class="fas fa-times"></i> Clear</a>
+    </form>
+</div>
+
+<!-- Students Table -->
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Adm No.</th>
+                    <th>Name</th>
+                    <th>Gender</th>
+                    <th>Class</th>
+                    <th>Fee Classification</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for student in students.items %}
+                <tr>
+                    <td><strong>{{ student.admission_number }}</strong></td>
+                    <td>{{ student.first_name }} {{ student.other_names }} {{ student.last_name }}</td>
+                    <td>{{ student.gender or '-' }}</td>
+                    <td>{{ student.class_.name if student.class_ else '-' }}</td>
+                    <td>
+                        {% if student.fee_classification == 'Regular' or not student.fee_classification %}
+                        <span class="badge badge-secondary">Regular</span>
+                        {% elif student.fee_classification == 'Staff Scholarship' %}
+                        <span class="badge badge-info">Staff Scholarship</span>
+                        {% elif student.fee_classification == 'Academic Scholarship' %}
+                        <span class="badge badge-primary">Academic</span>
+                        {% elif student.fee_classification == 'Sports Scholarship' %}
+                        <span class="badge badge-warning">Sports</span>
+                        {% elif student.fee_classification == 'Bursary' %}
+                        <span class="badge badge-success">Bursary</span>
+                        {% elif student.fee_classification == 'Orphan' %}
+                        <span class="badge badge-danger">Orphan</span>
+                        {% else %}
+                        <span class="badge badge-secondary">{{ student.fee_classification }}</span>
+                        {% endif %}
+                        {% if student.scholarship_type == 'Full' %}
+                        <span class="badge badge-success" style="font-size:10px;">100%</span>
+                        {% elif student.scholarship_type == 'Partial' %}
+                        <span class="badge badge-warning" style="font-size:10px;">{{ student.scholarship_percentage|round(0)|int }}%</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge badge-{{ 'success' if student.status == 'Active' else 'danger' if student.status == 'Inactive' else 'info' }}">
+                            {{ student.status }}
+                        </span>
+                    </td>
+                    <td>
+                        <a href="{{ url_for('student_view', id=student.id) }}" class="btn btn-sm btn-info" title="View"><i class="fas fa-eye"></i></a>
+                        {% if session.get('user_role') in ['super_admin', 'bursar', 'admin', 'staff'] %}
+                        <a href="{{ url_for('student_edit', id=student.id) }}" class="btn btn-sm btn-secondary" title="Edit"><i class="fas fa-edit"></i></a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-center" style="padding:40px;color:var(--text-light);">
+                    <i class="fas fa-user-graduate" style="font-size:32px;opacity:0.3;display:block;margin-bottom:8px;"></i>
+                    No students found
+                </td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Pagination -->
+{% if students.pages > 1 %}
+<div class="pagination">
+    {% if students.has_prev %}
+    <a href="{{ url_for('students_list', page=students.prev_num, search=search, class=class_filter, status=status_filter) }}">&laquo; Prev</a>
+    {% endif %}
+    {% for p in students.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+        {% if p %}
+        <a href="{{ url_for('students_list', page=p, search=search, class=class_filter, status=status_filter) }}" class="{{ 'active' if p == students.page else '' }}">{{ p }}</a>
+        {% else %}
+        <span>...</span>
+        {% endif %}
+    {% endfor %}
+    {% if students.has_next %}
+    <a href="{{ url_for('students_list', page=students.next_num, search=search, class=class_filter, status=status_filter) }}">Next &raquo;</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

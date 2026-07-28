@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Student Fee Invoices{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Student Fee Invoices</h1>
+        <p>Manage and track fee invoices for {{ ay.name if ay else 'Current Year' }} {{ term.name if term else '' }}</p>
+    </div>
+    <div class="actions d-flex gap-1">
+        {% if uninvoiced_count > 0 %}
+        <form action="{{ url_for('invoices_batch_generate') }}" method="POST" style="margin:0;">
+            <button type="submit" class="btn btn-warning" title="Auto-generate invoices for {{ uninvoiced_count }} active uninvoiced students"><i class="fas fa-magic"></i> Generate {{ uninvoiced_count }} Invoices</button>
+        </form>
+        {% endif %}
+        <a href="{{ url_for('invoices_export_bulk_pdf') }}" class="btn btn-secondary" title="Download all filtered invoices combined in 1 PDF file"><i class="fas fa-file-pdf"></i> Combined Bulk PDF</a>
+        <a href="{{ url_for('invoices_export_zip') }}" class="btn btn-secondary" title="Download ZIP archive of individual PDF invoices"><i class="fas fa-file-archive"></i> Export ZIP</a>
+        {% if can_record_payments %}
+        <a href="{{ url_for('fee_pay') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Record Payment</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form method="GET" class="d-flex gap-1 flex-wrap" style="align-items:center;">
+        <input type="text" name="search" class="form-control" placeholder="Search invoice #, student name or adm..." value="{{ search }}" style="min-width:250px;">
+        <select name="status" class="form-control">
+            <option value="">All Statuses</option>
+            <option value="Unpaid" {% if status_filter == 'Unpaid' %}selected{% endif %}>Unpaid</option>
+            <option value="Partially Paid" {% if status_filter == 'Partially Paid' %}selected{% endif %}>Partially Paid</option>
+            <option value="Paid" {% if status_filter == 'Paid' %}selected{% endif %}>Paid</option>
+            <option value="Cancelled" {% if status_filter == 'Cancelled' %}selected{% endif %}>Cancelled</option>
+        </select>
+        <select name="class_id" class="form-control">
+            <option value="">All Classes</option>
+            {% for c in classes %}
+            <option value="{{ c.id }}" {% if class_filter == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Filter</button>
+        {% if search or status_filter or class_filter %}
+        <a href="{{ url_for('invoices_list') }}" class="btn btn-secondary">Reset</a>
+        {% endif %}
+    </form>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Invoice #</th>
+                    <th>Student Name</th>
+                    <th>Class</th>
+                    <th>Issue Date</th>
+                    <th>Subtotal</th>
+                    <th>Discount</th>
+                    <th>Total Billed</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for inv in invoices.items %}
+                <tr>
+                    <td><strong><a href="{{ url_for('invoice_view', id=inv.id) }}" style="color:var(--primary);">{{ inv.invoice_number }}</a></strong></td>
+                    <td>{{ inv.student.first_name }} {{ inv.student.last_name }}<br><small style="color:var(--text-light);">{{ inv.student.admission_number }}</small></td>
+                    <td>{{ inv.student.class_.name if inv.student.class_ else 'Unassigned' }}</td>
+                    <td>{{ inv.issue_date }}</td>
+                    <td>${{ "%.2f"|format(inv.subtotal) }}</td>
+                    <td>
+                        {% if inv.discount_amount > 0 %}
+                        <span style="color:#dc2626;">-${{ "%.2f"|format(inv.discount_amount) }}</span>
+                        {% else %}
+                        $0.00
+                        {% endif %}
+                    </td>
+                    <td><strong style="color:var(--primary);">${{ "%.2f"|format(inv.total_amount) }}</strong></td>
+                    <td>
+                        {% if inv.status == 'Paid' %}
+                        <span class="badge" style="background:#dcfce7; color:#15803d; font-weight:bold;">Paid</span>
+                        {% elif inv.status == 'Partially Paid' %}
+                        <span class="badge" style="background:#fef9c3; color:#a16207; font-weight:bold;">Partially Paid</span>
+                        {% elif inv.status == 'Cancelled' %}
+                        <span class="badge" style="background:#fee2e2; color:#b91c1c;">Cancelled</span>
+                        {% else %}
+                        <span class="badge" style="background:#fee2e2; color:#b91c1c; font-weight:bold;">Unpaid</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="d-flex gap-1">
+                            <a href="{{ url_for('invoice_view', id=inv.id) }}" class="btn btn-sm btn-secondary" title="View details"><i class="fas fa-eye"></i></a>
+                            <a href="{{ url_for('invoice_pdf', id=inv.id) }}" class="btn btn-sm btn-primary" title="Download PDF Invoice"><i class="fas fa-file-pdf"></i></a>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="9" class="text-center" style="padding:30px; color:var(--text-light);">
+                        No invoices found matching criteria.
+                        {% if uninvoiced_count > 0 %}
+                        <br><br>
+                        <form action="{{ url_for('invoices_batch_generate') }}" method="POST">
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-magic"></i> Generate Invoices for {{ uninvoiced_count }} Active Students</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if invoices.pages > 1 %}
+<div class="pagination mt-2">
+    {% if invoices.has_prev %}<a href="{{ url_for('invoices_list', page=invoices.prev_num, search=search, status=status_filter, class_id=class_filter) }}">&laquo;</a>{% endif %}
+    {% for p in invoices.iter_pages() %}
+        {% if p %}
+        <a href="{{ url_for('invoices_list', page=p, search=search, status=status_filter, class_id=class_filter) }}" class="{{ 'active' if p == invoices.page else '' }}">{{ p }}</a>
+        {% else %}
+        <span>...</span>
+        {% endif %}
+    {% endfor %}
+    {% if invoices.has_next %}<a href="{{ url_for('invoices_list', page=invoices.next_num, search=search, status=status_filter, class_id=class_filter) }}">&raquo;</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

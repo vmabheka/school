@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Dashboard</h1>
+        <p>Welcome back, {{ session.get('username', 'User') }}! {% if user_role == 'parent' %}View your child's information.{% elif user_role == 'student' %}View your academic information.{% elif user_role == 'teacher' %}Manage your classes and academics.{% elif user_role == 'accountant' %}Financial overview at a glance.{% elif user_role == 'bursar' %}Admissions and financial overview.{% else %}Here's your school overview.{% endif %}</p>
+    </div>
+    <div class="actions">
+        {% if user_role in ('super_admin', 'accountant', 'bursar', 'teacher') %}
+        <a href="{{ url_for('reports_dashboard') }}" class="btn btn-secondary"><i class="fas fa-chart-bar"></i> Reports</a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Role-Specific Quick Access -->
+{% if user_role == 'parent' %}
+<div class="card mb-2" style="border-left:4px solid var(--primary);">
+    <div class="card-body" style="display:flex;align-items:center;gap:16px;">
+        <div style="width:48px;height:48px;background:var(--primary);color:white;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;">
+            <i class="fas fa-home"></i>
+        </div>
+        <div style="flex:1;">
+            <h3 style="margin:0;">Parent Portal</h3>
+            <p style="margin:0;color:var(--text-light);font-size:13px;">View your children's attendance, results, fees, and more.</p>
+        </div>
+        <a href="{{ url_for('parent_portal') }}" class="btn btn-primary"><i class="fas fa-arrow-right"></i> Go to Portal</a>
+    </div>
+</div>
+{% elif user_role == 'student' %}
+<div class="card mb-2" style="border-left:4px solid var(--primary);">
+    <div class="card-body" style="display:flex;align-items:center;gap:16px;">
+        <div style="width:48px;height:48px;background:var(--primary);color:white;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;">
+            <i class="fas fa-home"></i>
+        </div>
+        <div style="flex:1;">
+            <h3 style="margin:0;">Student Portal</h3>
+            <p style="margin:0;color:var(--text-light);font-size:13px;">View your results, attendance, fees, and timetable.</p>
+        </div>
+        <a href="{{ url_for('student_portal') }}" class="btn btn-primary"><i class="fas fa-arrow-right"></i> Go to Portal</a>
+    </div>
+</div>
+{% endif %}
+
+<!-- Stats -->
+<div class="stats-grid">
+    {% if user_role in ('super_admin', 'bursar') %}
+    <div class="stat-card">
+        <div class="icon green"><i class="fas fa-user-graduate"></i></div>
+        <div class="info">
+            <h3>{{ stats.total_students }}</h3>
+            <p>Total Students</p>
+        </div>
+    </div>
+    {% endif %}
+    {% if user_role == 'super_admin' %}
+    <div class="stat-card">
+        <div class="icon blue"><i class="fas fa-chalkboard-teacher"></i></div>
+        <div class="info">
+            <h3>{{ stats.total_staff }}</h3>
+            <p>Total Staff</p>
+        </div>
+    </div>
+    {% endif %}
+    {% if user_role in ('super_admin', 'accountant', 'bursar') %}
+    <div class="stat-card">
+        <div class="icon yellow"><i class="fas fa-dollar-sign"></i></div>
+        <div class="info">
+            <h3>${{ "%.2f"|format(stats.fees_collected_month) }}</h3>
+            <p>Fees This Month</p>
+        </div>
+    </div>
+    {% endif %}
+    {% if user_role == 'super_admin' %}
+    <div class="stat-card">
+        <div class="icon red"><i class="fas fa-sync-alt"></i></div>
+        <div class="info">
+            <h3>{{ stats.pending_sync }}</h3>
+            <p>Pending Sync</p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Charts Row -->
+{% if user_role in ('super_admin', 'accountant', 'bursar', 'teacher') %}
+<div class="grid-2" style="margin-bottom:20px;">
+    <!-- Gender Distribution -->
+    {% if user_role in ('super_admin', 'teacher') %}
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-venus-mars" style="color:var(--primary);margin-right:8px;"></i>Gender Distribution</h3></div>
+        <div class="card-body" style="display:flex;justify-content:center;padding:20px;">
+            <canvas id="genderChart" width="280" height="200"></canvas>
+        </div>
+        <div style="display:flex;justify-content:center;gap:24px;padding-bottom:12px;">
+            <span style="font-size:13px;"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#3b82f6;margin-right:4px;"></span>Male: {{ stats.male_students }}</span>
+            <span style="font-size:13px;"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#ec4899;margin-right:4px;"></span>Female: {{ stats.female_students }}</span>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Students by Level -->
+    {% if user_role in ('super_admin', 'teacher') %}
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-layer-group" style="color:var(--secondary);margin-right:8px;"></i>Students by Level</h3></div>
+        <div class="card-body" style="padding:20px;">
+            <canvas id="levelChart" width="400" height="200"></canvas>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Second Row Charts -->
+<div class="grid-2" style="margin-bottom:20px;">
+    <!-- Fee Collection Trend -->
+    {% if user_role in ('super_admin', 'accountant', 'bursar') %}
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-chart-line" style="color:#10b981;margin-right:8px;"></i>Fee Collection (6 months)</h3></div>
+        <div class="card-body" style="padding:20px;">
+            <canvas id="feeChart" width="400" height="200"></canvas>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- Scholarship Breakdown -->
+{% if user_role in ('super_admin', 'accountant', 'bursar') %}
+<div class="card" style="margin-bottom:20px;">
+    <div class="card-header"><h3><i class="fas fa-graduation-cap" style="color:var(--accent);margin-right:8px;"></i>Scholarship Breakdown</h3></div>
+    <div class="card-body" style="padding:20px;display:flex;justify-content:center;">
+        <canvas id="scholarshipChart" width="500" height="180"></canvas>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+
+<div class="grid-2">
+    <!-- Recent Students -->
+    {% if user_role in ('super_admin', 'bursar', 'teacher') %}
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-user-graduate" style="color:var(--primary);margin-right:8px;"></i>Recent Students</h3>
+            <a href="{{ url_for('students_list') }}" class="btn btn-sm btn-secondary">View All</a>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Adm No.</th><th>Name</th><th>Class</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    {% for student in recent_students %}
+                    <tr>
+                        <td>{{ student.admission_number }}</td>
+                        <td>{{ student.first_name }} {{ student.last_name }}</td>
+                        <td>{{ student.class_.name if student.class_ else '-' }}</td>
+                        <td><span class="badge badge-success">{{ student.status }}</span></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-center" style="padding:20px;color:var(--text-light);">No students yet</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Recent Payments -->
+    {% if user_role in ('super_admin', 'accountant', 'bursar') %}
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-dollar-sign" style="color:var(--secondary);margin-right:8px;"></i>Recent Payments</h3>
+            <a href="{{ url_for('fee_payments') }}" class="btn btn-sm btn-secondary">View All</a>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Receipt</th><th>Student</th><th>Amount</th><th>Date</th></tr>
+                </thead>
+                <tbody>
+                    {% for payment in recent_payments %}
+                    <tr>
+                        <td>{{ payment.receipt_number }}</td>
+                        <td>{{ payment.student.first_name }} {{ payment.student.last_name }}</td>
+                        <td>${{ "%.2f"|format(payment.amount) }}</td>
+                        <td>{{ payment.payment_date }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-center" style="padding:20px;color:var(--text-light);">No payments yet</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Notices -->
+<div class="card mt-3">
+    <div class="card-header">
+        <h3><i class="fas fa-bullhorn" style="color:var(--accent);margin-right:8px;"></i>Recent Notices</h3>
+        <a href="{{ url_for('communication_dashboard') }}" class="btn btn-sm btn-secondary">View All</a>
+    </div>
+    <div class="card-body">
+        {% for notice in notices %}
+        <div style="padding:12px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <strong>{{ notice.title }}</strong>
+                <span class="badge badge-{{ 'info' if notice.category == 'General' else 'warning' if notice.category == 'Urgent' else 'primary' }}">{{ notice.category }}</span>
+                <p style="font-size:12px;color:var(--text-light);margin-top:4px;">{{ notice.content[:100] }}{% if notice.content|length > 100 %}...{% endif %}</p>
+            </div>
+            <span style="font-size:11px;color:var(--text-light);white-space:nowrap;">{{ notice.date_posted.strftime('%b %d, %Y') }}</span>
+        </div>
+        {% else %}
+        <p class="text-center" style="padding:20px;color:var(--text-light);">No notices</p>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('{{ url_for("api_dashboard_charts") }}')
+    .then(r => r.json())
+    .then(data => {
+        // Gender Pie Chart
+        new Chart(document.getElementById('genderChart'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Male', 'Female'],
+                datasets: [{
+                    data: [data.gender.male, data.gender.female],
+                    backgroundColor: ['#3b82f6', '#ec4899'],
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                }]
+            },
+            options: { responsive: true, plugins: { legend: { display: false } }, cutout: '65%' }
+        });
+
+        // Level Bar Chart
+        const levels = data.levels;
+        const levelLabels = Object.keys(levels).filter(k => levels[k] > 0);
+        const levelValues = levelLabels.map(k => levels[k]);
+        const levelColors = {'ECD': '#3b82f6', 'Junior': '#10b981', 'O Level': '#f59e0b', 'A Level': '#8b5cf6', 'Unassigned': '#6b7280'};
+        new Chart(document.getElementById('levelChart'), {
+            type: 'bar',
+            data: {
+                labels: levelLabels,
+                datasets: [{
+                    label: 'Students',
+                    data: levelValues,
+                    backgroundColor: levelLabels.map(l => levelColors[l] || '#6b7280'),
+                    borderRadius: 6,
+                }]
+            },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+        });
+
+        // Fee Collection Line Chart
+        new Chart(document.getElementById('feeChart'), {
+            type: 'line',
+            data: {
+                labels: data.monthly_fees.map(d => d.month),
+                datasets: [{
+                    label: 'Collected ($)',
+                    data: data.monthly_fees.map(d => d.amount),
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16,185,129,0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    pointBackgroundColor: '#10b981',
+                }]
+            },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        });
+
+        // Scholarship Horizontal Bar
+        const schLabels = Object.keys(data.scholarships);
+        const schValues = Object.values(data.scholarships);
+        const schColors = {'Regular': '#10b981', 'Staff Scholarship': '#3b82f6', 'Academic Scholarship': '#8b5cf6', 'Sports Scholarship': '#f59e0b', 'Bursary': '#06b6d4', 'Orphan': '#ef4444'};
+        new Chart(document.getElementById('scholarshipChart'), {
+            type: 'bar',
+            data: {
+                labels: schLabels,
+                datasets: [{
+                    label: 'Students',
+                    data: schValues,
+                    backgroundColor: schLabels.map(l => schColors[l] || '#6b7280'),
+                    borderRadius: 6,
+                }]
+            },
+            options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+        });
+    })
+    .catch(err => console.error('Chart data error:', err));
+});
+</script>
+{% endblock %}

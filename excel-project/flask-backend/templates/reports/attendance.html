@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Attendance Report{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Attendance Report</h1></div>
+    <div class="actions">
+        <button onclick="window.print()" class="btn btn-secondary no-print"><i class="fas fa-print"></i> Print</button>
+        <a href="{{ url_for('reports_dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form method="GET" class="d-flex gap-1 flex-wrap">
+        <select name="class_id" class="form-control"><option value="">All Classes</option>{% for c in classes %}<option value="{{ c.id }}" {% if class_id == c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+        <input type="date" name="start_date" class="form-control" value="{{ start or '' }}">
+        <input type="date" name="end_date" class="form-control" value="{{ end or '' }}">
+        <button type="submit" class="btn btn-primary"><i class="fas fa-filter"></i> Filter</button>
+    </form>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="icon green"><i class="fas fa-check-circle"></i></div><div class="info"><h3>{{ present }}</h3><p>Present</p></div></div>
+    <div class="stat-card"><div class="icon red"><i class="fas fa-times-circle"></i></div><div class="info"><h3>{{ absent }}</h3><p>Absent</p></div></div>
+    <div class="stat-card"><div class="icon yellow"><i class="fas fa-clock"></i></div><div class="info"><h3>{{ late }}</h3><p>Late</p></div></div>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Status</th></tr></thead>
+            <tbody>
+                {% for r in records %}
+                <tr><td>{{ r.date }}</td><td>{{ r.student.first_name }} {{ r.student.last_name }}</td><td>{{ r.student.class_.name if r.student.class_ else '-' }}</td><td><span class="badge badge-{{ 'success' if r.status == 'Present' else 'danger' if r.status == 'Absent' else 'warning' }}">{{ r.status }}</span></td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

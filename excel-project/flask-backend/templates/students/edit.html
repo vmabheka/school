@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Edit Student{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Edit Student</h1>
+        <p>{{ student.admission_number }} - {{ student.first_name }} {{ student.last_name }}</p>
+    </div>
+    <a href="{{ url_for('student_view', id=student.id) }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+
+<form method="POST">
+<div class="grid-2">
+    <div class="card">
+        <div class="card-header"><h3>Personal Information</h3></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>Admission Number</label>
+                <input type="text" class="form-control" value="{{ student.admission_number }}" disabled>
+                <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Auto-generated (cannot be changed)</p>
+            </div>
+            <div class="form-group">
+                <label>First Name <span class="required">*</span></label>
+                <input type="text" name="first_name" class="form-control" value="{{ student.first_name }}" required>
+            </div>
+            <div class="form-group">
+                <label>Last Name <span class="required">*</span></label>
+                <input type="text" name="last_name" class="form-control" value="{{ student.last_name }}" required>
+            </div>
+            <div class="form-group">
+                <label>Other Names</label>
+                <input type="text" name="other_names" class="form-control" value="{{ student.other_names or '' }}">
+            </div>
+            <div class="form-group">
+                <label>Date of Birth</label>
+                <input type="date" name="date_of_birth" class="form-control" value="{{ student.date_of_birth.isoformat() if student.date_of_birth else '' }}">
+            </div>
+            <div class="form-group">
+                <label>Gender</label>
+                <select name="gender" class="form-control">
+                    <option value="">Select</option>
+                    <option value="Male" {% if student.gender == 'Male' %}selected{% endif %}>Male</option>
+                    <option value="Female" {% if student.gender == 'Female' %}selected{% endif %}>Female</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>National ID</label>
+                <input type="text" name="national_id" class="form-control" value="{{ student.national_id or '' }}">
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Enrollment & Contact</h3></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>Level <span class="required">*</span></label>
+                <select name="level" class="form-control" id="levelSelect" required>
+                    <option value="">Select Level</option>
+                    <option value="ECD A" {% if student.class_ and student.class_.level == 'ECD A' %}selected{% endif %}>ECD A</option>
+                    <option value="ECD B" {% if student.class_ and student.class_.level == 'ECD B' %}selected{% endif %}>ECD B</option>
+                    <option value="Grade 1" {% if student.class_ and student.class_.level == 'Grade 1' %}selected{% endif %}>Grade 1</option>
+                    <option value="Grade 2" {% if student.class_ and student.class_.level == 'Grade 2' %}selected{% endif %}>Grade 2</option>
+                    <option value="Grade 3" {% if student.class_ and student.class_.level == 'Grade 3' %}selected{% endif %}>Grade 3</option>
+                    <option value="Grade 4" {% if student.class_ and student.class_.level == 'Grade 4' %}selected{% endif %}>Grade 4</option>
+                    <option value="Grade 5" {% if student.class_ and student.class_.level == 'Grade 5' %}selected{% endif %}>Grade 5</option>
+                    <option value="Grade 6" {% if student.class_ and student.class_.level == 'Grade 6' %}selected{% endif %}>Grade 6</option>
+                    <option value="Grade 7" {% if student.class_ and student.class_.level == 'Grade 7' %}selected{% endif %}>Grade 7</option>
+                    <option value="Form 1" {% if student.class_ and student.class_.level == 'Form 1' %}selected{% endif %}>Form 1</option>
+                    <option value="Form 2" {% if student.class_ and student.class_.level == 'Form 2' %}selected{% endif %}>Form 2</option>
+                    <option value="Form 3" {% if student.class_ and student.class_.level == 'Form 3' %}selected{% endif %}>Form 3</option>
+                    <option value="Form 4" {% if student.class_ and student.class_.level == 'Form 4' %}selected{% endif %}>Form 4</option>
+                    <option value="Form 5" {% if student.class_ and student.class_.level == 'Form 5' %}selected{% endif %}>Form 5</option>
+                    <option value="Form 6" {% if student.class_ and student.class_.level == 'Form 6' %}selected{% endif %}>Form 6</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Class <span class="required">*</span></label>
+                <select name="class_id" class="form-control" id="classSelect" required>
+                    <option value="">Select Level First</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Status</label>
+                <select name="status" class="form-control">
+                    <option value="Active" {% if student.status == 'Active' %}selected{% endif %}>Active</option>
+                    <option value="Inactive" {% if student.status == 'Inactive' %}selected{% endif %}>Inactive</option>
+                    <option value="Graduated" {% if student.status == 'Graduated' %}selected{% endif %}>Graduated</option>
+                    <option value="Transferred" {% if student.status == 'Transferred' %}selected{% endif %}>Transferred</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Medical Info</label>
+                <textarea name="medical_info" class="form-control">{{ student.medical_info or '' }}</textarea>
+            </div>
+            <div class="form-group">
+                <label>Address</label>
+                <input type="text" name="address" class="form-control" value="{{ student.address or '' }}">
+            </div>
+            <div class="form-group">
+                <label>City</label>
+                <input type="text" name="city" class="form-control" value="{{ student.city or '' }}">
+            </div>
+            <div class="form-group">
+                <label>Province</label>
+                <input type="text" name="province" class="form-control" value="{{ student.province or '' }}">
+            </div>
+            <div class="form-group">
+                <label>Phone</label>
+                <input type="text" name="phone" class="form-control" value="{{ student.phone or '' }}">
+            </div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" name="email" class="form-control" value="{{ student.email or '' }}">
+            </div>
+        </div>
+    </div>
+
+    <!-- Scholarship -->
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-award" style="color:var(--secondary);margin-right:8px;"></i>Fee Classification & Scholarship</h3></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>Fee Classification</label>
+                <select name="fee_classification" class="form-control" id="feeClassification">
+                    <option value="Regular" {% if student.fee_classification == 'Regular' or not student.fee_classification %}selected{% endif %}>Regular (Full Fee)</option>
+                    <option value="Staff Scholarship" {% if student.fee_classification == 'Staff Scholarship' %}selected{% endif %}>Staff Scholarship</option>
+                    <option value="Academic Scholarship" {% if student.fee_classification == 'Academic Scholarship' %}selected{% endif %}>Academic Scholarship</option>
+                    <option value="Sports Scholarship" {% if student.fee_classification == 'Sports Scholarship' %}selected{% endif %}>Sports Scholarship</option>
+                    <option value="Bursary" {% if student.fee_classification == 'Bursary' %}selected{% endif %}>Bursary</option>
+                    <option value="Orphan" {% if student.fee_classification == 'Orphan' %}selected{% endif %}>Orphan</option>
+                </select>
+            </div>
+            <div class="form-group" id="scholarshipTypeGroup">
+                <label>Scholarship Type</label>
+                <select name="scholarship_type" class="form-control" id="scholarshipType">
+                    <option value="None" {% if student.scholarship_type == 'None' or not student.scholarship_type %}selected{% endif %}>None</option>
+                    <option value="Full" {% if student.scholarship_type == 'Full' %}selected{% endif %}>Full Scholarship (100% discount)</option>
+                    <option value="Partial" {% if student.scholarship_type == 'Partial' %}selected{% endif %}>Partial Scholarship</option>
+                </select>
+            </div>
+            <div class="form-group" id="scholarshipPercentageGroup">
+                <label>Discount Percentage (%)</label>
+                <input type="number" name="scholarship_percentage" class="form-control" id="scholarshipPercentage" min="0" max="100" value="{{ student.scholarship_percentage or 0 }}">
+            </div>
+            <div class="form-group" id="staffLinkGroup">
+                <label>Linked Staff Member</label>
+                <select name="scholarship_staff_id" class="form-control">
+                    <option value="">Select Staff Member</option>
+                    {% for s in staff_list %}
+                    <option value="{{ s.id }}" {% if student.scholarship_staff_id == s.id %}selected{% endif %}>{{ s.employee_number }} - {{ s.first_name }} {{ s.last_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" id="scholarshipSponsorGroup">
+                <label>Scholarship Sponsor</label>
+                <input type="text" name="scholarship_sponsor" class="form-control" value="{{ student.scholarship_sponsor or '' }}">
+            </div>
+            <div class="form-group" id="scholarshipNotesGroup">
+                <label>Scholarship Notes</label>
+                <textarea name="scholarship_notes" class="form-control" rows="2">{{ student.scholarship_notes or '' }}</textarea>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-2 d-flex gap-1">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Update Student</button>
+    <a href="{{ url_for('student_view', id=student.id) }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+
+<script>
+const levelClasses = {{ level_classes|safe }};
+const feeLevels = {{ fee_levels_json|safe }};
+const currentClassId = {{ student.class_id or 'null' }};
+
+function isPrimaryLevel(level) {
+    if (!level) return false;
+    const lvl = level.trim().toLowerCase();
+    if (lvl.startsWith('ecd')) return true;
+    const m = lvl.match(/grade\s*(\d+)/);
+    if (m) { const g = parseInt(m[1]); return g >= 1 && g <= 7; }
+    return false;
+}
+
+function getFeeLevelName(level) {
+    if (!level) return null;
+    const lvl = level.trim().toLowerCase();
+    if (lvl.startsWith('ecd')) return 'ECD';
+    const m = lvl.match(/grade\s*(\d+)/);
+    if (m) { const g = parseInt(m[1]); if (g >= 1 && g <= 7) return 'Junior'; }
+    const fm = lvl.match(/form\s*(\d+)/);
+    if (fm) { const f = parseInt(fm[1]); if (f >= 1 && f <= 4) return 'O Level'; if (f >= 5) return 'A Level'; }
+    return null;
+}
+
+function updateClassDropdown(level, selectedClassId) {
+    const classSelect = document.getElementById('classSelect');
+    classSelect.innerHTML = '';
+    const matchingClasses = levelClasses[level] || [];
+    if (matchingClasses.length === 0 && level) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No classes for ' + level + ' — add one in Settings';
+        classSelect.appendChild(opt);
+    } else {
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = 'Select Class';
+        classSelect.appendChild(defaultOpt);
+        matchingClasses.forEach(function(c) {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.name;
+            if (c.id == selectedClassId) opt.selected = true;
+            classSelect.appendChild(opt);
+        });
+    }
+}
+
+document.getElementById('levelSelect').addEventListener('change', function() {
+    updateClassDropdown(this.value, null);
+});
+
+// Initialize with current student's level
+{% if student.class_ and student.class_.level %}
+document.getElementById('levelSelect').value = "{{ student.class_.level }}";
+updateClassDropdown("{{ student.class_.level }}", currentClassId);
+{% endif %}
+
+function updateScholarshipFields() {
+    const classification = document.getElementById('feeClassification').value;
+    const isScholarship = classification !== 'Regular';
+    document.getElementById('scholarshipTypeGroup').style.display = isScholarship ? '' : 'none';
+    document.getElementById('scholarshipSponsorGroup').style.display = isScholarship ? '' : 'none';
+    document.getElementById('scholarshipNotesGroup').style.display = isScholarship ? '' : 'none';
+    document.getElementById('staffLinkGroup').style.display = (classification === 'Staff Scholarship') ? '' : 'none';
+    if (classification === 'Orphan') {
+        document.getElementById('scholarshipType').value = 'Full';
+        document.getElementById('scholarshipPercentage').value = '100';
+    } else if (classification === 'Regular') {
+        document.getElementById('scholarshipType').value = 'None';
+        document.getElementById('scholarshipPercentage').value = '0';
+    }
+    updatePercentageVisibility();
+}
+function updatePercentageVisibility() {
+    const type = document.getElementById('scholarshipType').value;
+    document.getElementById('scholarshipPercentageGroup').style.display = (type === 'Partial') ? '' : 'none';
+}
+document.getElementById('feeClassification').addEventListener('change', updateScholarshipFields);
+document.getElementById('scholarshipType').addEventListener('change', updatePercentageVisibility);
+updateScholarshipFields();
+</script>
+{% endblock %}

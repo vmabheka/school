@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Send WhatsApp/SMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1><i class="fab fa-whatsapp" style="color:#25D366;"></i> WhatsApp/SMS Notifications</h1>
+        <p>Send bulk notifications to parents and staff</p>
+    </div>
+</div>
+
+{% if not whatsapp_configured %}
+<div class="card" style="border-left:4px solid #3b82f6;margin-bottom:20px;">
+    <div class="card-body">
+        <p style="color:#1e40af;"><i class="fas fa-info-circle"></i> <strong>WhatsApp Business API not configured.</strong> Messages will be logged for manual processing. To enable automatic sending, set the <code>WHATSAPP_API_URL</code> and <code>WHATSAPP_API_TOKEN</code> environment variables.</p>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>Send Notification</h3></div>
+    <div class="card-body">
+        <form method="POST">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Recipients <span class="required">*</span></label>
+                    <select name="target" id="target-select" required>
+                        <option value="all_parents">All Parents</option>
+                        <option value="all_staff">All Staff</option>
+                        <option value="custom">Custom Phone Numbers</option>
+                        {% for cls in classes %}
+                        <option value="class_{{ cls.id }}">{{ cls.name }} Parents</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group" id="custom-numbers-group" style="display:none;">
+                    <label>Phone Numbers (comma-separated)</label>
+                    <input type="text" name="custom_numbers" placeholder="+263771234567, +263772987654">
+                    <small>Include country code (e.g., +263 for Zimbabwe)</small>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Message <span class="required">*</span></label>
+                <textarea name="message" id="whatsapp-message" rows="5" required maxlength="640" placeholder="Type your message here..."></textarea>
+                <small style="color:var(--text-light);">WhatsApp: max 640 chars. Current: <span id="char-count">0</span>/640</small>
+            </div>
+            <p style="margin-top:16px;">
+                <button type="submit" class="btn btn-primary"><i class="fab fa-whatsapp"></i> Send WhatsApp/SMS</button>
+            </p>
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById('target-select').addEventListener('change', function() {
+    document.getElementById('custom-numbers-group').style.display = this.value === 'custom' ? 'block' : 'none';
+});
+document.getElementById('whatsapp-message').addEventListener('input', function() {
+    document.getElementById('char-count').textContent = this.value.length;
+});
+</script>
+{% endblock %}

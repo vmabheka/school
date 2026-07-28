@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Dashboard{% endblock %} | Excel Group of Schools</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: {{ theme.primary_color|default('#1a5632') }};
+            --primary-dark: {{ theme.primary_dark|default('#0e3a20') }};
+            --primary-light: {{ theme.primary_light|default('#2d8a54') }};
+            --secondary: {{ theme.secondary_color|default('#c8a951') }};
+            --secondary-light: {{ theme.secondary_light|default('#e8d48b') }};
+            --accent: {{ theme.accent_color|default('#e85d26') }};
+            --bg: {{ theme.bg_color|default('#f0f2f5') }};
+            --card: {{ theme.card_color|default('#ffffff') }};
+            --text: {{ theme.text_color|default('#1a1a2e') }};
+            --text-light: #6b7280;
+            --border: #e5e7eb;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --sidebar-width: 260px;
+            --header-height: 60px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: {{ theme.font_family|default("'Segoe UI', Tahoma, Geneva, Verdana, sans-serif") }};
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: linear-gradient(180deg, var(--primary-dark) 0%, var(--primary) 100%);
+            color: white;
+            overflow-y: auto;
+            z-index: 1000;
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .sidebar-header .logo {
+            width: 60px;
+            height: 60px;
+            background: var(--secondary);
+            border-radius: 50%;
+            margin: 0 auto 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--primary-dark);
+        }
+
+        .sidebar-header h2 {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .sidebar-header p {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+
+        .sidebar-nav {
+            padding: 10px 0;
+        }
+
+        .nav-section {
+            padding: 10px 20px 5px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            opacity: 0.5;
+            font-weight: 600;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 20px;
+            color: rgba(255,255,255,0.8);
+            text-decoration: none;
+            transition: all 0.2s ease;
+            font-size: 13.5px;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-item:hover {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border-left-color: var(--secondary);
+        }
+
+        .nav-item.active {
+            background: rgba(255,255,255,0.15);
+            color: white;
+            border-left-color: var(--secondary);
+            font-weight: 600;
+        }
+
+        .nav-item i {
+            width: 20px;
+            margin-right: 12px;
+            font-size: 15px;
+            text-align: center;
+        }
+
+        .nav-item .badge {
+            margin-left: auto;
+            background: var(--accent);
+            color: white;
+            font-size: 10px;
+            padding: 2px 7px;
+            border-radius: 10px;
+        }
+
+        /* Header */
+        .header {
+            position: fixed;
+            top: 0;
+            left: var(--sidebar-width);
+            right: 0;
+            height: var(--header-height);
+            background: var(--card);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            z-index: 999;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .menu-toggle {
+            display: none;
+            background: none;
+            border: none;
+            font-size: 20px;
+            color: var(--text);
+            cursor: pointer;
+        }
+
+        .header-search {
+            position: relative;
+        }
+
+        .header-search input {
+            padding: 8px 16px 8px 36px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            width: 300px;
+            font-size: 13px;
+            background: var(--bg);
+        }
+
+        .header-search i {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-light);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .deployment-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .deployment-badge.online { background: #d1fae5; color: #065f46; }
+        .deployment-badge.offline { background: #fef3c7; color: #92400e; }
+
+        .header-user {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+
+        .header-user .avatar {
+            width: 36px;
+            height: 36px;
+            background: var(--primary);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .header-user .user-info {
+            font-size: 13px;
+        }
+
+        .header-user .user-info .name { font-weight: 600; }
+        .header-user .user-info .role { color: var(--text-light); font-size: 11px; }
+
+        .user-dropdown {
+            position: relative;
+        }
+
+        .user-dropdown-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            min-width: 180px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            display: none;
+            overflow: hidden;
+            z-index: 100;
+        }
+
+        .user-dropdown-menu.show { display: block; }
+
+        .user-dropdown-menu a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            color: var(--text);
+            text-decoration: none;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .user-dropdown-menu a:hover {
+            background: var(--bg);
+        }
+
+        .user-dropdown-menu a.danger { color: var(--danger); }
+
+        /* Main Content */
+        .main {
+            margin-left: var(--sidebar-width);
+            margin-top: var(--header-height);
+            padding: 24px;
+            min-height: calc(100vh - var(--header-height));
+        }
+
+        /* Flash Messages */
+        .flash-container {
+            position: fixed;
+            top: 72px;
+            right: 24px;
+            z-index: 2000;
+            max-width: 400px;
+        }
+
+        .flash {
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideIn 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .flash.success { background: #d1fae5; color: #065f46; border-left: 4px solid var(--success); }
+        .flash.danger { background: #fee2e2; color: #991b1b; border-left: 4px solid var(--danger); }
+        .flash.warning { background: #fef3c7; color: #92400e; border-left: 4px solid var(--warning); }
+        .flash.info { background: #dbeafe; color: #1e40af; border-left: 4px solid var(--info); }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* Page Header */
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .page-header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .page-header p {
+            color: var(--text-light);
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        .page-header .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-header h3 {
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 20px;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover { transform: translateY(-2px); }
+
+        .stat-card .icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .stat-card .icon.green { background: #d1fae5; color: #065f46; }
+        .stat-card .icon.blue { background: #dbeafe; color: #1e40af; }
+        .stat-card .icon.yellow { background: #fef3c7; color: #92400e; }
+        .stat-card .icon.red { background: #fee2e2; color: #991b1b; }
+        .stat-card .icon.purple { background: #ede9fe; color: #5b21b6; }
+        .stat-card .icon.orange { background: #ffedd5; color: #9a3412; }
+
+        .stat-card .info h3 {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .stat-card .info p {
+            font-size: 12px;
+            color: var(--text-light);
+            margin-top: 2px;
+        }
+
+        /* Tables */
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        table th {
+            background: var(--bg);
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-light);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+
+        table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        table tr:hover td {
+            background: #f9fafb;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-light); }
+        .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { background: #e5e7eb; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-warning { background: var(--warning); color: white; }
+        .btn-info { background: var(--info); color: white; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+        /* Forms */
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 6px;
+        }
+
+        .form-group label .required { color: var(--danger); }
+
+        .form-control {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 13px;
+            transition: border-color 0.2s;
+            background: white;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(26, 86, 50, 0.1);
+        }
+
+        select.form-control {
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            background-size: 16px;
+            padding-right: 36px;
+        }
+
+        textarea.form-control {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-success { background: #d1fae5; color: #065f46; }
+        .badge-danger { background: #fee2e2; color: #991b1b; }
+        .badge-warning { background: #fef3c7; color: #92400e; }
+        .badge-info { background: #dbeafe; color: #1e40af; }
+        .badge-primary { background: #d1fae5; color: var(--primary); }
+        .badge-secondary { background: #f3f4f6; color: #4b5563; }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            gap: 4px;
+            margin-top: 16px;
+            justify-content: center;
+        }
+
+        .pagination a, .pagination span {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 13px;
+            text-decoration: none;
+            color: var(--text);
+        }
+
+        .pagination .active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        /* Filter bar */
+        .filter-bar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-bar .form-control {
+            width: auto;
+            min-width: 180px;
+        }
+
+        /* Grid layouts */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+
+        /* Profile header */
+        .profile-header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 20px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            border-radius: 12px;
+            color: white;
+            margin-bottom: 20px;
+        }
+
+        .profile-header .avatar-lg {
+            width: 80px;
+            height: 80px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        .profile-header h2 { font-size: 20px; }
+        .profile-header p { opacity: 0.8; font-size: 13px; }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-light);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            font-weight: 600;
+        }
+
+        .tab:hover { color: var(--primary); }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-light);
+        }
+
+        .empty-state i { font-size: 48px; margin-bottom: 16px; opacity: 0.3; }
+        .empty-state h3 { font-size: 16px; margin-bottom: 8px; color: var(--text); }
+        .empty-state p { font-size: 13px; }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .header { left: 0; }
+            .main { margin-left: 0; }
+            .menu-toggle { display: block; }
+            .header-search input { width: 200px; }
+            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 768px) {
+            .header-search { display: none; }
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .form-grid { grid-template-columns: 1fr; }
+            .page-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+            .filter-bar { flex-direction: column; }
+            .filter-bar .form-control { width: 100%; }
+        }
+
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+            .main { padding: 16px; }
+        }
+
+        /* Print styles */
+        @media print {
+            .sidebar, .header, .no-print { display: none !important; }
+            .main { margin: 0; padding: 20px; }
+        }
+
+        /* Utility classes */
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .mt-1 { margin-top: 8px; }
+        .mt-2 { margin-top: 16px; }
+        .mt-3 { margin-top: 24px; }
+        .mb-1 { margin-bottom: 8px; }
+        .mb-2 { margin-bottom: 16px; }
+        .mb-3 { margin-bottom: 24px; }
+        .d-flex { display: flex; }
+        .gap-1 { gap: 8px; }
+        .gap-2 { gap: 16px; }
+        .flex-wrap { flex-wrap: wrap; }
+        .align-center { align-items: center; }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            {% if theme.logo_url %}
+            <img src="{{ url_for('static', filename=theme.logo_url) }}" alt="Logo"
+                 style="width:60px;height:60px;border-radius:50%;object-fit:cover;margin:0 auto 10px;display:block;background:var(--secondary);padding:4px;">
+            {% else %}
+            <div class="logo">E</div>
+            {% endif %}
+            <h2>{{ theme.school_name|default('Excel Group of Schools') }}</h2>
+            <p>{{ theme.school_motto|default('Excellence in Education') }}</p>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section">Main</div>
+            <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+                <i class="fas fa-th-large"></i> Dashboard
+            </a>
+
+            {% if user_role == 'super_admin' or user_role == 'bursar' or user_role == 'teacher' %}
+            <div class="nav-section">People</div>
+            <a href="{{ url_for('students_list') }}" class="nav-item {% if 'student' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-user-graduate"></i> Students
+            </a>
+            {% if user_role == 'super_admin' %}
+            <a href="{{ url_for('staff_list') }}" class="nav-item {% if 'staff' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-chalkboard-teacher"></i> Staff
+            </a>
+            {% endif %}
+            {% endif %}
+
+            {% if user_role == 'teacher' or user_role == 'student' %}
+            <div class="nav-section">Academic</div>
+            <a href="{{ url_for('exams_list') }}" class="nav-item {% if 'exam' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-file-alt"></i> Exams & Results
+            </a>
+            <a href="{{ url_for('timetable_view') }}" class="nav-item {% if 'timetable' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-calendar-alt"></i> Timetable
+            </a>
+            {% endif %}
+
+            {% if user_role == 'super_admin' or user_role == 'accountant' or user_role == 'bursar' %}
+            <div class="nav-section">Finance</div>
+            <a href="{{ url_for('fees_dashboard') }}" class="nav-item {% if request.endpoint == 'fees_dashboard' %}active{% endif %}">
+                <i class="fas fa-dollar-sign"></i> Fee Management
+            </a>
+            <a href="{{ url_for('invoices_list') }}" class="nav-item {% if 'invoice' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-file-invoice-dollar"></i> Invoices
+            </a>
+            <a href="{{ url_for('debtors_list') }}" class="nav-item {% if 'debtor' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-exclamation-triangle"></i> Debtors
+            </a>
+            {% if user_role in ('super_admin', 'accountant') %}
+            <a href="{{ url_for('fee_levels_list') }}" class="nav-item {% if request.endpoint == 'fee_levels_list' or request.endpoint == 'fee_level_add' or request.endpoint == 'fee_level_edit' %}active{% endif %}">
+                <i class="fas fa-layer-group"></i> Fee Levels
+            </a>
+            {% endif %}
+            {% endif %}
+
+            {% if user_role == 'super_admin' %}
+            <div class="nav-section">Resources</div>
+            <a href="{{ url_for('hostel_dashboard') }}" class="nav-item {% if 'hostel' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-bed"></i> Hostel
+            </a>
+            {% endif %}
+
+            <div class="nav-section">Communication</div>
+            <a href="{{ url_for('communication_dashboard') }}" class="nav-item {% if 'communication' in request.endpoint or 'notice' in request.endpoint or 'message' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-bullhorn"></i> Communication
+            </a>
+            {% if user_role in ('super_admin', 'bursar', 'teacher') %}
+            <a href="{{ url_for('email_send') }}" class="nav-item {% if request.endpoint == 'email_send' %}active{% endif %}">
+                <i class="fas fa-envelope"></i> Email Notifications
+            </a>
+            <a href="{{ url_for('whatsapp_send') }}" class="nav-item {% if request.endpoint == 'whatsapp_send' %}active{% endif %}">
+                <i class="fab fa-whatsapp"></i> WhatsApp/SMS
+            </a>
+            {% endif %}
+
+            {% if user_role in ('super_admin', 'accountant', 'bursar', 'teacher') %}
+            <div class="nav-section">Analytics</div>
+            <a href="{{ url_for('reports_dashboard') }}" class="nav-item {% if 'report' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-chart-bar"></i> Reports
+            </a>
+            {% endif %}
+
+            {% if user_role == 'parent' %}
+            <div class="nav-section">My Portal</div>
+            <a href="{{ url_for('parent_portal') }}" class="nav-item {% if request.endpoint == 'parent_portal' %}active{% endif %}">
+                <i class="fas fa-home"></i> Parent Portal
+            </a>
+            {% endif %}
+
+            {% if user_role == 'student' %}
+            <div class="nav-section">My Portal</div>
+            <a href="{{ url_for('student_portal') }}" class="nav-item {% if request.endpoint == 'student_portal' %}active{% endif %}">
+                <i class="fas fa-home"></i> Student Portal
+            </a>
+            {% endif %}
+
+            {% if user_role == 'super_admin' %}
+            <div class="nav-section">System</div>
+            <a href="{{ url_for('sync_dashboard') }}" class="nav-item {% if 'sync' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-sync-alt"></i> Sync Center
+            </a>
+            <a href="{{ url_for('settings') }}" class="nav-item {% if request.endpoint == 'settings' %}active{% endif %}">
+                <i class="fas fa-cog"></i> Settings
+            </a>
+            <a href="{{ url_for('appearance_settings') }}" class="nav-item {% if request.endpoint == 'appearance_settings' %}active{% endif %}">
+                <i class="fas fa-palette"></i> Appearance
+            </a>
+            <a href="{{ url_for('user_management') }}" class="nav-item {% if 'user' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-users-cog"></i> User Management
+            </a>
+            {% endif %}
+        </nav>
+    </aside>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <button class="menu-toggle" onclick="toggleSidebar()">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="header-search">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search students, staff..." id="globalSearch">
+            </div>
+        </div>
+        <div class="header-right">
+            <span class="deployment-badge {{ config.DEPLOYMENT_MODE }}">
+                <i class="fas fa-{{ 'wifi' if config.DEPLOYMENT_MODE == 'online' else 'cloud-off' }}"></i>
+                {{ config.DEPLOYMENT_MODE }}
+            </span>
+            <div class="user-dropdown">
+                <div class="header-user" onclick="toggleDropdown()">
+                    <div class="avatar">{{ session.get('username', 'U')[0]|upper }}</div>
+                    <div class="user-info">
+                        <div class="name">{{ session.get('username', 'User') }}</div>
+                        <div class="role">{{ session.get('role_label', session.get('user_role', 'Guest')|title) }}</div>
+                    </div>
+                    <i class="fas fa-chevron-down" style="font-size:11px;color:var(--text-light)"></i>
+                </div>
+                <div class="user-dropdown-menu" id="userDropdown">
+                    <a href="{{ url_for('change_password') }}"><i class="fas fa-key"></i> Change Password</a>
+                    {% if user_role == 'parent' %}
+                    <a href="{{ url_for('parent_portal') }}"><i class="fas fa-home"></i> My Portal</a>
+                    {% elif user_role == 'student' %}
+                    <a href="{{ url_for('student_portal') }}"><i class="fas fa-home"></i> My Portal</a>
+                    {% endif %}
+                    {% if user_role == 'super_admin' %}
+                    <a href="{{ url_for('settings') }}"><i class="fas fa-cog"></i> Settings</a>
+                    <a href="{{ url_for('user_management') }}"><i class="fas fa-users-cog"></i> User Management</a>
+                    {% endif %}
+                    <a href="{{ url_for('logout') }}" class="danger"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Flash Messages -->
+    <div class="flash-container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="flash {{ category }}">
+                    <i class="fas fa-{% if category == 'success' %}check-circle{% elif category == 'danger' %}exclamation-circle{% elif category == 'warning' %}exclamation-triangle{% else %}info-circle{% endif %}"></i>
+                    {{ message }}
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- Main Content -->
+    <main class="main">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script>
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+
+        function toggleDropdown() {
+            document.getElementById('userDropdown').classList.toggle('show');
+        }
+
+        // Close dropdown on outside click
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.user-dropdown')) {
+                document.getElementById('userDropdown').classList.remove('show');
+            }
+        });
+
+        // Auto-hide flash messages
+        setTimeout(function() {
+            document.querySelectorAll('.flash').forEach(function(flash) {
+                flash.style.opacity = '0';
+                flash.style.transform = 'translateX(100%)';
+                setTimeout(function() { flash.remove(); }, 300);
+            });
+        }, 5000);
+
+        // Close sidebar on mobile when clicking overlay
+        document.addEventListener('click', function(e) {
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar.classList.contains('open') && !e.target.closest('.sidebar') && !e.target.closest('.menu-toggle')) {
+                sidebar.classList.remove('open');
+            }
+        });
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

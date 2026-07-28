@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Fee Payments{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Fee Payments</h1><p>View all payment records</p></div>
+    <div class="actions">
+        {% if can_record_payments %}
+        <a href="{{ url_for('fee_pay') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Record Payment</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form method="GET" class="d-flex gap-1 flex-wrap" style="align-items:center;">
+        <input type="text" name="search" class="form-control" placeholder="Search receipt or student..." value="{{ search }}" style="min-width:250px;">
+        <select name="method" class="form-control">
+            <option value="">All Methods</option>
+            <option value="Cash" {% if method_filter == 'Cash' %}selected{% endif %}>Cash</option>
+            <option value="EcoCash" {% if method_filter == 'EcoCash' %}selected{% endif %}>EcoCash</option>
+            <option value="Bank Transfer" {% if method_filter == 'Bank Transfer' %}selected{% endif %}>Bank Transfer</option>
+            <option value="Swipe" {% if method_filter == 'Swipe' %}selected{% endif %}>Swipe</option>
+            <option value="RTGS" {% if method_filter == 'RTGS' %}selected{% endif %}>RTGS</option>
+        </select>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i></button>
+    </form>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Receipt</th><th>Student</th><th>Amount</th><th>Date</th><th>Method</th><th>Description</th><th>Actions</th></tr></thead>
+            <tbody>
+                {% for p in payments.items %}
+                <tr>
+                    <td><strong>{{ p.receipt_number }}</strong></td>
+                    <td>{{ p.student.first_name }} {{ p.student.last_name }}</td>
+                    <td>${{ "%.2f"|format(p.amount) }}</td>
+                    <td>{{ p.payment_date }}</td>
+                    <td><span class="badge badge-info">{{ p.payment_method or '-' }}</span></td>
+                    <td>{{ p.description or '-' }}</td>
+                    <td><a href="{{ url_for('fee_receipt', id=p.id) }}" class="btn btn-sm btn-secondary"><i class="fas fa-receipt"></i></a></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-center" style="padding:20px;color:var(--text-light);">No payments found</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if payments.pages > 1 %}
+<div class="pagination">
+    {% if payments.has_prev %}<a href="{{ url_for('fee_payments', page=payments.prev_num) }}">&laquo;</a>{% endif %}
+    {% for p in payments.iter_pages() %}
+        {% if p %}<a href="{{ url_for('fee_payments', page=p) }}" class="{{ 'active' if p == payments.page else '' }}">{{ p }}</a>{% else %}<span>...</span>{% endif %}
+    {% endfor %}
+    {% if payments.has_next %}<a href="{{ url_for('fee_payments', page=payments.next_num) }}">&raquo;</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

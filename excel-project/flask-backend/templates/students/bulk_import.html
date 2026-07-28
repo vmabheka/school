@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Bulk Import Students{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Bulk Import Students</h1><p>Import multiple students from an Excel file</p></div>
+    <div class="actions">
+        <a href="{{ url_for('students_excel_template') }}" class="btn btn-info"><i class="fas fa-file-excel"></i> Download Excel Template</a>
+        <a href="{{ url_for('students_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-file-excel" style="color:var(--success);margin-right:8px;"></i>Upload Excel File</h3></div>
+        <div class="card-body">
+            <form method="POST" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label>Select Excel File <span class="required">*</span></label>
+                    <input type="file" name="import_file" class="form-control" accept=".xlsx,.xls" required>
+                    <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Accepted formats: .xlsx, .xls</p>
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> Import Students</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Excel Format Guide</h3></div>
+        <div class="card-body" style="font-size:13px;line-height:1.8;">
+            <p><strong>Required columns:</strong> <code>first_name</code>, <code>last_name</code></p>
+            <p><strong>Optional columns:</strong></p>
+            <table style="width:100%;font-size:12px;">
+                <tr><td style="padding:4px 0;color:var(--text-light);width:40%;">admission_number</td><td>Auto-generated if blank</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">other_names</td><td>Middle names</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">date_of_birth</td><td>YYYY-MM-DD format</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">gender</td><td>Male / Female</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">national_id</td><td>National ID number</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">class_name</td><td>Must match existing class name</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">admission_date</td><td>YYYY-MM-DD format</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">previous_school</td><td>Previous school name</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">address, city, province</td><td>Contact details</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">phone, email</td><td>Contact details</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);"><strong>fee_classification</strong></td><td>Regular, Staff Scholarship, Academic Scholarship, Sports Scholarship, Bursary, Orphan</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);"><strong>scholarship_type</strong></td><td>None, Full, Partial</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);"><strong>scholarship_percentage</strong></td><td>0-100 (discount %)</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">scholarship_sponsor</td><td>Who funds it</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">staff_employee_number</td><td>For Staff Scholarship — link to staff</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">scholarship_notes</td><td>Additional notes</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-2">
+    <div class="card-header"><h3>Fee Classification & Scholarship Examples</h3></div>
+    <div class="card-body">
+        <table style="width:100%;font-size:13px;">
+            <thead><tr><th>Classification</th><th>Scholarship Type</th><th>Percentage</th><th>Description</th></tr></thead>
+            <tbody>
+                <tr><td><span class="badge badge-secondary">Regular</span></td><td>None</td><td>0</td><td>Full fee paying student</td></tr>
+                <tr><td><span class="badge badge-info">Staff Scholarship</span></td><td>Full</td><td>100</td><td>Staff child — 100% discount</td></tr>
+                <tr><td><span class="badge badge-info">Staff Scholarship</span></td><td>Partial</td><td>50</td><td>Staff child — 50% discount</td></tr>
+                <tr><td><span class="badge badge-primary">Academic Scholarship</span></td><td>Full</td><td>100</td><td>Top performer — 100% discount</td></tr>
+                <tr><td><span class="badge badge-primary">Academic Scholarship</span></td><td>Partial</td><td>75</td><td>Top performer — 75% discount</td></tr>
+                <tr><td><span class="badge badge-warning">Sports Scholarship</span></td><td>Partial</td><td>50</td><td>Sports talent — 50% discount</td></tr>
+                <tr><td><span class="badge badge-success">Bursary</span></td><td>Partial</td><td>60</td><td>Financial need — 60% discount</td></tr>
+                <tr><td><span class="badge badge-danger">Orphan</span></td><td>Full</td><td>100</td><td>Orphaned — 100% discount</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt-2">
+    <div class="card-body" style="text-align:center;color:var(--text-light);font-size:12px;">
+        Excel Group of Schools Management System v2.0.0 — Developed by Valentine T Mabheka
+    </div>
+</div>
+{% endblock %}

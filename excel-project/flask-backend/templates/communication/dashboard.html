@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Communication{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Communication</h1><p>Notices, messages, and announcements</p></div>
+    <div class="actions">
+        {% if session.get('user_role') in ['admin', 'staff'] %}
+        <a href="{{ url_for('notice_add') }}" class="btn btn-primary"><i class="fas fa-bullhorn"></i> Post Notice</a>
+        {% endif %}
+        <a href="{{ url_for('message_send') }}" class="btn btn-secondary"><i class="fas fa-envelope"></i> Send Message</a>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-bullhorn" style="color:var(--accent);margin-right:8px;"></i>Notices</h3></div>
+        <div class="card-body">
+            {% for notice in notices %}
+            <div style="padding:12px 0;border-bottom:1px solid var(--border);">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <strong>{{ notice.title }}</strong>
+                    <span class="badge badge-{{ 'info' if notice.category == 'General' else 'warning' if notice.category == 'Urgent' else 'primary' if notice.category == 'Academic' else 'secondary' }}">{{ notice.category }}</span>
+                </div>
+                <p style="font-size:12px;color:var(--text-light);margin-top:4px;">{{ notice.content[:150] }}{% if notice.content|length > 150 %}...{% endif %}</p>
+                <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Posted: {{ notice.date_posted.strftime('%b %d, %Y') }} &bull; For: {{ notice.target_audience }}</p>
+            </div>
+            {% else %}
+            <p style="color:var(--text-light);text-align:center;padding:20px;">No notices</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-envelope" style="color:var(--primary);margin-right:8px;"></i>Messages</h3></div>
+        <div class="card-body">
+            {% for msg in messages %}
+            <div style="padding:12px 0;border-bottom:1px solid var(--border);{% if not msg.is_read %}background:#f0f7ff;margin:0 -20px;padding-left:20px;padding-right:20px;{% endif %}">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <strong style="font-size:13px;">{{ msg.subject or 'No Subject' }}</strong>
+                    {% if not msg.is_read %}<span class="badge badge-info">New</span>{% endif %}
+                </div>
+                <p style="font-size:12px;color:var(--text-light);margin-top:4px;">{{ msg.body[:100] }}{% if msg.body|length > 100 %}...{% endif %}</p>
+                <p style="font-size:11px;color:var(--text-light);margin-top:4px;">From: {{ msg.sender.username }} &bull; {{ msg.date_sent.strftime('%b %d, %H:%M') }}</p>
+            </div>
+            {% else %}
+            <p style="color:var(--text-light);text-align:center;padding:20px;">No messages</p>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Student Report{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Student Enrollment Report</h1></div>
+    <div class="actions">
+        <button onclick="window.print()" class="btn btn-secondary no-print"><i class="fas fa-print"></i> Print</button>
+        <a href="{{ url_for('reports_dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form method="GET" class="d-flex gap-1">
+        <select name="class_id" class="form-control" onchange="this.form.submit()">
+            <option value="">All Classes</option>
+            {% for c in classes %}<option value="{{ c.id }}" {% if class_id == c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+        </select>
+    </form>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="icon green"><i class="fas fa-users"></i></div><div class="info"><h3>{{ students|length }}</h3><p>Total Students</p></div></div>
+    <div class="stat-card"><div class="icon blue"><i class="fas fa-male"></i></div><div class="info"><h3>{{ students|selectattr('gender','equalto','Male')|list|length }}</h3><p>Male</p></div></div>
+    <div class="stat-card"><div class="icon purple"><i class="fas fa-female"></i></div><div class="info"><h3>{{ students|selectattr('gender','equalto','Female')|list|length }}</h3><p>Female</p></div></div>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead><tr><th>#</th><th>Adm No.</th><th>Name</th><th>Gender</th><th>Class</th><th>Status</th><th>Admission Date</th></tr></thead>
+            <tbody>
+                {% for s in students %}
+                <tr><td>{{ loop.index }}</td><td>{{ s.admission_number }}</td><td>{{ s.first_name }} {{ s.last_name }}</td><td>{{ s.gender or '-' }}</td><td>{{ s.class_.name if s.class_ else '-' }}</td><td><span class="badge badge-success">{{ s.status }}</span></td><td>{{ s.admission_date or '-' }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Hostel{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Hostel Management</h1><p>Manage hostels, rooms, and allocations</p></div>
+    <div class="actions">
+        {% if session.get('user_role') == 'admin' %}
+        <a href="{{ url_for('hostel_add') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Add Hostel</a>
+        {% endif %}
+        <a href="{{ url_for('hostel_allocate') }}" class="btn btn-info"><i class="fas fa-user-plus"></i> Allocate Room</a>
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="icon blue"><i class="fas fa-building"></i></div>
+        <div class="info"><h3>{{ hostels|length }}</h3><p>Hostels</p></div>
+    </div>
+    <div class="stat-card">
+        <div class="icon green"><i class="fas fa-door-open"></i></div>
+        <div class="info"><h3>{{ total_rooms }}</h3><p>Total Rooms</p></div>
+    </div>
+    <div class="stat-card">
+        <div class="icon yellow"><i class="fas fa-bed"></i></div>
+        <div class="info"><h3>{{ total_allocations }}</h3><p>Active Allocations</p></div>
+    </div>
+</div>
+
+{% for hostel in hostels %}
+<div class="card mb-2">
+    <div class="card-header">
+        <h3>{{ hostel.name }} <span class="badge badge-info">{{ hostel.gender }}</span></h3>
+    </div>
+    <div class="card-body">
+        <div class="d-flex gap-2 flex-wrap">
+            <p style="font-size:13px;"><strong>Capacity:</strong> {{ hostel.capacity }}</p>
+            <p style="font-size:13px;"><strong>Warden:</strong> {{ hostel.warden.first_name }} {{ hostel.warden.last_name if hostel.warden else 'Not assigned' }}</p>
+        </div>
+        <div class="table-container mt-1">
+            <table>
+                <thead><tr><th>Room</th><th>Capacity</th><th>Occupancy</th><th>Available</th></tr></thead>
+                <tbody>
+                    {% for room in hostel.rooms[:10] %}
+                    <tr>
+                        <td>{{ room.room_number }}</td>
+                        <td>{{ room.capacity }}</td>
+                        <td>{{ room.current_occupancy }}</td>
+                        <td><span class="badge badge-{{ 'success' if room.current_occupancy < room.capacity else 'danger' }}">{{ room.capacity - room.current_occupancy }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body text-center" style="padding:40px;color:var(--text-light);">
+        <i class="fas fa-building" style="font-size:48px;opacity:0.3;"></i>
+        <h3>No Hostels</h3>
+        <p>Add a hostel to get started</p>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

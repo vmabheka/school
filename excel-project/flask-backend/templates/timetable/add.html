@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Add Timetable Slot{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Add Timetable Slot</h1></div>
+    <a href="{{ url_for('timetable_view') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+<form method="POST">
+<div class="card">
+    <div class="card-body">
+        <div class="form-grid">
+            <div class="form-group"><label>Class <span class="required">*</span></label>
+                <select name="class_id" class="form-control" required>{% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
+            </div>
+            <div class="form-group"><label>Day <span class="required">*</span></label>
+                <select name="day_of_week" class="form-control" required>{% for d in days %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select>
+            </div>
+            <div class="form-group"><label>Period <span class="required">*</span></label><input type="number" name="period" class="form-control" min="1" max="10" required></div>
+            <div class="form-group"><label>Start Time <span class="required">*</span></label><input type="time" name="start_time" class="form-control" required></div>
+            <div class="form-group"><label>End Time <span class="required">*</span></label><input type="time" name="end_time" class="form-control" required></div>
+            <div class="form-group"><label>Subject</label>
+                <select name="subject_id" class="form-control"><option value="">Select</option>{% for s in subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
+            </div>
+            <div class="form-group"><label>Teacher</label>
+                <select name="staff_id" class="form-control"><option value="">Select</option>{% for s in staff %}<option value="{{ s.id }}">{{ s.first_name }} {{ s.last_name }}</option>{% endfor %}</select>
+            </div>
+            <div class="form-group"><label>Room</label><input type="text" name="room" class="form-control"></div>
+        </div>
+    </div>
+</div>
+<div class="mt-2 d-flex gap-1">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Add Slot</button>
+    <a href="{{ url_for('timetable_view') }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+{% endblock %}

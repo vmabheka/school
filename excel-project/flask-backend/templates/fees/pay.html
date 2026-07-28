@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}Record Payment{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1><i class="fas fa-cash-register" style="color:var(--primary);margin-right:8px;"></i>Record Fee Payment</h1>
+        <p>Record a new fee payment — only Accountants and Bursars can record payments.</p>
+    </div>
+    <a href="{{ url_for('fees_dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+
+{% if not can_record_payments %}
+<div class="flash danger" style="position:relative; max-width:none; margin-bottom:16px;">
+    <i class="fas fa-exclamation-circle"></i>
+    You do not have permission to record payments. This action is restricted to Accountants and Bursars.
+</div>
+{% endif %}
+
+<form method="POST" {% if not can_record_payments %}onsubmit="return false;"{% endif %}>
+<div class="grid-2">
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-user-graduate"></i> Payment Details</h3></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>Student <span class="required">*</span></label>
+
+                {# Search box + Search button + Reset #}
+                <div class="d-flex gap-1" style="margin-bottom:10px;">
+                    <input type="text" id="studentSearch" class="form-control"
+                           placeholder="Search by name, admission # or class..."
+                           autocomplete="off"
+                           style="flex:1;"
+                           {% if prefill_student_id %}value="{{ prefill_student_id }}"{% endif %}>
+                    <button type="button" id="studentSearchBtn" class="btn btn-primary"
+                            onclick="searchStudents()" title="Search students (Enter)">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                    <button type="button" class="btn btn-secondary"
+                            onclick="resetStudentSearch()" title="Show all students">
+                        <i class="fas fa-undo"></i>
+                    </button>
+                </div>
+
+                <select name="student_id" id="studentSelect" class="form-control" required
+                        size="10" style="height:auto; min-height:200px;">
+                    <option value="" disabled>-- Select Student --</option>
+                    {% for s in students %}
+                    <option value="{{ s.id }}"
+                            data-key="{{ ((s.admission_number or '') ~ ' ' ~ (s.first_name or '') ~ ' ' ~ (s.last_name or '') ~ ' ' ~ (s.other_names or '') ~ ' ' ~ ((s.class_.name if s.class_) or ''))|lower }}"
+                            {% if prefill_student_id == s.id %}selected{% endif %}>
+                        {{ s.admission_number }} — {{ s.first_name }} {{ s.last_name }}{% if s.class_ %} ({{ s.class_.name }}){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small id="searchStatus" style="display:block; margin-top:8px; color:var(--text-light);">
+                    <i class="fas fa-info-circle"></i> Showing all {{ students|length }} active student{{ '' if students|length == 1 else 's' }}. Type to filter.
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>Amount (USD) <span class="required">*</span></label>
+                <input type="number" name="amount" id="amountInput" class="form-control" step="0.01" min="0.01" required>
+            </div>
+            <div class="form-group">
+                <label>Payment Date</label>
+                <input type="date" name="payment_date" class="form-control" value="{{ today }}">
+            </div>
+            <div class="form-group">
+                <label>Payment Method <span class="required">*</span></label>
+                <select name="payment_method" class="form-control" required>
+                    <option value="Cash">Cash</option>
+                    <option value="EcoCash">EcoCash</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Swipe">Swipe (POS)</option>
+                    <option value="RTGS">RTGS</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <input type="text" name="description" class="form-control"
+                       placeholder="e.g., Tuition payment for Term 2">
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-calendar-alt"></i> Period</h3></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>Academic Year</label>
+                <select name="academic_year_id" class="form-control">
+                    {% for ay in academic_years %}<option value="{{ ay.id }}" {% if ay.is_current %}selected{% endif %}>{{ ay.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Term</label>
+                <select name="term_id" class="form-control">
+                    {% for t in terms %}<option value="{{ t.id }}" {% if t.is_current %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div id="balanceInfo" style="margin-top:20px;padding:16px;background:var(--bg);border-radius:8px;display:none;">
+                <h4 style="font-size:14px;margin-bottom:8px;"><i class="fas fa-info-circle"></i> Fee Balance</h4>
+                <div id="balanceDetails"></div>
+                <button type="button" class="btn btn-sm btn-secondary mt-1" onclick="fillOutstandingBalance()" id="fillBalanceBtn" style="display:none;">
+                    <i class="fas fa-magic"></i> Fill outstanding balance
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="mt-2 d-flex gap-1">
+    <button type="submit" class="btn btn-primary" {% if not can_record_payments %}disabled{% endif %}>
+        <i class="fas fa-save"></i> Record Payment
+    </button>
+    <a href="{{ url_for('fees_dashboard') }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+
+<script>
+(function() {
+    const searchInput = document.getElementById('studentSearch');
+    const select = document.getElementById('studentSelect');
+    const status = document.getElementById('searchStatus');
+    const totalOptions = select.options.length - 1; // exclude placeholder
+
+    function escapeHtml(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    window.searchStudents = function() {
+        const query = (searchInput.value || '').trim().toLowerCase();
+        let visible = 0;
+        let total = 0;
+
+        Array.from(select.options).forEach((option, idx) => {
+            if (idx === 0) {
+                // Always show placeholder
+                option.hidden = false;
+                return;
+            }
+            total++;
+            const key = (option.getAttribute('data-key') || option.text || '').toLowerCase();
+            const matches = !query || key.indexOf(query) !== -1;
+            option.hidden = !matches;
+            if (matches) visible++;
+        });
+
+        if (query) {
+            if (visible === 0) {
+                status.innerHTML = '<span style="color:var(--danger);"><i class="fas fa-times-circle"></i> No students match "<strong>' + escapeHtml(searchInput.value) + '</strong>"</span>';
+            } else if (visible === total) {
+                status.innerHTML = '<i class="fas fa-check-circle" style="color:var(--success);"></i> ' + visible + ' student' + (visible === 1 ? '' : 's') + ' match "<strong>' + escapeHtml(searchInput.value) + '</strong>" (all)';
+            } else {
+                status.innerHTML = '<i class="fas fa-check-circle" style="color:var(--success);"></i> Found <strong>' + visible + '</strong> of ' + total + ' students matching "<strong>' + escapeHtml(searchInput.value) + '</strong>"';
+            }
+        } else {
+            status.innerHTML = '<i class="fas fa-info-circle"></i> Showing all ' + total + ' active student' + (total === 1 ? '' : 's') + '. Type to filter.';
+        }
+    };
+
+    window.resetStudentSearch = function() {
+        searchInput.value = '';
+        window.searchStudents();
+        searchInput.focus();
+    };
+
+    // Trigger search when user presses Enter in the search box
+    searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            window.searchStudents();
+        }
+    });
+
+    // Auto-run search if there's a prefilled value (e.g., arrived from a debtors link)
+    if (searchInput.value) {
+        window.searchStudents();
+    }
+
+    // ─── Balance lookup ───
+    select.addEventListener('change', function() {
+        const studentId = this.value;
+        if (!studentId) {
+            document.getElementById('balanceInfo').style.display = 'none';
+            return;
+        }
+        fetch('/fees/balance/' + studentId)
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('balanceInfo').style.display = 'block';
+                document.getElementById('balanceDetails').innerHTML = `
+                    <p style="font-size:13px;margin:4px 0;"><strong>Student:</strong> ${escapeHtml(data.student)}</p>
+                    <p style="font-size:13px;margin:4px 0;"><strong>Classification:</strong> ${escapeHtml(data.scholarship_label || 'Regular')}</p>
+                    <p style="font-size:13px;margin:4px 0;"><strong>Net Due:</strong> $${data.net_due.toFixed(2)}</p>
+                    <p style="font-size:13px;margin:4px 0;color:var(--success);"><strong>Paid:</strong> $${data.total_paid.toFixed(2)}</p>
+                    <p style="font-size:14px;margin:8px 0 4px;color:${data.balance > 0 ? 'var(--danger)' : 'var(--success)'};">
+                        <strong>Outstanding Balance:</strong> $${data.balance.toFixed(2)}
+                    </p>
+                `;
+                const fillBtn = document.getElementById('fillBalanceBtn');
+                if (data.balance > 0) {
+                    fillBtn.style.display = 'inline-flex';
+                    fillBtn.setAttribute('data-balance', data.balance.toFixed(2));
+                } else {
+                    fillBtn.style.display = 'none';
+                }
+            })
+            .catch(() => {
+                document.getElementById('balanceInfo').style.display = 'none';
+            });
+    });
+
+    window.fillOutstandingBalance = function() {
+        const btn = document.getElementById('fillBalanceBtn');
+        const balance = btn.getAttribute('data-balance');
+        if (balance) {
+            document.getElementById('amountInput').value = balance;
+            document.getElementById('amountInput').focus();
+            document.getElementById('amountInput').select();
+        }
+    };
+
+    // If a student is prefilled (e.g., from a debtors link), trigger balance load
+    if (select.value) {
+        select.dispatchEvent(new Event('change'));
+    }
+})();
+</script>
+{% endblock %}

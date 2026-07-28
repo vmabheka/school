@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Fee Levels{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Fee Levels</h1>
+        <p>Manage default editable fee amounts per level: ECD, Junior (Grade 1–7), O Level (Form 1–4), A Level (Form 5–6)</p>
+    </div>
+    <div class="actions">
+        <a href="{{ url_for('fee_level_add') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Add Fee Level</a>
+        <a href="{{ url_for('fees_dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back to Fees</a>
+    </div>
+</div>
+
+<!-- Level Summary Cards -->
+<div class="stats-grid">
+    {% for fl in levels %}
+    <div class="stat-card">
+        <div class="icon green"><i class="fas fa-layer-group"></i></div>
+        <div class="info">
+            <h3>{{ fl.name }}</h3>
+            <p>{{ fl.description or '' }}</p>
+            <p style="margin-top:4px;"><strong>${{ "%.2f"|format(fl.total) }}</strong> / term recurring</p>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Fee Levels Breakdown (Editable Defaults)</h3></div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Level</th>
+                    <th>Code</th>
+                    <th>Description</th>
+                    <th>Tuition (Term)</th>
+                    <th>Dev Levy (Term)</th>
+                    <th>Reg Fee (Once-off)</th>
+                    <th>Textbook Levy (Once-off)</th>
+                    <th>Term Total</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fl in levels %}
+                <tr>
+                    <td><strong>{{ fl.name }}</strong></td>
+                    <td><span class="badge badge-info">{{ fl.code }}</span></td>
+                    <td>{{ fl.description or '-' }}</td>
+                    <td style="color:var(--primary); font-weight:bold;">${{ "%.2f"|format(fl.tuition) }}</td>
+                    <td>${{ "%.2f"|format(fl.development_levy or 0) }}</td>
+                    <td>${{ "%.2f"|format(fl.registration_fee or 0) }}</td>
+                    <td>${{ "%.2f"|format(fl.textbook_levy or 0) }}</td>
+                    <td><strong>${{ "%.2f"|format(fl.total) }}</strong></td>
+                    <td>
+                        <a href="{{ url_for('fee_level_edit', id=fl.id) }}" class="btn btn-sm btn-secondary" title="Edit Level Fees"><i class="fas fa-edit"></i> Edit</a>
+                        <form method="POST" action="{{ url_for('fee_level_delete', id=fl.id) }}" style="display:inline;" onsubmit="return confirm('Delete this fee level?');">
+                            <button type="submit" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="9" class="text-center" style="padding:20px;color:var(--text-light);">No fee levels defined. Add one above.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Level Mapping Reference -->
+<div class="card mt-2">
+    <div class="card-header"><h3>Level Mapping & Once-off Fee Rules</h3></div>
+    <div class="card-body">
+        <table style="width:100%;font-size:13px;">
+            <thead><tr><th>Fee Level</th><th>Classes Included</th><th>Recurring Term Fees</th><th>Once-off Levies (New Learners Only)</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td><strong>ECD</strong></td>
+                    <td>ECD A, ECD B</td>
+                    <td>Tuition ($150) + Dev Levy ($0)</td>
+                    <td>Registration ($10) + Textbook Levy ($56)</td>
+                </tr>
+                <tr>
+                    <td><strong>Junior</strong></td>
+                    <td>Grade 1 – Grade 7</td>
+                    <td>Tuition ($100) + Dev Levy ($0)</td>
+                    <td>Registration ($10) + Textbook Levy ($126)</td>
+                </tr>
+                <tr>
+                    <td><strong>O Level</strong></td>
+                    <td>Form 1 – Form 4</td>
+                    <td>Tuition ($100) + Dev Levy ($30)</td>
+                    <td>Registration ($10) + Textbook Levy ($56)</td>
+                </tr>
+                <tr>
+                    <td><strong>A Level</strong></td>
+                    <td>Form 5 – Form 6</td>
+                    <td>Tuition ($150) + Dev Levy ($30)</td>
+                    <td>Registration ($10) + Textbook Levy ($45)</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

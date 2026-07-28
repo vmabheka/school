@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Add Exam{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Add Exam</h1><p>Create a new examination</p></div>
+    <a href="{{ url_for('exams_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+
+<form method="POST">
+<div class="card">
+    <div class="card-body">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Exam Name <span class="required">*</span></label>
+                <input type="text" name="name" class="form-control" required placeholder="e.g., Mid-Term Exam">
+            </div>
+            <div class="form-group">
+                <label>Exam Type</label>
+                <select name="exam_type" class="form-control">
+                    <option value="Mid-Term">Mid-Term</option>
+                    <option value="End-of-Term">End-of-Term</option>
+                    <option value="Assignment">Assignment</option>
+                    <option value="Quiz">Quiz</option>
+                    <option value="Mock">Mock Exam</option>
+                    <option value="Final">Final Exam</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Term</label>
+                <select name="term_id" class="form-control">
+                    {% for t in terms %}<option value="{{ t.id }}" {% if t.is_current %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Academic Year</label>
+                <select name="academic_year_id" class="form-control">
+                    {% for ay in academic_years %}<option value="{{ ay.id }}" {% if ay.is_current %}selected{% endif %}>{{ ay.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Start Date</label>
+                <input type="date" name="start_date" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>End Date</label>
+                <input type="date" name="end_date" class="form-control">
+            </div>
+        </div>
+    </div>
+</div>
+<div class="mt-2 d-flex gap-1">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Create Exam</button>
+    <a href="{{ url_for('exams_list') }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+{% endblock %}

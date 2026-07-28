@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Invoice View - {{ invoice.invoice_number }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Student Fee Invoice</h1>
+        <p>Invoice #{{ invoice.invoice_number }} for {{ invoice.student.first_name }} {{ invoice.student.last_name }}</p>
+    </div>
+    <div class="actions no-print d-flex gap-1">
+        <a href="{{ url_for('invoice_pdf', id=invoice.id) }}" class="btn btn-primary"><i class="fas fa-file-pdf"></i> Download PDF</a>
+        <button onclick="window.print()" class="btn btn-secondary"><i class="fas fa-print"></i> Print</button>
+        {% if session.get('user_role') in ['super_admin', 'accountant', 'bursar', 'admin', 'staff'] %}
+        {% if can_record_payments %}
+        <a href="{{ url_for('fee_pay') }}?student_id={{ invoice.student.id }}" class="btn btn-secondary"><i class="fas fa-plus"></i> Pay Fee</a>
+        {% endif %}
+        {% endif %}
+        <a href="{{ url_for('invoices_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back to Invoices</a>
+    </div>
+</div>
+
+<div class="card" style="max-width:800px; margin:0 auto;">
+    <div class="card-body" style="padding:40px;">
+        <div style="text-align:center; margin-bottom:30px; border-bottom:2px solid var(--primary); padding-bottom:20px;">
+            <h2 style="color:var(--primary); margin-bottom:4px;">Excel Group of Schools</h2>
+            <p style="color:var(--text-light); font-size:13px;">OFFICIAL STUDENT FEE INVOICE</p>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:16px;">
+            <div>
+                <p style="font-size:13px; color:var(--text-light); margin:0;">Invoice Number</p>
+                <p style="font-weight:700; font-size:16px; margin:0 0 8px 0; color:var(--primary);">{{ invoice.invoice_number }}</p>
+
+                <p style="font-size:13px; color:var(--text-light); margin:0;">Student Name</p>
+                <p style="font-weight:600; font-size:15px; margin:0 0 8px 0;">{{ invoice.student.first_name }} {{ invoice.student.last_name }} ({{ invoice.student.admission_number }})</p>
+                
+                <p style="font-size:13px; color:var(--text-light); margin:0;">Class</p>
+                <p style="font-weight:600; font-size:14px; margin:0;">{{ invoice.student.class_.name if invoice.student.class_ else 'Unassigned' }}</p>
+            </div>
+            <div style="text-align:right;">
+                <p style="font-size:13px; color:var(--text-light); margin:0;">Status</p>
+                <p style="margin:0 0 8px 0;">
+                    {% if invoice.status == 'Paid' %}
+                    <span class="badge" style="background:#dcfce7; color:#15803d; font-size:13px; padding:4px 10px;">Paid</span>
+                    {% elif invoice.status == 'Partially Paid' %}
+                    <span class="badge" style="background:#fef9c3; color:#a16207; font-size:13px; padding:4px 10px;">Partially Paid</span>
+                    {% else %}
+                    <span class="badge" style="background:#fee2e2; color:#b91c1c; font-size:13px; padding:4px 10px;">Unpaid</span>
+                    {% endif %}
+                </p>
+
+                <p style="font-size:13px; color:var(--text-light); margin:0;">Issue Date</p>
+                <p style="font-weight:600; font-size:14px; margin:0 0 8px 0;">{{ invoice.issue_date }}</p>
+
+                <p style="font-size:13px; color:var(--text-light); margin:0;">Term / Academic Year</p>
+                <p style="font-weight:600; font-size:14px; margin:0;">{{ invoice.term.name if invoice.term else '' }} ({{ invoice.academic_year.name if invoice.academic_year else '' }})</p>
+            </div>
+        </div>
+
+        <h4 style="margin-top:20px; margin-bottom:10px; color:var(--text-dark); border-bottom:1px solid var(--border); padding-bottom:6px;">Fee Item Breakdown</h4>
+        <div class="table-container mb-3">
+            <table style="width:100%;">
+                <thead>
+                    <tr style="background:var(--primary); color:#ffffff;">
+                        <th style="padding:10px; text-align:left;">Description</th>
+                        <th style="padding:10px; text-align:right; width:150px;">Amount ($)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in invoice.items %}
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <td style="padding:10px;">{{ item.description }}</td>
+                        <td style="padding:10px; text-align:right; font-weight:600;">${{ "%.2f"|format(item.amount) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <td style="padding:10px;">General Term Fee</td>
+                        <td style="padding:10px; text-align:right; font-weight:600;">${{ "%.2f"|format(invoice.subtotal) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; margin-bottom:30px;">
+            <table style="width:320px; font-size:14px;">
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:6px 0; color:var(--text-light);">Subtotal:</td>
+                    <td style="padding:6px 0; text-align:right; font-weight:600;">${{ "%.2f"|format(invoice.subtotal) }}</td>
+                </tr>
+                {% if invoice.discount_amount > 0 %}
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:6px 0; color:#dc2626;">Scholarship Discount ({{ invoice.student.fee_classification }}):</td>
+                    <td style="padding:6px 0; text-align:right; font-weight:600; color:#dc2626;">-${{ "%.2f"|format(invoice.discount_amount) }}</td>
+                </tr>
+                {% endif %}
+                <tr style="border-bottom:2px solid var(--primary);">
+                    <td style="padding:8px 0; font-weight:700; font-size:15px;">Net Invoice Total:</td>
+                    <td style="padding:8px 0; text-align:right; font-weight:700; font-size:16px; color:var(--primary);">${{ "%.2f"|format(invoice.total_amount) }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:6px 0; color:var(--text-light);">Payments Received:</td>
+                    <td style="padding:6px 0; text-align:right; font-weight:600; color:#15803d;">${{ "%.2f"|format(total_paid) }}</td>
+                </tr>
+                <tr>
+                    <td style="padding:8px 0; font-weight:700; font-size:15px;">Current Balance Due:</td>
+                    <td style="padding:8px 0; text-align:right; font-weight:700; font-size:17px; color:{{ '#b91c1c' if balance > 0 else '#15803d' }};">${{ "%.2f"|format(balance) }}</td>
+                </tr>
+            </table>
+        </div>
+
+        {% if payments %}
+        <h4 style="margin-top:20px; margin-bottom:10px; color:var(--text-dark); border-bottom:1px solid var(--border); padding-bottom:6px;">Payment History (Term {{ invoice.term.name if invoice.term else '' }})</h4>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Receipt #</th><th>Date</th><th>Method</th><th>Amount</th><th>Receipt</th></tr>
+                </thead>
+                <tbody>
+                    {% for p in payments %}
+                    <tr>
+                        <td><strong>{{ p.receipt_number }}</strong></td>
+                        <td>{{ p.payment_date }}</td>
+                        <td><span class="badge badge-info">{{ p.payment_method or 'Cash' }}</span></td>
+                        <td style="font-weight:600; color:#15803d;">${{ "%.2f"|format(p.amount) }}</td>
+                        <td><a href="{{ url_for('fee_receipt', id=p.id) }}" class="btn btn-sm btn-secondary"><i class="fas fa-receipt"></i></a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <div style="margin-top:40px; text-align:center; padding-top:20px; border-top:1px dashed var(--border);">
+            <p style="font-size:12px; color:var(--text-light);">Please ensure all fee payments are made before the due date.</p>
+            <p style="font-size:12px; color:var(--text-light);">Excel Group of Schools v2.0.0 — Valentine T Mabheka</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

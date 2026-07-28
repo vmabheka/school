@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ exam.name }} - Results{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>{{ exam.name }} - Results</h1><p>{{ exam.exam_type or '' }}</p></div>
+    <a href="{{ url_for('exams_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+
+<!-- Enter Results -->
+{% if session.get('user_role') in ['super_admin', 'teacher', 'admin', 'staff'] %}
+<div class="card mb-2">
+    <div class="card-header"><h3>Enter Results</h3></div>
+    <div class="card-body">
+        <form method="POST">
+            <div class="form-grid mb-2">
+                <div class="form-group">
+                    <label>Class</label>
+                    <select name="class_id" class="form-control" id="classSelect">
+                        <option value="">Select Class</option>
+                        {% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Subject</label>
+                    <select name="subject_id" class="form-control">
+                        <option value="">Select Subject</option>
+                        {% for s in subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+                    </select>
+                </div>
+            </div>
+            <p style="font-size:13px;color:var(--text-light);margin-bottom:12px;">Select a class and subject above, then enter marks for each student below.</p>
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>#</th><th>Adm No.</th><th>Name</th><th>Marks</th><th>Total</th></tr></thead>
+                    <tbody>
+                        {% for c in classes %}
+                        {% set class_students = c.students|selectattr('status', 'equalto', 'Active')|list %}
+                        {% for student in class_students %}
+                        <tr data-class="{{ c.id }}" style="display:none;">
+                            <td>{{ loop.index }}</td>
+                            <td>{{ student.admission_number }}</td>
+                            <td>{{ student.first_name }} {{ student.last_name }}</td>
+                            <td><input type="number" name="marks_{{ student.id }}" class="form-control" step="0.5" min="0" style="width:100px;"></td>
+                            <td><input type="number" name="total_{{ student.id }}" class="form-control" value="100" style="width:100px;"></td>
+                        </tr>
+                        {% endfor %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-2">
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Results</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<!-- View Results -->
+<div class="card">
+    <div class="card-header"><h3>Existing Results</h3></div>
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Student</th><th>Class</th><th>Subject</th><th>Marks</th><th>Total</th><th>Grade</th><th>Actions</th></tr></thead>
+            <tbody>
+                {% for r in results %}
+                <tr>
+                    <td>{{ r.student.first_name }} {{ r.student.last_name }}</td>
+                    <td>{{ r.student.class_.name if r.student.class_ else '-' }}</td>
+                    <td>{{ r.subject.name if r.subject else '-' }}</td>
+                    <td>{{ r.marks_obtained }}</td>
+                    <td>{{ r.marks_total }}</td>
+                    <td><span class="badge badge-{{ 'success' if r.grade in ['A','B'] else 'warning' if r.grade == 'C' else 'danger' }}">{{ r.grade }}</span></td>
+                    <td>
+                        <a href="{{ url_for('report_card', exam_id=exam.id, student_id=r.student_id) }}" class="btn btn-sm btn-secondary"><i class="fas fa-file-alt"></i> Report</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-center" style="padding:20px;color:var(--text-light);">No results yet</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+document.getElementById('classSelect').addEventListener('change', function() {
+    const classId = this.value;
+    document.querySelectorAll('tr[data-class]').forEach(row => {
+        row.style.display = row.dataset.class === classId ? '' : 'none';
+    });
+});
+</script>
+{% endblock %}

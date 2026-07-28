@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Bulk Import Staff{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1><i class="fas fa-file-excel" style="color:var(--success)"></i> Bulk Import Staff</h1><p>Import multiple staff members with role allocation from an Excel file</p></div>
+    <div class="actions">
+        <a href="{{ url_for('staff_excel_template') }}" class="btn btn-info"><i class="fas fa-file-excel"></i> Download Template</a>
+        <a href="{{ url_for('staff_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+</div>
+
+<!-- Role Allocation Info -->
+<div class="card" style="border-left:4px solid var(--accent);margin-bottom:20px">
+    <div class="card-body" style="display:flex;align-items:center;gap:16px">
+        <div style="width:40px;height:40px;background:var(--accent);color:#fff;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px"><i class="fas fa-user-shield"></i></div>
+        <div style="flex:1">
+            <p style="margin:0;font-size:13px"><strong>Role Allocation:</strong> The template includes <code>role</code>, <code>username</code>, and <code>password</code> columns. Each imported staff member automatically gets a user account with the specified role. Leave username/password blank to use the employee number as default.</p>
+        </div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-file-excel" style="color:var(--success)"></i> Upload Excel File</h3></div>
+        <div class="card-body">
+            <form method="POST" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label>Select Excel File <span class="required">*</span></label>
+                    <input type="file" name="import_file" class="form-control" accept=".xlsx,.xls" required>
+                    <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Accepted formats: .xlsx, .xls</p>
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> Import Staff & Create Users</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Template Columns</h3></div>
+        <div class="card-body" style="font-size:12px;line-height:1.7">
+            <table style="width:100%;border-collapse:collapse">
+                <tr style="border-bottom:2px solid var(--primary)"><td style="padding:4px 0;font-weight:700;color:var(--primary)" colspan="2">Required</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light);width:35%">first_name *</td><td>First name</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">last_name *</td><td>Last name</td></tr>
+                <tr style="border-bottom:2px solid var(--accent)"><td style="padding:2px 0;color:var(--accent);font-weight:600" colspan="2">Role & User Account</td></tr>
+                <tr><td style="padding:2px 0;color:var(--accent);font-weight:600">role</td><td>super_admin, accountant, bursar, teacher</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">username</td><td>Default: employee_number</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">password</td><td>Default: employee_number</td></tr>
+                <tr style="border-bottom:2px solid var(--border)"><td style="padding:4px 0;font-weight:600;color:var(--text)" colspan="2">Personal Info</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">employee_number</td><td>Auto-generated if blank</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">date_of_birth</td><td>YYYY-MM-DD</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">gender</td><td>Male / Female</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">national_id</td><td>National ID number</td></tr>
+                <tr style="border-bottom:2px solid var(--border)"><td style="padding:4px 0;font-weight:600;color:var(--text)" colspan="2">Professional</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">qualification</td><td>B.Ed, Diploma, etc.</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">specialization</td><td>Subject area</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">department</td><td>Sciences, Languages, etc.</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">position</td><td>Teacher, Head, Clerk, etc.</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">employment_date</td><td>YYYY-MM-DD</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">salary</td><td>Numeric value</td></tr>
+                <tr><td style="padding:2px 0;color:var(--text-light)">phone, email, address</td><td>Contact details</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Role Mapping Reference -->
+<div class="card mt-2">
+    <div class="card-header"><h3><i class="fas fa-shield-alt" style="color:var(--primary)"></i> Role Auto-Mapping from Position</h3></div>
+    <div class="card-body" style="font-size:12px">
+        <p style="margin-bottom:12px">If the <code>role</code> column is blank, the system assigns a role based on the <code>position</code> column:</p>
+        <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:var(--bg)"><th style="padding:8px;text-align:left">Position</th><th style="padding:8px;text-align:left">Auto-Assigned Role</th></tr></thead>
+            <tbody>
+                <tr><td style="padding:6px 8px;border-bottom:1px solid var(--border)">Director, Head, Deputy Head</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)"><span class="badge badge-danger">Super Admin</span></td></tr>
+                <tr><td style="padding:6px 8px;border-bottom:1px solid var(--border)">Accountant</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)"><span class="badge badge-success">Accountant</span></td></tr>
+                <tr><td style="padding:6px 8px;border-bottom:1px solid var(--border)">Clerk, Bursar, Warden, Driver</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)"><span class="badge badge-info">Bursar</span></td></tr>
+                <tr><td style="padding:6px 8px">Teacher, Librarian, HOD</td><td style="padding:6px 8px"><span class="badge badge-warning">Teacher</span></td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt-2">
+    <div class="card-body" style="text-align:center;color:var(--text-light);font-size:12px;">
+        Excel Group of Schools Management System v2.0.0 — Developed by Valentine T Mabheka
+    </div>
+</div>
+{% endblock %}

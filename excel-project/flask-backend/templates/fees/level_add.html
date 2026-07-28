@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Add Fee Level{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Add Fee Level</h1><p>Create a new level and configure recurring term fees and once-off levies</p></div>
+    <a href="{{ url_for('fee_levels_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+
+<form method="POST">
+<div class="card">
+    <div class="card-header"><h3>Fee Level Details & Amounts</h3></div>
+    <div class="card-body">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Level Name <span class="required">*</span></label>
+                <input type="text" name="name" class="form-control" required placeholder="e.g. Junior">
+            </div>
+            <div class="form-group">
+                <label>Code <span class="required">*</span></label>
+                <input type="text" name="code" class="form-control" required placeholder="e.g. JNR">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Description</label>
+            <input type="text" name="description" class="form-control" placeholder="e.g. Grade 1 to Grade 7">
+        </div>
+        
+        <hr style="margin:20px 0;">
+        <h4 style="margin-bottom:12px; color:var(--primary);">Recurring Term Fees (Billed Every Term to All Students)</h4>
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Tuition Fee ($ per term)</label>
+                <input type="number" name="tuition" class="form-control" step="0.01" value="100.00">
+            </div>
+            <div class="form-group">
+                <label>Development Levy ($ per term)</label>
+                <input type="number" name="development_levy" class="form-control" step="0.01" value="0.00">
+            </div>
+        </div>
+
+        <hr style="margin:20px 0;">
+        <h4 style="margin-bottom:12px; color:#d97706;">Once-Off Levies (Billed Only to New Students Added After First Bulk Import)</h4>
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Registration Fee ($ once-off)</label>
+                <input type="number" name="registration_fee" class="form-control" step="0.01" value="10.00">
+            </div>
+            <div class="form-group">
+                <label>Textbook Levy ($ once-off)</label>
+                <input type="number" name="textbook_levy" class="form-control" step="0.01" value="56.00">
+            </div>
+        </div>
+
+        <hr style="margin:20px 0;">
+        <h4 style="margin-bottom:12px; color:var(--text-light); font-size:14px;">Optional / Additional Fees ($ per term)</h4>
+        <div class="form-grid">
+            <div class="form-group"><label>Boarding</label><input type="number" name="boarding" class="form-control" step="0.01" value="0"></div>
+            <div class="form-group"><label>Transport</label><input type="number" name="transport" class="form-control" step="0.01" value="0"></div>
+            <div class="form-group"><label>Lunch</label><input type="number" name="lunch" class="form-control" step="0.01" value="0"></div>
+            <div class="form-group"><label>Library</label><input type="number" name="library" class="form-control" step="0.01" value="0"></div>
+            <div class="form-group"><label>Technology</label><input type="number" name="technology" class="form-control" step="0.01" value="0"></div>
+            <div class="form-group"><label>Sports</label><input type="number" name="sports" class="form-control" step="0.01" value="0"></div>
+            <div class="form-group"><label>Other</label><input type="number" name="other" class="form-control" step="0.01" value="0"></div>
+        </div>
+    </div>
+</div>
+<div class="mt-2 d-flex gap-1">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Create Fee Level</button>
+    <a href="{{ url_for('fee_levels_list') }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+{% endblock %}

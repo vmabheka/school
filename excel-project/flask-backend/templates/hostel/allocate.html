@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Allocate Room{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Allocate Room</h1></div>
+    <a href="{{ url_for('hostel_dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+<form method="POST">
+<div class="card">
+    <div class="card-body">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Student <span class="required">*</span></label>
+                <select name="student_id" class="form-control" required>
+                    <option value="">Select Student</option>
+                    {% for s in students %}<option value="{{ s.id }}">{{ s.admission_number }} - {{ s.first_name }} {{ s.last_name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Room <span class="required">*</span></label>
+                <select name="room_id" class="form-control" required>
+                    <option value="">Select Room</option>
+                    {% for r in rooms %}<option value="{{ r.id }}">{{ r.hostel.name }} - Room {{ r.room_number }} ({{ r.capacity - r.current_occupancy }} beds available)</option>{% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="mt-2 d-flex gap-1">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Allocate</button>
+    <a href="{{ url_for('hostel_dashboard') }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+{% endblock %}

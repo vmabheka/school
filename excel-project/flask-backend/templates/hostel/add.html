@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Add Hostel{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Add Hostel</h1></div>
+    <a href="{{ url_for('hostel_dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+<form method="POST">
+<div class="card">
+    <div class="card-body">
+        <div class="form-grid">
+            <div class="form-group"><label>Hostel Name <span class="required">*</span></label><input type="text" name="name" class="form-control" required></div>
+            <div class="form-group"><label>Gender</label>
+                <select name="gender" class="form-control"><option value="Male">Boys</option><option value="Female">Girls</option></select>
+            </div>
+            <div class="form-group"><label>Capacity</label><input type="number" name="capacity" class="form-control" value="100"></div>
+            <div class="form-group"><label>Warden</label>
+                <select name="warden_id" class="form-control"><option value="">Select</option>{% for w in wardens %}<option value="{{ w.id }}">{{ w.first_name }} {{ w.last_name }}</option>{% endfor %}</select>
+            </div>
+            <div class="form-group"><label>Number of Rooms</label><input type="number" name="num_rooms" class="form-control" value="25"></div>
+            <div class="form-group"><label>Beds per Room</label><input type="number" name="room_capacity" class="form-control" value="4"></div>
+        </div>
+    </div>
+</div>
+<div class="mt-2 d-flex gap-1">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Add Hostel</button>
+    <a href="{{ url_for('hostel_dashboard') }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+{% endblock %}

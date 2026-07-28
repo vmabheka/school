@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ staff.first_name }} {{ staff.last_name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Staff Profile</h1><p>Employee No: {{ staff.employee_number }}</p></div>
+    <div class="actions">
+        {% if session.get('user_role') == 'admin' %}
+        <a href="{{ url_for('staff_edit', id=staff.id) }}" class="btn btn-primary"><i class="fas fa-edit"></i> Edit</a>
+        {% endif %}
+        <a href="{{ url_for('staff_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+</div>
+
+<div class="profile-header">
+    <div class="avatar-lg">{{ staff.first_name[0] }}{{ staff.last_name[0] }}</div>
+    <div>
+        <h2>{{ staff.first_name }} {{ staff.other_names }} {{ staff.last_name }}</h2>
+        <p>{{ staff.position or 'Staff' }} &bull; {{ staff.department or 'No Department' }} &bull; {{ staff.status }}</p>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <div class="card-header"><h3>Personal Details</h3></div>
+        <div class="card-body">
+            <table style="width:100%;font-size:13px;">
+                <tr><td style="padding:8px 0;color:var(--text-light);width:40%;">Date of Birth</td><td>{{ staff.date_of_birth or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Gender</td><td>{{ staff.gender or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">National ID</td><td>{{ staff.national_id or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Qualification</td><td>{{ staff.qualification or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Specialization</td><td>{{ staff.specialization or '-' }}</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><h3>Employment & Contact</h3></div>
+        <div class="card-body">
+            <table style="width:100%;font-size:13px;">
+                <tr><td style="padding:8px 0;color:var(--text-light);width:40%;">Employment Date</td><td>{{ staff.employment_date or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Salary</td><td>${{ "%.2f"|format(staff.salary) if staff.salary else '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Phone</td><td>{{ staff.phone or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Email</td><td>{{ staff.email or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Address</td><td>{{ staff.address or '-' }}</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><h3>Subject Assignments</h3></div>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Subject</th><th>Class</th></tr></thead>
+                <tbody>
+                    {% for s in subjects %}
+                    <tr><td>{{ s.subject.name if s.subject else '-' }}</td><td>{{ s.class_.name if s.class_ else '-' }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="2" class="text-center" style="padding:16px;color:var(--text-light);">No assignments</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><h3>Recent Attendance</h3></div>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Date</th><th>Status</th><th>In</th><th>Out</th></tr></thead>
+                <tbody>
+                    {% for a in attendances[:10] %}
+                    <tr>
+                        <td>{{ a.date }}</td>
+                        <td><span class="badge badge-{{ 'success' if a.status == 'Present' else 'danger' if a.status == 'Absent' else 'warning' }}">{{ a.status }}</span></td>
+                        <td>{{ a.time_in or '-' }}</td>
+                        <td>{{ a.time_out or '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-center" style="padding:16px;color:var(--text-light);">No records</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

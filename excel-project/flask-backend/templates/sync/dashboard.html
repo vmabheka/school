@@ -1,0 +1,413 @@
+{% extends "base.html" %}
+{% block title %}Sync Center{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1><i class="fas fa-sync-alt" style="color:var(--primary)"></i> Sync Center</h1>
+    <p>Manage offline-online synchronization — one button to sync everything</p></div>
+</div>
+
+<!-- Internet & Access Point Status -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-wifi" style="color:var(--primary)"></i> Connection & Access Point Status</h3></div>
+    <div class="card-body">
+        <div id="connection-status" style="display:flex;align-items:center;gap:16px;padding:12px;background:var(--bg);border-radius:8px;margin-bottom:16px">
+            <div id="conn-icon" style="width:56px;height:56px;border-radius:50%;background:#9ca3af;display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px">
+                <i class="fas fa-question"></i>
+            </div>
+            <div style="flex:1">
+                <h4 id="conn-title" style="margin:0">Checking connection...</h4>
+                <p id="conn-detail" style="margin:4px 0 0;color:var(--text-light);font-size:13px">Detecting internet access and sync endpoint</p>
+            </div>
+            <button onclick="checkInternet()" class="btn btn-sm" style="background:var(--bg);border:1px solid var(--border)">
+                <i class="fas fa-refresh"></i> Recheck
+            </button>
+        </div>
+
+        <!-- Access Point Monitor Details -->
+        <div id="ap-details" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+            <div style="padding:12px;background:var(--bg);border-radius:8px;border-left:4px solid var(--primary)">
+                <div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text-light)">Monitor Status</div>
+                <div id="ap-running" style="font-size:16px;font-weight:700;margin-top:4px">
+                    {% if ap_status.running %}<span style="color:#10b981"><i class="fas fa-circle" style="font-size:8px"></i> Running</span>
+                    {% else %}<span style="color:#9ca3af"><i class="fas fa-circle" style="font-size:8px"></i> Standby</span>{% endif %}
+                </div>
+            </div>
+            <div style="padding:12px;background:var(--bg);border-radius:8px;border-left:4px solid #3b82f6">
+                <div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text-light)">Connectivity Checks</div>
+                <div id="ap-checks" style="font-size:16px;font-weight:700;margin-top:4px">{{ ap_status.check_count or 0 }}</div>
+            </div>
+            <div style="padding:12px;background:var(--bg);border-radius:8px;border-left:4px solid #f59e0b">
+                <div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text-light)">Auto-Syncs Triggered</div>
+                <div id="ap-syncs" style="font-size:16px;font-weight:700;margin-top:4px">{{ ap_status.auto_sync_count or 0 }}</div>
+            </div>
+            <div style="padding:12px;background:var(--bg);border-radius:8px;border-left:4px solid #10b981">
+                <div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text-light)">Last Auto-Sync</div>
+                <div id="ap-last-sync" style="font-size:13px;font-weight:600;margin-top:4px">
+                    {% if ap_status.last_auto_sync %}{{ ap_status.last_auto_sync[:19].replace('T',' ') }}{% else %}Never{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- One-Button Sync -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-exchange-alt" style="color:var(--secondary)"></i> Quick Sync</h3></div>
+    <div class="card-body">
+        <div style="text-align:center;padding:20px">
+            <button id="sync-btn" onclick="oneButtonSync()" class="btn btn-primary" style="font-size:18px;padding:16px 48px;border-radius:12px" disabled>
+                <i class="fas fa-sync-alt"></i> Sync Now
+            </button>
+            <p style="margin-top:12px;color:var(--text-light);font-size:13px">
+                Pushes local changes to the online system and pulls new data back.
+                One click does everything.
+            </p>
+        </div>
+        <div id="sync-result" style="display:none;margin-top:16px"></div>
+    </div>
+</div>
+
+<!-- Auto-Sync -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-clock" style="color:var(--accent)"></i> Auto-Sync & Access Point Integration</h3></div>
+    <div class="card-body">
+        <p style="font-size:13px;color:var(--text-light);margin-bottom:16px">
+            Automatically sync when internet is detected. The <strong>Access Point Monitor</strong> runs in the background,
+            checking connectivity periodically and triggering a full sync as soon as the online server is reachable.
+            This works even when nobody is using the system — the monitor runs as a background service.
+        </p>
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:8px;font-weight:600">
+                <input type="checkbox" id="auto-sync-toggle" style="width:20px;height:20px;accent-color:var(--primary)" {% if auto_sync_enabled %}checked{% endif %}>
+                Enable Auto-Sync
+            </label>
+            <div style="display:flex;align-items:center;gap:8px">
+                <label style="font-size:13px;font-weight:600">Check every:</label>
+                <select id="auto-sync-interval" style="padding:8px 14px;border:2px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);cursor:pointer;outline:none;transition:border-color 0.2s"
+                    onfocus="this.style.borderColor='var(--primary)'"
+                    onblur="this.style.borderColor='var(--border)'">
+                    <option value="30" {% if auto_sync_interval == 30 %}selected{% endif %}>30 seconds</option>
+                    <option value="60" {% if auto_sync_interval == 60 %}selected{% endif %}>1 minute</option>
+                    <option value="300" {% if auto_sync_interval == 300 %}selected{% endif %}>5 minutes</option>
+                    <option value="600" {% if auto_sync_interval == 600 %}selected{% endif %}>10 minutes</option>
+                    <option value="1800" {% if auto_sync_interval == 1800 %}selected{% endif %}>30 minutes</option>
+                </select>
+            </div>
+            <button onclick="saveAutoSyncSettings()" class="btn btn-sm btn-primary"><i class="fas fa-save"></i> Save Settings</button>
+        </div>
+        <div id="auto-sync-indicator" style="margin-top:12px;padding:10px 16px;background:var(--bg);border-radius:8px;font-size:13px;display:{% if auto_sync_enabled %}block{% else %}none{% endif %}">
+            <i class="fas fa-satellite-dish" style="color:var(--primary)"></i> Access Point Monitor active — checking connection periodically...
+            <span id="auto-sync-countdown"></span>
+        </div>
+
+        <!-- How AP Monitor Works -->
+        <div style="margin-top:16px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12px;line-height:1.7">
+            <strong><i class="fas fa-info-circle" style="color:#16a34a"></i> How the Access Point Monitor works:</strong>
+            <ol style="margin:8px 0 0 18px;color:#15803d">
+                <li><strong>HTTP Ping</strong> — Checks if the WordPress sync endpoint is reachable</li>
+                <li><strong>DNS Check</strong> — Falls back to resolving Google's DNS (8.8.8.8) if endpoint is down</li>
+                <li><strong>NetworkManager D-Bus</strong> — On Linux, detects WiFi/access-point state changes directly</li>
+                <li>When connectivity is detected, auto-sync pushes pending changes and pulls online updates</li>
+                <li>Sync storms are prevented — at least 60 seconds between auto-syncs</li>
+                <li>Settings are <strong>persisted to database</strong> — survive app restarts</li>
+            </ol>
+        </div>
+    </div>
+</div>
+
+<!-- Sync Stats -->
+<div class="stats-grid mb-2">
+    <div class="stat-card">
+        <div class="icon yellow"><i class="fas fa-hourglass-half"></i></div>
+        <div class="info"><h3>{{ pending }}</h3><p>Pending</p></div>
+    </div>
+    <div class="stat-card">
+        <div class="icon green"><i class="fas fa-check-circle"></i></div>
+        <div class="info"><h3>{{ synced }}</h3><p>Synced</p></div>
+    </div>
+    <div class="stat-card">
+        <div class="icon red"><i class="fas fa-exclamation-circle"></i></div>
+        <div class="info"><h3>{{ failed }}</h3><p>Failed</p></div>
+    </div>
+    <div class="stat-card">
+        <div class="icon blue"><i class="fas fa-{% if mode == 'online' %}wifi{% else %}cloud-off{% endif %}"></i></div>
+        <div class="info"><h3>{{ mode|title }}</h3><p>Mode</p></div>
+    </div>
+</div>
+
+<!-- Sync Endpoint Configuration -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-cog" style="color:var(--text-light)"></i> Sync Configuration</h3></div>
+    <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div class="form-group">
+                <label>WordPress Endpoint URL</label>
+                <input type="url" id="sync-endpoint" value="{{ endpoint }}" placeholder="https://school.example.com"
+                    style="width:100%;padding:12px 14px;border:2px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);cursor:text;outline:none;transition:border-color 0.2s"
+                    onfocus="this.style.borderColor='var(--primary)';this.style.boxShadow='0 0 0 3px rgba(26,86,50,0.1)'"
+                    onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
+            </div>
+            <div class="form-group">
+                <label>Sync API Key</label>
+                <div style="position:relative">
+                    <input type="text" id="sync-api-key" value="{{ api_key }}" placeholder="Enter API key from WordPress plugin"
+                        style="width:100%;padding:12px 14px;border:2px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);cursor:text;outline:none;transition:border-color 0.2s;padding-right:40px"
+                        onfocus="this.style.borderColor='var(--primary)';this.style.boxShadow='0 0 0 3px rgba(26,86,50,0.1)'"
+                        onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
+                    <button type="button" onclick="toggleApiKeyVisibility()" title="Show/Hide API key"
+                        style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-light);font-size:14px;padding:4px">
+                        <i class="fas fa-eye" id="api-key-toggle-icon"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div style="margin-top:12px;padding:10px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12px;color:#15803d">
+            <i class="fas fa-info-circle"></i> Enter the URL of your WordPress site (e.g. <code>https://crm.egs.ac.zw</code>) and the API key shown on the WordPress Sync Settings page. Then click <strong>Save Configuration</strong> to connect.
+        </div>
+        <button onclick="saveSyncConfig()" class="btn btn-primary btn-sm" style="margin-top:12px"><i class="fas fa-save"></i> Save Configuration</button>
+        <span id="config-status" style="margin-left:12px;font-size:13px"></span>
+    </div>
+</div>
+
+<!-- Manual Actions -->
+<div class="card mb-2">
+    <div class="card-header"><h3>Manual Actions</h3></div>
+    <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap">
+        <a href="{{ url_for('sync_export') }}" class="btn btn-success"><i class="fas fa-download"></i> Export Data (JSON)</a>
+        <a href="{{ url_for('sync_import') }}" class="btn btn-info"><i class="fas fa-upload"></i> Import Data</a>
+    </div>
+</div>
+
+<!-- Sync Log -->
+<div class="card">
+    <div class="card-header"><h3>Sync Log</h3></div>
+    <div class="table-container" style="max-height:400px;overflow-y:auto">
+        <table>
+            <thead><tr><th>Date</th><th>Entity</th><th>ID</th><th>Action</th><th>Status</th></tr></thead>
+            <tbody>
+                {% for log in recent_logs %}
+                <tr>
+                    <td>{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{{ log.entity_type }}</td>
+                    <td>{{ log.entity_id }}</td>
+                    <td><span class="badge badge-info">{{ log.action }}</span></td>
+                    <td><span class="badge badge-{{ 'success' if log.sync_status == 'synced' else 'danger' if log.sync_status == 'failed' else 'warning' }}">{{ log.sync_status }}</span></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="text-center" style="padding:20px;color:var(--text-light);">No sync logs</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt-2">
+    <div class="card-header"><h3>How Sync Works</h3></div>
+    <div class="card-body" style="font-size:13px;line-height:1.8;">
+        <p><strong><i class="fas fa-globe"></i> One-Button Sync:</strong> Click "Sync Now" to push all local changes to WordPress and pull any new data back. This is the recommended way to sync manually.</p>
+        <p><strong><i class="fas fa-satellite-dish"></i> Access Point Monitor:</strong> A background thread that continuously checks if the internet is available via your school's network access point. When it detects connectivity, it automatically triggers a full sync. This works even when no one is logged in.</p>
+        <p><strong><i class="fas fa-robot"></i> Auto-Sync:</strong> When enabled, the Access Point Monitor automatically detects when internet is available and triggers a full sync. Perfect for schools that go offline and reconnect periodically. Settings are saved to the database and persist across restarts.</p>
+        <p><strong><i class="fas fa-download"></i> Export/Import:</strong> For environments with no direct connection, export a JSON file and manually upload it to the online system.</p>
+        <p><strong><i class="fas fa-clock"></i> Conflict Resolution:</strong> When both systems have modified the same record, the newest change wins (timestamp-based). Sync storms are prevented by enforcing a 60-second minimum between auto-syncs.</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ─── Internet Detection ──────────────────────────────────────────
+function checkInternet() {
+    var icon = document.getElementById('conn-icon');
+    var title = document.getElementById('conn-title');
+    var detail = document.getElementById('conn-detail');
+    var syncBtn = document.getElementById('sync-btn');
+
+    icon.style.background = '#f59e0b';
+    icon.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    title.textContent = 'Checking connection...';
+    detail.textContent = 'Detecting internet access and sync endpoint';
+    syncBtn.disabled = true;
+
+    fetch('/api/sync/check-internet')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.connected) {
+            icon.style.background = '#10b981';
+            icon.innerHTML = '<i class="fas fa-check"></i>';
+            title.textContent = 'Connected to Online System';
+            detail.textContent = 'WordPress v' + (d.wordpress_version || '?') + ' — ' + (d.online_students || 0) + ' students, ' + (d.online_staff || 0) + ' staff online';
+            syncBtn.disabled = false;
+        } else {
+            icon.style.background = '#ef4444';
+            icon.innerHTML = '<i class="fas fa-times"></i>';
+            title.textContent = 'Offline — No Connection';
+            detail.textContent = d.error || 'Cannot reach the sync endpoint';
+            syncBtn.disabled = false;
+        }
+        refreshAPStatus();
+    })
+    .catch(function() {
+        icon.style.background = '#ef4444';
+        icon.innerHTML = '<i class="fas fa-times"></i>';
+        title.textContent = 'Offline';
+        detail.textContent = 'Unable to check connection';
+        syncBtn.disabled = false;
+    });
+}
+
+// ─── Refresh Access Point Monitor Status ─────────────────────────
+function refreshAPStatus() {
+    fetch('/api/sync/access-point-status')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        document.getElementById('ap-running').innerHTML = d.running
+            ? '<span style="color:#10b981"><i class="fas fa-circle" style="font-size:8px"></i> Running</span>'
+            : '<span style="color:#9ca3af"><i class="fas fa-circle" style="font-size:8px"></i> Standby</span>';
+        document.getElementById('ap-checks').textContent = d.check_count || 0;
+        document.getElementById('ap-syncs').textContent = d.auto_sync_count || 0;
+        var lastSync = d.last_auto_sync
+            ? d.last_auto_sync.substring(0, 19).replace('T', ' ')
+            : 'Never';
+        document.getElementById('ap-last-sync').textContent = lastSync;
+    })
+    .catch(function() {});
+}
+
+// ─── One-Button Sync ─────────────────────────────────────────────
+function oneButtonSync() {
+    var btn = document.getElementById('sync-btn');
+    var result = document.getElementById('sync-result');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
+    result.style.display = 'none';
+
+    fetch('/api/sync/one-button', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        btn.innerHTML = '<i class="fas fa-sync-alt"></i> Sync Now';
+        btn.disabled = false;
+
+        var html = '<div style="border:1px solid var(--border);border-radius:12px;overflow:hidden">';
+        html += '<div style="background:var(--bg);padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600"><i class="fas fa-check-circle" style="color:var(--success)"></i> Sync Complete</div>';
+
+        if (d.success === false && d.error) {
+            html += '<div style="padding:16px;color:var(--danger)">' + d.error + '</div>';
+        } else {
+            html += '<table style="width:100%;font-size:13px;border-collapse:collapse">';
+            html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:10px 16px;font-weight:600"><i class="fas fa-cloud-upload-alt" style="color:var(--primary)"></i> Pushed to Online</td><td style="padding:10px 16px">' + (d.push.pushed || 0) + ' succeeded, ' + (d.push.failed || 0) + ' failed (of ' + (d.push.total || 0) + ')</td></tr>';
+            html += '<tr><td style="padding:10px 16px;font-weight:600"><i class="fas fa-cloud-download-alt" style="color:var(--info)"></i> Pulled from Online</td><td style="padding:10px 16px">' + (d.pull.pulled || 0) + ' applied, ' + (d.pull.skipped || 0) + ' skipped, ' + (d.pull.conflicts || 0) + ' conflicts (of ' + (d.pull.total || 0) + ')</td></tr>';
+            html += '</table>';
+        }
+        html += '</div>';
+        result.innerHTML = html;
+        result.style.display = 'block';
+        refreshAPStatus();
+
+        // Refresh page after 3 seconds
+        setTimeout(function() { location.reload(); }, 3000);
+    })
+    .catch(function(e) {
+        btn.innerHTML = '<i class="fas fa-sync-alt"></i> Sync Now';
+        btn.disabled = false;
+        result.innerHTML = '<div style="padding:16px;color:var(--danger)"><i class="fas fa-exclamation-triangle"></i> Sync failed: ' + e.message + '</div>';
+        result.style.display = 'block';
+    });
+}
+
+// ─── Auto-Sync Settings (Persisted) ─────────────────────────────
+var autoSyncRefreshTimer = null;
+
+function saveAutoSyncSettings() {
+    var enabled = document.getElementById('auto-sync-toggle').checked;
+    var interval = parseInt(document.getElementById('auto-sync-interval').value);
+    var endpoint = document.getElementById('sync-endpoint').value;
+    var apiKey = document.getElementById('sync-api-key').value;
+
+    fetch('/api/sync/auto-sync-settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: enabled, interval: interval, endpoint: endpoint, api_key: apiKey})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            document.getElementById('config-status').textContent = '✓ Settings saved (persisted to database)';
+            document.getElementById('config-status').style.color = '#065f46';
+            var indicator = document.getElementById('auto-sync-indicator');
+            if (enabled) {
+                indicator.style.display = 'block';
+                startAutoSyncUI(interval);
+            } else {
+                indicator.style.display = 'none';
+                stopAutoSyncUI();
+            }
+            checkInternet();
+            refreshAPStatus();
+        }
+    });
+}
+
+function saveSyncConfig() {
+    saveAutoSyncSettings();
+}
+
+function toggleApiKeyVisibility() {
+    var input = document.getElementById('sync-api-key');
+    var icon = document.getElementById('api-key-toggle-icon');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'fas fa-eye-slash';
+    } else {
+        input.type = 'password';
+        icon.className = 'fas fa-eye';
+    }
+}
+
+// UI countdown — does NOT control the backend monitor (that runs independently)
+var countdownTimer = null;
+function startAutoSyncUI(interval) {
+    var countdown = interval;
+    var el = document.getElementById('auto-sync-countdown');
+    el.textContent = 'Next check in ' + countdown + 's';
+
+    if (countdownTimer) clearInterval(countdownTimer);
+    countdownTimer = setInterval(function() {
+        countdown--;
+        if (countdown <= 0) {
+            countdown = interval;
+            el.textContent = 'Checking now...';
+            checkInternet();
+            refreshAPStatus();
+        }
+        el.textContent = 'Next UI refresh in ' + countdown + 's';
+    }, 1000);
+}
+
+function stopAutoSyncUI() {
+    if (countdownTimer) clearInterval(countdownTimer);
+    countdownTimer = null;
+}
+
+// ─── Initialize ──────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+    checkInternet();
+
+    // Load current sync status
+    fetch('/api/sync/status')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.auto_sync) {
+            document.getElementById('auto-sync-toggle').checked = true;
+            document.getElementById('auto-sync-indicator').style.display = 'block';
+            startAutoSyncUI(d.auto_interval || 300);
+        }
+    });
+
+    // Periodically refresh AP status (every 30s)
+    autoSyncRefreshTimer = setInterval(function() {
+        refreshAPStatus();
+    }, 30000);
+});
+</script>
+{% endblock %}

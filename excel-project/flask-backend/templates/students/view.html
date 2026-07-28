@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}{{ student.first_name }} {{ student.last_name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Student Profile</h1>
+        <p>Admission No: {{ student.admission_number }}</p>
+    </div>
+    <div class="actions">
+        {% if session.get('user_role') in ['super_admin', 'bursar', 'admin', 'staff'] %}
+        <a href="{{ url_for('student_edit', id=student.id) }}" class="btn btn-primary"><i class="fas fa-edit"></i> Edit</a>
+        {% endif %}
+        <a href="{{ url_for('students_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+</div>
+
+<!-- Profile Header -->
+<div class="profile-header">
+    <div class="avatar-lg">{{ student.first_name[0] }}{{ student.last_name[0] }}</div>
+    <div>
+        <h2>{{ student.first_name }} {{ student.other_names }} {{ student.last_name }}</h2>
+        <p>{{ student.class_.name if student.class_ else 'No Class' }} &bull; {{ student.admission_number }} &bull; {{ student.status }}</p>
+    </div>
+</div>
+
+<div class="grid-2">
+    <!-- Personal Details -->
+    <div class="card">
+        <div class="card-header"><h3>Personal Details</h3></div>
+        <div class="card-body">
+            <table style="width:100%;font-size:13px;">
+                <tr><td style="padding:8px 0;color:var(--text-light);width:40%;">Date of Birth</td><td style="padding:8px 0;">{{ student.date_of_birth or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Gender</td><td style="padding:8px 0;">{{ student.gender or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">National ID</td><td style="padding:8px 0;">{{ student.national_id or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Admission Date</td><td style="padding:8px 0;">{{ student.admission_date or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Previous School</td><td style="padding:8px 0;">{{ student.previous_school or '-' }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Fee Classification & Scholarship -->
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-award" style="color:var(--secondary);margin-right:8px;"></i>Fee Classification & Scholarship</h3></div>
+        <div class="card-body">
+            <table style="width:100%;font-size:13px;">
+                <tr><td style="padding:8px 0;color:var(--text-light);width:40%;">Classification</td><td style="padding:8px 0;">
+                    {% if student.fee_classification == 'Regular' or not student.fee_classification %}
+                    <span class="badge badge-secondary">Regular (Full Fee)</span>
+                    {% elif student.fee_classification == 'Staff Scholarship' %}
+                    <span class="badge badge-info">Staff Scholarship</span>
+                    {% elif student.fee_classification == 'Academic Scholarship' %}
+                    <span class="badge badge-primary">Academic Scholarship</span>
+                    {% elif student.fee_classification == 'Sports Scholarship' %}
+                    <span class="badge badge-warning">Sports Scholarship</span>
+                    {% elif student.fee_classification == 'Bursary' %}
+                    <span class="badge badge-success">Bursary</span>
+                    {% elif student.fee_classification == 'Orphan' %}
+                    <span class="badge badge-danger">Orphan</span>
+                    {% else %}
+                    <span class="badge badge-secondary">{{ student.fee_classification }}</span>
+                    {% endif %}
+                </td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Scholarship Type</td><td style="padding:8px 0;">
+                    {% if student.scholarship_type == 'Full' %}
+                    <span class="badge badge-success">Full Scholarship (100% discount)</span>
+                    {% elif student.scholarship_type == 'Partial' %}
+                    <span class="badge badge-warning">Partial Scholarship ({{ student.scholarship_percentage|round(0)|int }}% discount)</span>
+                    {% else %}
+                    <span class="badge badge-secondary">None</span>
+                    {% endif %}
+                </td></tr>
+                {% if student.scholarship_staff %}
+                <tr><td style="padding:8px 0;color:var(--text-light);">Linked Staff</td><td style="padding:8px 0;">{{ student.scholarship_staff.first_name }} {{ student.scholarship_staff.last_name }} ({{ student.scholarship_staff.employee_number }})</td></tr>
+                {% endif %}
+                {% if student.scholarship_sponsor %}
+                <tr><td style="padding:8px 0;color:var(--text-light);">Sponsor</td><td style="padding:8px 0;">{{ student.scholarship_sponsor }}</td></tr>
+                {% endif %}
+                {% if student.scholarship_notes %}
+                <tr><td style="padding:8px 0;color:var(--text-light);">Notes</td><td style="padding:8px 0;">{{ student.scholarship_notes }}</td></tr>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+
+    <!-- Contact -->
+    <div class="card">
+        <div class="card-header"><h3>Contact Information</h3></div>
+        <div class="card-body">
+            <table style="width:100%;font-size:13px;">
+                <tr><td style="padding:8px 0;color:var(--text-light);width:40%;">Address</td><td style="padding:8px 0;">{{ student.address or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">City</td><td style="padding:8px 0;">{{ student.city or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Province</td><td style="padding:8px 0;">{{ student.province or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Phone</td><td style="padding:8px 0;">{{ student.phone or '-' }}</td></tr>
+                <tr><td style="padding:8px 0;color:var(--text-light);">Email</td><td style="padding:8px 0;">{{ student.email or '-' }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Parents -->
+    <div class="card">
+        <div class="card-header"><h3>Parents/Guardians</h3></div>
+        <div class="card-body">
+            {% for parent in student.parents %}
+            <div style="padding:12px 0;border-bottom:1px solid var(--border);">
+                <strong>{{ parent.first_name }} {{ parent.last_name }}</strong>
+                <span class="badge badge-info">{{ parent.relationship }}</span>
+                <p style="font-size:12px;color:var(--text-light);margin-top:4px;">
+                    Phone: {{ parent.phone or '-' }} &bull; Email: {{ parent.email or '-' }}
+                </p>
+            </div>
+            {% else %}
+            <p style="color:var(--text-light);">No parent/guardian recorded</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Recent Payments -->
+    <div class="card">
+        <div class="card-header"><h3>Recent Payments</h3></div>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Receipt</th><th>Amount</th><th>Date</th><th>Method</th></tr></thead>
+                <tbody>
+                    {% for p in payments[:5] %}
+                    <tr>
+                        <td>{{ p.receipt_number }}</td>
+                        <td>${{ "%.2f"|format(p.amount) }}</td>
+                        <td>{{ p.payment_date }}</td>
+                        <td>{{ p.payment_method or '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-center" style="padding:16px;color:var(--text-light);">No payments</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Attendance -->
+    <div class="card">
+        <div class="card-header"><h3>Recent Attendance</h3></div>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Date</th><th>Status</th><th>Remarks</th></tr></thead>
+                <tbody>
+                    {% for a in attendances[:10] %}
+                    <tr>
+                        <td>{{ a.date }}</td>
+                        <td><span class="badge badge-{{ 'success' if a.status == 'Present' else 'danger' if a.status == 'Absent' else 'warning' }}">{{ a.status }}</span></td>
+                        <td>{{ a.remarks or '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" class="text-center" style="padding:16px;color:var(--text-light);">No records</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Exam Results -->
+    <div class="card">
+        <div class="card-header"><h3>Exam Results</h3></div>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Exam</th><th>Subject</th><th>Marks</th><th>Grade</th></tr></thead>
+                <tbody>
+                    {% for r in results[:10] %}
+                    <tr>
+                        <td>{{ r.exam.name if r.exam else '-' }}</td>
+                        <td>{{ r.subject.name if r.subject else '-' }}</td>
+                        <td>{{ r.marks_obtained }}/{{ r.marks_total }}</td>
+                        <td><span class="badge badge-{{ 'success' if r.grade in ['A','B'] else 'warning' if r.grade == 'C' else 'danger' }}">{{ r.grade }}</span></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-center" style="padding:16px;color:var(--text-light);">No results</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

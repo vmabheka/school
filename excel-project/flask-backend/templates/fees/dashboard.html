@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Fee & Invoice Management{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Fee & Invoice Management</h1><p>Manage billing invoices, fee structures, payments, and balances</p></div>
+    <div class="actions">
+        {% if session.get('user_role') in ['super_admin', 'accountant', 'bursar', 'admin', 'staff'] %}
+        <a href="{{ url_for('invoices_list') }}" class="btn btn-secondary"><i class="fas fa-file-invoice-dollar"></i> Invoices</a>
+        {% if can_record_payments %}
+        <a href="{{ url_for('fee_pay') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Record Payment</a>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+{% if uninvoiced_count > 0 %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center mb-2" style="background:#fffbeb; border:1px solid #fde68a; padding:12px 18px; border-radius:8px;">
+    <div>
+        <i class="fas fa-exclamation-triangle" style="color:#d97706; margin-right:8px;"></i>
+        <strong>Uninvoiced Students Detected:</strong> There are <strong>{{ uninvoiced_count }}</strong> active students without generated invoices for {{ current_ay.name if current_ay else '' }} {{ current_term.name if current_term else '' }}.
+    </div>
+    <form action="{{ url_for('invoices_batch_generate') }}" method="POST" style="margin:0;">
+        <button type="submit" class="btn btn-sm btn-primary" style="background:#d97706; border-color:#d97706;"><i class="fas fa-magic"></i> Batch Generate Now</button>
+    </form>
+</div>
+{% endif %}
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="icon green"><i class="fas fa-file-invoice"></i></div>
+        <div class="info"><h3>${{ "%.2f"|format(invoiced_net) }}</h3><p>Total Billed ({{ invoices_count }} Invoices)</p></div>
+    </div>
+    <div class="stat-card">
+        <div class="icon yellow"><i class="fas fa-coins"></i></div>
+        <div class="info"><h3>${{ "%.2f"|format(total_collected) }}</h3><p>Collected Payments</p></div>
+    </div>
+    <div class="stat-card">
+        <div class="icon red"><i class="fas fa-exclamation-circle"></i></div>
+        <div class="info"><h3>${{ "%.2f"|format((invoiced_net - total_collected) if invoiced_net > total_collected else 0) }}</h3><p>Billed Outstanding</p></div>
+    </div>
+    <div class="stat-card">
+        <div class="icon purple"><i class="fas fa-award"></i></div>
+        <div class="info"><h3>${{ "%.2f"|format(total_scholarships) }}</h3><p>Scholarship Discounts</p></div>
+    </div>
+    <div class="stat-card">
+        <div class="icon blue"><i class="fas fa-bullseye"></i></div>
+        <div class="info"><h3>${{ "%.2f"|format(net_expected) }}</h3><p>Theoretical Net Expected</p></div>
+    </div>
+    <div class="stat-card">
+        <div class="icon orange"><i class="fas fa-percentage"></i></div>
+        <div class="info"><h3>{{ "%.0f"|format((total_collected / invoiced_net * 100) if invoiced_net > 0 else ((total_collected / net_expected * 100) if net_expected > 0 else 0)) }}%</h3><p>Collection Rate</p></div>
+    </div>
+</div>
+
+<!-- Fee Levels Summary -->
+<div class="card mb-2">
+    <div class="card-header">
+        <h3><i class="fas fa-layer-group" style="color:var(--secondary);margin-right:8px;"></i>Fee Levels Summary — {{ current_ay.name if current_ay else 'N/A' }} {{ current_term.name if current_term else '' }}</h3>
+        <div class="d-flex gap-1">
+            <a href="{{ url_for('invoices_export_bulk_pdf') }}" class="btn btn-sm btn-secondary"><i class="fas fa-file-pdf"></i> Combined Bulk PDF</a>
+            <a href="{{ url_for('invoices_export_zip') }}" class="btn btn-sm btn-secondary"><i class="fas fa-file-archive"></i> All Invoices ZIP</a>
+            {% if session.get('user_role') in ['super_admin', 'admin'] %}
+            <a href="{{ url_for('fee_levels_list') }}" class="btn btn-sm btn-secondary"><i class="fas fa-cog"></i> Manage Levels</a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Level</th><th>Students</th><th>Fee/Term</th><th>Billed (Invoices)</th><th>Collected</th><th>Theoretical Gross</th><th>Actions</th></tr></thead>
+            <tbody>
+                {% for lfs in level_fee_summary %}
+                <tr>
+                    <td><strong>{{ lfs.level.name }}</strong><br><small style="color:var(--text-light);">{{ lfs.level.description or '' }}</small></td>
+                    <td>{{ lfs.student_count }}</td>
+                    <td>${{ "%.2f"|format(lfs.level.total) }}</td>
+                    <td><strong style="color:var(--primary);">${{ "%.2f"|format(lfs.billed_amount) }}</strong></td>
+                    <td><strong style="color:#15803d;">${{ "%.2f"|format(lfs.collected_amount) }}</strong></td>
+                    <td>${{ "%.2f"|format(lfs.level.total * lfs.student_count) }}</td>
+                    <td>
+                        <div class="d-flex gap-1">
+                            <a href="{{ url_for('invoices_export_bulk_pdf', level=lfs.level.name) }}" class="btn btn-sm btn-primary" title="Combined PDF for {{ lfs.level.name }}"><i class="fas fa-file-pdf"></i> PDF</a>
+                            <a href="{{ url_for('invoices_export_zip', level=lfs.level.name) }}" class="btn btn-sm btn-secondary" title="Download ZIP of {{ lfs.level.name }} invoices"><i class="fas fa-file-archive"></i> ZIP</a>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-center" style="padding:20px;color:var(--text-light);">No fee levels defined. <a href="{{ url_for('fee_levels_list') }}">Add fee levels</a></td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Fee Structures — {{ current_ay.name if current_ay else 'N/A' }} {{ current_term.name if current_term else '' }}</h3>
+        <div class="d-flex gap-1">
+            <a href="{{ url_for('fee_structures') }}" class="btn btn-sm btn-secondary">All Structures</a>
+            {% if session.get('user_role') in ['super_admin', 'accountant', 'admin'] %}
+            <a href="{{ url_for('fee_structure_add') }}" class="btn btn-sm btn-primary"><i class="fas fa-plus"></i> Add</a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Name</th><th>Level</th><th>Class</th><th>Tuition</th><th>Boarding</th><th>Transport</th><th>Other</th><th>Total</th></tr></thead>
+            <tbody>
+                {% for s in structures %}
+                <tr>
+                    <td>{{ s.name }}</td>
+                    <td>{% if s.level %}<span class="badge badge-info">{{ s.level.name }}</span>{% else %}-{% endif %}</td>
+                    <td>{{ s.class_.name if s.class_ else 'All in level' }}</td>
+                    <td>${{ "%.2f"|format(s.tuition) }}</td>
+                    <td>${{ "%.2f"|format(s.boarding) }}</td>
+                    <td>${{ "%.2f"|format(s.transport) }}</td>
+                    <td>${{ "%.2f"|format(s.lunch + s.library + s.technology + s.sports + s.other) }}</td>
+                    <td><strong>${{ "%.2f"|format(s.total) }}</strong></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="text-center" style="padding:20px;color:var(--text-light);">No fee structures for current term</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="mt-2 d-flex gap-1">
+    <a href="{{ url_for('invoices_list') }}" class="btn btn-primary"><i class="fas fa-file-invoice-dollar"></i> View All Invoices</a>
+    <a href="{{ url_for('fee_payments') }}" class="btn btn-secondary"><i class="fas fa-list"></i> View All Payments</a>
+    <a href="{{ url_for('report_fees') }}" class="btn btn-secondary"><i class="fas fa-chart-bar"></i> Fee Reports</a>
+</div>
+
+<!-- Scholarship Breakdown -->
+{% if scholarship_summary %}
+<div class="card mt-2">
+    <div class="card-header"><h3><i class="fas fa-award" style="color:var(--secondary);margin-right:8px;"></i>Scholarship Breakdown (Current Term)</h3></div>
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Student</th><th>Adm No.</th><th>Classification</th><th>Type</th><th>Discount</th></tr></thead>
+            <tbody>
+                {% for s in scholarship_summary %}
+                <tr>
+                    <td>{{ s.student }}</td>
+                    <td>{{ s.adm }}</td>
+                    <td><span class="badge badge-info">{{ s.classification }}</span></td>
+                    <td>{{ s.type }}</td>
+                    <td><strong>${{ "%.2f"|format(s.discount) }}</strong></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

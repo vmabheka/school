@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Send Message{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Send Message</h1></div>
+    <a href="{{ url_for('communication_dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+<form method="POST">
+<div class="card">
+    <div class="card-body">
+        <div class="form-group">
+            <label>Recipient <span class="required">*</span></label>
+            <select name="recipient_id" class="form-control" required>
+                <option value="">Select Recipient</option>
+                {% for u in users %}<option value="{{ u.id }}">{{ u.username }} ({{ u.role|title }})</option>{% endfor %}
+            </select>
+        </div>
+        <div class="form-group"><label>Subject</label><input type="text" name="subject" class="form-control"></div>
+        <div class="form-group"><label>Message <span class="required">*</span></label><textarea name="body" class="form-control" rows="6" required></textarea></div>
+    </div>
+</div>
+<div class="mt-2 d-flex gap-1">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane"></i> Send</button>
+    <a href="{{ url_for('communication_dashboard') }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+{% endblock %}

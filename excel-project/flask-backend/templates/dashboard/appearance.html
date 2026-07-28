@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}Appearance Settings{% endblock %}
+{% block extra_css %}
+<style>
+.color-preview {
+    width: 40px; height: 40px; border-radius: 8px; border: 2px solid var(--border);
+    display: inline-block; vertical-align: middle; margin-left: 8px;
+}
+.color-group { display: flex; align-items: center; gap: 12px; }
+.color-group input[type="color"] { width: 50px; height: 40px; border: none; cursor: pointer; border-radius: 6px; }
+.color-group input[type="text"] { flex: 1; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1><i class="fas fa-palette" style="color:var(--secondary);margin-right:8px;"></i>Appearance & Branding</h1>
+        <p>Customize colours, logo, and sync the look with the WordPress online portal</p>
+    </div>
+    <div class="actions d-flex gap-1">
+        <form method="POST" action="{{ url_for('appearance_pull_from_wordpress') }}" style="display:inline;" title="Pull current theme from WordPress">
+            <button type="submit" class="btn btn-secondary"><i class="fas fa-cloud-download-alt"></i> Pull from WordPress</button>
+        </form>
+        <form method="POST" action="{{ url_for('appearance_sync_to_wordpress') }}" style="display:inline;" title="Push current theme to WordPress">
+            <button type="submit" class="btn btn-info"><i class="fas fa-cloud-upload-alt"></i> Push to WordPress</button>
+        </form>
+        <form method="POST" action="{{ url_for('appearance_reset') }}" style="display:inline;" onsubmit="return confirm('Reset all appearance settings to defaults?');">
+            <button type="submit" class="btn btn-danger"><i class="fas fa-undo"></i> Reset</button>
+        </form>
+    </div>
+</div>
+
+{% if sync_endpoint %}
+<div class="flash info no-print" style="position:relative; max-width:none; margin-bottom:16px;">
+    <i class="fas fa-info-circle"></i>
+    WordPress sync endpoint: <code>{{ sync_endpoint }}</code>.
+    Use <strong>Push to WordPress</strong> to copy these settings to your online portal, or
+    <strong>Pull from WordPress</strong> to apply whatever was set on the WordPress side.
+</div>
+{% else %}
+<div class="flash warning no-print" style="position:relative; max-width:none; margin-bottom:16px;">
+    <i class="fas fa-exclamation-triangle"></i>
+    WordPress sync endpoint is not configured. Theme sync buttons will fail until you
+    <a href="{{ url_for('sync_dashboard') }}" style="color:inherit;text-decoration:underline;">configure it in Sync Center</a>.
+</div>
+{% endif %}
+
+<form method="POST">
+<!-- School Branding -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-school" style="color:var(--primary);margin-right:8px;"></i>School Branding</h3></div>
+    <div class="card-body">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>School Name</label>
+                <input type="text" name="school_name" class="form-control" value="{{ theme.school_name|default('') }}">
+            </div>
+            <div class="form-group">
+                <label>School Motto</label>
+                <input type="text" name="school_motto" class="form-control" value="{{ theme.school_motto|default('') }}">
+            </div>
+            <div class="form-group">
+                <label>School Address</label>
+                <input type="text" name="school_address" class="form-control" value="{{ theme.school_address|default('') }}">
+            </div>
+            <div class="form-group">
+                <label>School Phone</label>
+                <input type="text" name="school_phone" class="form-control" value="{{ theme.school_phone|default('') }}">
+            </div>
+            <div class="form-group">
+                <label>School Email</label>
+                <input type="email" name="school_email" class="form-control" value="{{ theme.school_email|default('') }}">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Logo Upload -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-image" style="color:var(--primary);margin-right:8px;"></i>School Logo</h3></div>
+    <div class="card-body">
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+            {% if theme.logo_url %}
+            <div style="text-align:center;">
+                <img src="{{ url_for('static', filename=theme.logo_url) }}" alt="Current Logo"
+                     style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid var(--secondary);padding:4px;">
+                <p style="font-size:11px;color:var(--text-light);margin-top:8px;">Current Logo</p>
+            </div>
+            {% else %}
+            <div style="width:100px;height:100px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;color:var(--secondary);font-size:40px;font-weight:bold;border:3px solid var(--secondary);">
+                E
+            </div>
+            <p style="font-size:11px;color:var(--text-light);">No logo uploaded — using default</p>
+            {% endif %}
+            <div style="flex:1;min-width:250px;">
+                <form method="POST" action="{{ url_for('upload_logo') }}" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <div style="flex:1;">
+                        <input type="file" name="logo_file" class="form-control" accept="image/*" required
+                               style="padding:8px;">
+                        <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Accepted: PNG, JPG, GIF, SVG, WEBP. Max 16MB.</p>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> Upload Logo</button>
+                </form>
+                {% if theme.logo_url %}
+                <form method="POST" action="{{ url_for('appearance_settings') }}" style="margin-top:10px;">
+                    <input type="hidden" name="logo_url" value="">
+                    <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove the school logo?');"><i class="fas fa-trash"></i> Remove Logo</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<form method="POST">
+        </div>
+    </div>
+</div>
+
+<!-- Colors -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-palette" style="color:var(--secondary);margin-right:8px;"></i>Color Scheme</h3></div>
+    <div class="card-body">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Primary Color</label>
+                <div class="color-group">
+                    <input type="color" value="{{ theme.primary_color|default('#1F2080') }}" onchange="this.nextElementSibling.value=this.value">
+                    <input type="text" name="primary_color" class="form-control" value="{{ theme.primary_color|default('#1F2080') }}" onchange="this.previousElementSibling.value=this.value">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Primary Dark</label>
+                <div class="color-group">
+                    <input type="color" value="{{ theme.primary_dark|default('#13145A') }}" onchange="this.nextElementSibling.value=this.value">
+                    <input type="text" name="primary_dark" class="form-control" value="{{ theme.primary_dark|default('#13145A') }}" onchange="this.previousElementSibling.value=this.value">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Primary Light</label>
+                <div class="color-group">
+                    <input type="color" value="{{ theme.primary_light|default('#3F4099') }}" onchange="this.nextElementSibling.value=this.value">
+                    <input type="text" name="primary_light" class="form-control" value="{{ theme.primary_light|default('#3F4099') }}" onchange="this.previousElementSibling.value=this.value">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Secondary / Gold</label>
+                <div class="color-group">
+                    <input type="color" value="{{ theme.secondary_color|default('#FDEE00') }}" onchange="this.nextElementSibling.value=this.value">
+                    <input type="text" name="secondary_color" class="form-control" value="{{ theme.secondary_color|default('#FDEE00') }}" onchange="this.previousElementSibling.value=this.value">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Secondary Light</label>
+                <div class="color-group">
+                    <input type="color" value="{{ theme.secondary_light|default('#FFF266') }}" onchange="this.nextElementSibling.value=this.value">
+                    <input type="text" name="secondary_light" class="form-control" value="{{ theme.secondary_light|default('#FFF266') }}" onchange="this.previousElementSibling.value=this.value">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Accent Color</label>
+                <div class="color-group">
+                    <input type="color" value="{{ theme.accent_color|default('#E85D26') }}" onchange="this.nextElementSibling.value=this.value">
+                    <input type="text" name="accent_color" class="form-control" value="{{ theme.accent_color|default('#E85D26') }}" onchange="this.previousElementSibling.value=this.value">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Background Color</label>
+                <div class="color-group">
+                    <input type="color" value="{{ theme.bg_color|default('#F5F5F7') }}" onchange="this.nextElementSibling.value=this.value">
+                    <input type="text" name="bg_color" class="form-control" value="{{ theme.bg_color|default('#F5F5F7') }}" onchange="this.previousElementSibling.value=this.value">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Card Color</label>
+                <div class="color-group">
+                    <input type="color" value="{{ theme.card_color|default('#ffffff') }}" onchange="this.nextElementSibling.value=this.value">
+                    <input type="text" name="card_color" class="form-control" value="{{ theme.card_color|default('#ffffff') }}" onchange="this.previousElementSibling.value=this.value">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Text Color</label>
+                <div class="color-group">
+                    <input type="color" value="{{ theme.text_color|default('#1a1a2e') }}" onchange="this.nextElementSibling.value=this.value">
+                    <input type="text" name="text_color" class="form-control" value="{{ theme.text_color|default('#1a1a2e') }}" onchange="this.previousElementSibling.value=this.value">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Typography & Layout -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-font" style="color:var(--accent);margin-right:8px;"></i>Typography & Layout</h3></div>
+    <div class="card-body">
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Font Family</label>
+                <select name="font_family" class="form-control">
+                    <option value="Segoe UI, Tahoma, Geneva, Verdana, sans-serif" {% if theme.font_family == 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' %}selected{% endif %}>Segoe UI (Default)</option>
+                    <option value="Arial, Helvetica, sans-serif" {% if theme.font_family == 'Arial, Helvetica, sans-serif' %}selected{% endif %}>Arial</option>
+                    <option value="'Roboto', sans-serif" {% if theme.font_family == "'Roboto', sans-serif" %}selected{% endif %}>Roboto</option>
+                    <option value="'Open Sans', sans-serif" {% if theme.font_family == "'Open Sans', sans-serif" %}selected{% endif %}>Open Sans</option>
+                    <option value="'Inter', sans-serif" {% if theme.font_family == "'Inter', sans-serif" %}selected{% endif %}>Inter</option>
+                    <option value="Georgia, 'Times New Roman', serif" {% if theme.font_family == "Georgia, 'Times New Roman', serif" %}selected{% endif %}>Georgia (Serif)</option>
+                    <option value="'Trebuchet MS', sans-serif" {% if theme.font_family == "'Trebuchet MS', sans-serif" %}selected{% endif %}>Trebuchet MS</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Sidebar Style</label>
+                <select name="sidebar_style" class="form-control">
+                    <option value="gradient" {% if theme.sidebar_style == 'gradient' %}selected{% endif %}>Gradient (Default)</option>
+                    <option value="solid" {% if theme.sidebar_style == 'solid' %}selected{% endif %}>Solid Color</option>
+                    <option value="dark" {% if theme.sidebar_style == 'dark' %}selected{% endif %}>Dark</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Preview -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-eye" style="color:var(--info);margin-right:8px;"></i>Live Preview</h3></div>
+    <div class="card-body">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+            <div style="width:80px;height:50px;background:var(--primary);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:12px;">Primary</div>
+            <div style="width:80px;height:50px;background:var(--primary-dark);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:12px;">Dark</div>
+            <div style="width:80px;height:50px;background:var(--primary-light);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:12px;">Light</div>
+            <div style="width:80px;height:50px;background:var(--secondary);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--primary-dark);font-size:12px;">Gold</div>
+            <div style="width:80px;height:50px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:12px;">Accent</div>
+            <div style="width:80px;height:50px;background:var(--bg);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;">BG</div>
+            <div style="width:80px;height:50px;background:var(--card);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;">Card</div>
+        </div>
+        <div class="mt-2" style="padding:16px;background:var(--primary);border-radius:8px;color:white;">
+            <h3 style="color:white;font-size:16px;">{{ theme.school_name }}</h3>
+            <p style="opacity:0.8;font-size:13px;">{{ theme.school_motto }}</p>
+            <span style="background:var(--secondary);color:var(--primary-dark);padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;">Sample Button</span>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex gap-1">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Appearance Settings</button>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+{% endblock %}

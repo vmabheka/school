@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Exams{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Exams & Results</h1><p>Manage examinations and student results</p></div>
+    {% if session.get('user_role') in ['super_admin', 'teacher', 'admin', 'staff'] %}
+    <a href="{{ url_for('exam_add') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Add Exam</a>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Exam Name</th><th>Type</th><th>Term</th><th>Start Date</th><th>End Date</th><th>Actions</th></tr></thead>
+            <tbody>
+                {% for exam in exams %}
+                <tr>
+                    <td><strong>{{ exam.name }}</strong></td>
+                    <td><span class="badge badge-info">{{ exam.exam_type or '-' }}</span></td>
+                    <td>{{ exam.term.name if exam.term else '-' }}</td>
+                    <td>{{ exam.start_date or '-' }}</td>
+                    <td>{{ exam.end_date or '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('exam_results', exam_id=exam.id) }}" class="btn btn-sm btn-primary"><i class="fas fa-list"></i> Results</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center" style="padding:40px;color:var(--text-light);">
+                    <i class="fas fa-file-alt" style="font-size:32px;opacity:0.3;display:block;margin-bottom:8px;"></i>
+                    No exams yet
+                </td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

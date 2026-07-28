@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Report Card{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Report Card</h1><p>{{ student.first_name }} {{ student.last_name }}</p></div>
+    <div class="actions no-print">
+        <a href="{{ url_for('report_card_pdf', exam_id=exam.id, student_id=student.id) }}" class="btn btn-primary"><i class="fas fa-file-pdf"></i> Download PDF</a>
+        <button onclick="window.print()" class="btn btn-secondary"><i class="fas fa-print"></i> Print</button>
+        <a href="{{ url_for('exam_results', exam_id=exam.id) }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+</div>
+
+<div class="card" style="max-width:800px;margin:0 auto;">
+    <div class="card-body" style="padding:40px;">
+        <!-- Header -->
+        <div style="text-align:center;margin-bottom:30px;border-bottom:3px double var(--primary);padding-bottom:20px;">
+            <h1 style="color:var(--primary);margin-bottom:4px;">Excel Group of Schools</h1>
+            <p style="color:var(--text-light);font-size:14px;">Excellence in Education</p>
+            <h2 style="font-size:18px;margin-top:12px;color:var(--primary-dark);">{{ exam.name }}</h2>
+        </div>
+
+        <!-- Student Info -->
+        <table style="width:100%;font-size:13px;margin-bottom:24px;">
+            <tr>
+                <td style="padding:6px 0;width:30%;"><strong>Name:</strong></td>
+                <td style="padding:6px 0;width:20%;">{{ student.first_name }} {{ student.last_name }}</td>
+                <td style="padding:6px 0;width:20%;"><strong>Admission No:</strong></td>
+                <td style="padding:6px 0;">{{ student.admission_number }}</td>
+            </tr>
+            <tr>
+                <td style="padding:6px 0;"><strong>Class:</strong></td>
+                <td style="padding:6px 0;">{{ student.class_.name if student.class_ else '-' }}</td>
+                <td style="padding:6px 0;"><strong>Exam:</strong></td>
+                <td style="padding:6px 0;">{{ exam.name }}</td>
+            </tr>
+        </table>
+
+        <!-- Results Table -->
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="background:var(--primary);color:white;">
+                    <th style="padding:10px 12px;text-align:left;">Subject</th>
+                    <th style="padding:10px 12px;text-align:center;">Marks</th>
+                    <th style="padding:10px 12px;text-align:center;">Out of</th>
+                    <th style="padding:10px 12px;text-align:center;">%</th>
+                    <th style="padding:10px 12px;text-align:center;">Grade</th>
+                    <th style="padding:10px 12px;text-align:left;">Remarks</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results %}
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:10px 12px;">{{ r.subject.name if r.subject else '-' }}</td>
+                    <td style="padding:10px 12px;text-align:center;font-weight:600;">{{ r.marks_obtained }}</td>
+                    <td style="padding:10px 12px;text-align:center;">{{ r.marks_total }}</td>
+                    <td style="padding:10px 12px;text-align:center;">{{ "%.1f"|format(r.marks_obtained / r.marks_total * 100) if r.marks_total > 0 else '-' }}</td>
+                    <td style="padding:10px 12px;text-align:center;"><span style="font-weight:700;color:{{ 'var(--success)' if r.grade in ['A','B'] else 'var(--warning)' if r.grade == 'C' else 'var(--danger)' }}">{{ r.grade }}</span></td>
+                    <td style="padding:10px 12px;">{{ r.remarks or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr style="border-top:2px solid var(--primary);font-weight:700;">
+                    <td style="padding:10px 12px;">TOTAL / AVERAGE</td>
+                    <td style="padding:10px 12px;text-align:center;">{{ total_marks }}</td>
+                    <td style="padding:10px 12px;text-align:center;">{{ total_possible }}</td>
+                    <td style="padding:10px 12px;text-align:center;">{{ "%.1f"|format(average) }}</td>
+                    <td style="padding:10px 12px;text-align:center;">
+                        {% if average >= 80 %}A{% elif average >= 70 %}B{% elif average >= 60 %}C{% elif average >= 50 %}D{% elif average >= 40 %}E{% else %}U{% endif %}
+                    </td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <!-- Grading Scale -->
+        <div style="margin-top:24px;padding:16px;background:var(--bg);border-radius:8px;font-size:12px;">
+            <strong>Grading Scale:</strong> A (80-100%) | B (70-79%) | C (60-69%) | D (50-59%) | E (40-49%) | U (Below 40%)
+        </div>
+
+        <!-- Signatures -->
+        <div style="display:flex;justify-content:space-between;margin-top:40px;padding-top:20px;">
+            <div style="text-align:center;">
+                <p style="border-top:1px solid var(--text);width:200px;padding-top:8px;font-size:13px;">Class Teacher</p>
+            </div>
+            <div style="text-align:center;">
+                <p style="border-top:1px solid var(--text);width:200px;padding-top:8px;font-size:13px;">Headmaster/Headmistress</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

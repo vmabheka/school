@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Outer circle -->
+  <circle cx="100" cy="100" r="95" fill="#0e3a20" stroke="#c8a951" stroke-width="4"/>
+  <!-- Inner circle -->
+  <circle cx="100" cy="100" r="78" fill="none" stroke="#c8a951" stroke-width="2"/>
+  <!-- Book icon -->
+  <path d="M60 70 L100 80 L140 70 L140 130 L100 140 L60 130 Z" fill="none" stroke="#c8a951" stroke-width="2.5"/>
+  <line x1="100" y1="80" x2="100" y2="140" stroke="#c8a951" stroke-width="2"/>
+  <!-- E letter -->
+  <text x="100" y="118" text-anchor="middle" font-family="Georgia, serif" font-size="40" font-weight="bold" fill="#c8a951">E</text>
+  <!-- Top text -->
+  <path id="topArc" d="M 30 100 A 70 70 0 0 1 170 100" fill="none"/>
+  <text font-family="Georgia, serif" font-size="12" fill="#ffffff" font-weight="bold">
+    <textPath href="#topArc" startOffset="50%" text-anchor="middle">EXCEL GROUP OF SCHOOLS</textPath>
+  </text>
+  <!-- Bottom text -->
+  <path id="bottomArc" d="M 25 105 A 75 75 0 0 0 175 105" fill="none"/>
+  <text font-family="Georgia, serif" font-size="10" fill="#c8a951">
+    <textPath href="#bottomArc" startOffset="50%" text-anchor="middle">EXCELLENCE IN EDUCATION</textPath>
+  </text>
+</svg>

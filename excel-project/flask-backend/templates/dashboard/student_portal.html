@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}My Portal{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1><i class="fas fa-user-graduate" style="color:var(--primary);"></i> Student Portal</h1>
+        <p>Welcome, {{ student.first_name }} {{ student.last_name }}</p>
+    </div>
+</div>
+
+<!-- Profile Card -->
+<div class="profile-header" style="margin-bottom:24px;">
+    <div class="avatar-lg">{{ student.first_name[0] }}{{ student.last_name[0] }}</div>
+    <div>
+        <h2>{{ student.first_name }} {{ student.last_name }}</h2>
+        <p>Adm #{{ student.admission_number }} | {{ student.class_.name if student.class_ else 'No Class' }} | {{ student.fee_classification }}</p>
+        <p style="font-size:12px;">{{ student.email or '' }} {{ student.phone or '' }}</p>
+    </div>
+</div>
+
+<!-- Quick Stats -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="icon green"><i class="fas fa-dollar-sign"></i></div>
+        <div class="info">
+            <h3>${{ "%.2f"|format(balance.paid) }}</h3>
+            <p>Total Paid</p>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="icon {% if balance.balance > 0 %}red{% else %}green{% endif %}"><i class="fas fa-balance-scale"></i></div>
+        <div class="info">
+            <h3>${{ "%.2f"|format(balance.balance) }}</h3>
+            <p>Outstanding Balance</p>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="icon blue"><i class="fas fa-chart-line"></i></div>
+        <div class="info">
+            <h3>{{ results|length }}</h3>
+            <p>Exam Results</p>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="icon purple"><i class="fas fa-calendar-check"></i></div>
+        <div class="info">
+            {% set present_count = attendances|selectattr('status','equalto','Present')|list|length %}
+            <h3>{{ present_count }}/{{ attendances|length }}</h3>
+            <p>Days Present (Recent)</p>
+        </div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <!-- Fee Summary -->
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-wallet" style="color:var(--primary);"></i> Fee Summary</h3>
+        </div>
+        <div class="card-body">
+            <table>
+                <tr><td style="font-weight:600;">Total Due</td><td style="text-align:right;">${{ "%.2f"|format(balance.total_due) }}</td></tr>
+                {% if balance.scholarship_amount > 0 %}
+                <tr><td style="font-weight:600;color:var(--success);">Scholarship Discount</td><td style="text-align:right;color:var(--success);">-${{ "%.2f"|format(balance.scholarship_amount) }}</td></tr>
+                {% endif %}
+                <tr><td style="font-weight:600;">Net Due</td><td style="text-align:right;">${{ "%.2f"|format(balance.net_due) }}</td></tr>
+                <tr><td style="font-weight:600;color:var(--success);">Paid</td><td style="text-align:right;color:var(--success);">${{ "%.2f"|format(balance.paid) }}</td></tr>
+                <tr style="border-top:2px solid var(--primary);"><td style="font-weight:700;font-size:15px;">Balance</td><td style="text-align:right;font-weight:700;font-size:15px;color:{% if balance.balance > 0 %}var(--danger){% else %}var(--success){% endif %};">${{ "%.2f"|format(balance.balance) }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Recent Attendance -->
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-clipboard-check" style="color:var(--primary);"></i> Recent Attendance</h3>
+        </div>
+        <div class="card-body">
+            {% if attendances %}
+            <table>
+                <thead><tr><th>Date</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for a in attendances[:10] %}
+                <tr>
+                    <td>{{ a.date.strftime('%b %d, %Y') }}</td>
+                    <td><span class="badge {% if a.status == 'Present' %}badge-success{% else %}badge-danger{% endif %}">{{ a.status }}</span></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state" style="padding:30px;"><p>No attendance records.</p></div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Exam Results -->
+<div class="card mt-2">
+    <div class="card-header">
+        <h3><i class="fas fa-file-alt" style="color:var(--primary);"></i> Exam Results</h3>
+    </div>
+    <div class="card-body">
+        {% if results %}
+        <table>
+            <thead><tr><th>Subject</th><th>Marks</th><th>Total</th><th>Grade</th></tr></thead>
+            <tbody>
+            {% for r in results %}
+            <tr>
+                <td>{{ Subject.query.get(r.subject_id).name if r.subject_id else 'N/A' }}</td>
+                <td>{{ r.marks_obtained }}</td>
+                <td>{{ r.marks_total }}</td>
+                <td><span class="badge {% if r.grade in ['A','B'] %}badge-success{% elif r.grade == 'C' %}badge-warning{% else %}badge-danger{% endif %}">{{ r.grade }}</span></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state" style="padding:30px;"><p>No exam results recorded yet.</p></div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Payment History -->
+<div class="card mt-2">
+    <div class="card-header">
+        <h3><i class="fas fa-receipt" style="color:var(--primary);"></i> Payment History</h3>
+    </div>
+    <div class="card-body">
+        {% if payments %}
+        <table>
+            <thead><tr><th>Date</th><th>Receipt #</th><th>Method</th><th>Amount</th></tr></thead>
+            <tbody>
+            {% for p in payments %}
+            <tr>
+                <td>{{ p.payment_date.strftime('%b %d, %Y') }}</td>
+                <td>{{ p.receipt_number }}</td>
+                <td>{{ p.payment_method }}</td>
+                <td style="font-weight:600;color:var(--success);">${{ "%.2f"|format(p.amount) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state" style="padding:30px;"><p>No payments recorded yet.</p></div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Notices -->
+{% if notices %}
+<div class="card mt-2">
+    <div class="card-header">
+        <h3><i class="fas fa-bullhorn" style="color:var(--primary);"></i> Notices</h3>
+    </div>
+    <div class="card-body">
+        {% for n in notices %}
+        <div style="border-left:4px solid var(--primary);padding:12px 16px;margin-bottom:12px;background:var(--bg);border-radius:0 8px 8px 0;">
+            <h4 style="margin:0 0 4px;">{{ n.title }}</h4>
+            <p style="font-size:12px;color:var(--text-light);">{{ n.date_posted.strftime('%b %d, %Y') }} · {{ n.category }}</p>
+            <p style="font-size:14px;line-height:1.5;">{{ n.content }}</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

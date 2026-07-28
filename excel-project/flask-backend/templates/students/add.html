@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+{% block title %}Add Student{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Add Student</h1>
+        <p>Register a new student</p>
+    </div>
+    <a href="{{ url_for('students_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+
+<form method="POST">
+<div class="grid-2">
+    <!-- Personal Info -->
+    <div class="card">
+        <div class="card-header"><h3>Personal Information</h3></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>Admission Number</label>
+                <input type="text" class="form-control" value="{{ next_admission }}" disabled>
+                <input type="hidden" name="admission_number" value="{{ next_admission }}">
+                <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Auto-generated</p>
+            </div>
+            <div class="form-group">
+                <label>First Name <span class="required">*</span></label>
+                <input type="text" name="first_name" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Last Name <span class="required">*</span></label>
+                <input type="text" name="last_name" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Other Names</label>
+                <input type="text" name="other_names" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Date of Birth</label>
+                <input type="date" name="date_of_birth" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Gender</label>
+                <select name="gender" class="form-control">
+                    <option value="">Select</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>National ID</label>
+                <input type="text" name="national_id" class="form-control">
+            </div>
+        </div>
+    </div>
+
+    <!-- Enrollment Info -->
+    <div class="card">
+        <div class="card-header"><h3>Enrollment Information</h3></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>Level <span class="required">*</span></label>
+                <select name="level" class="form-control" id="levelSelect" required>
+                    <option value="">Select Level</option>
+                    <option value="ECD A">ECD A</option>
+                    <option value="ECD B">ECD B</option>
+                    <option value="Grade 1">Grade 1</option>
+                    <option value="Grade 2">Grade 2</option>
+                    <option value="Grade 3">Grade 3</option>
+                    <option value="Grade 4">Grade 4</option>
+                    <option value="Grade 5">Grade 5</option>
+                    <option value="Grade 6">Grade 6</option>
+                    <option value="Grade 7">Grade 7</option>
+                    <option value="Form 1">Form 1</option>
+                    <option value="Form 2">Form 2</option>
+                    <option value="Form 3">Form 3</option>
+                    <option value="Form 4">Form 4</option>
+                    <option value="Form 5">Form 5</option>
+                    <option value="Form 6">Form 6</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Class <span class="required">*</span></label>
+                <select name="class_id" class="form-control" id="classSelect" required>
+                    <option value="">Select Level First</option>
+                </select>
+            </div>
+            <div class="form-group" id="feeLevelInfo" style="display:none;">
+                <label>Fee Level</label>
+                <div style="padding:10px 14px;background:var(--bg);border-radius:8px;font-size:13px;border:1px solid var(--border);">
+                    <span id="feeLevelName"></span> — <strong id="feeLevelAmount"></strong>
+                </div>
+            </div>
+            <div class="form-group" id="primarySubjectsInfo" style="display:none;">
+                <label>Auto-Assigned Subjects</label>
+                <div style="padding:10px 14px;background:#e8f5e9;border-radius:8px;font-size:13px;border:1px solid #c8e6c9;">
+                    <i class="fas fa-check-circle" style="color:var(--success);margin-right:6px;"></i>
+                    Primary subjects will be auto-assigned: <strong>Shona, English, Maths, Science & Technology, Social Science, PE & Arts</strong>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Admission Date</label>
+                <input type="date" name="admission_date" class="form-control" value="{{ today }}">
+            </div>
+            <div class="form-group">
+                <label>Previous School</label>
+                <input type="text" name="previous_school" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Medical Information</label>
+                <textarea name="medical_info" class="form-control" rows="3"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fee Classification & Scholarship -->
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-award" style="color:var(--secondary);margin-right:8px;"></i>Fee Classification & Scholarship</h3></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>Fee Classification</label>
+                <select name="fee_classification" class="form-control" id="feeClassification">
+                    <option value="Regular">Regular (Full Fee)</option>
+                    <option value="Staff Scholarship">Staff Scholarship</option>
+                    <option value="Academic Scholarship">Academic Scholarship</option>
+                    <option value="Sports Scholarship">Sports Scholarship</option>
+                    <option value="Bursary">Bursary</option>
+                    <option value="Orphan">Orphan</option>
+                </select>
+            </div>
+            <div class="form-group" id="scholarshipTypeGroup" style="display:none;">
+                <label>Scholarship Type</label>
+                <select name="scholarship_type" class="form-control" id="scholarshipType">
+                    <option value="None">None</option>
+                    <option value="Full">Full Scholarship (100% discount)</option>
+                    <option value="Partial">Partial Scholarship</option>
+                </select>
+            </div>
+            <div class="form-group" id="scholarshipPercentageGroup" style="display:none;">
+                <label>Discount Percentage (%)</label>
+                <input type="number" name="scholarship_percentage" class="form-control" id="scholarshipPercentage" min="0" max="100" value="0">
+                <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Enter 0-100. This is the percentage of fees waived.</p>
+            </div>
+            <div class="form-group" id="staffLinkGroup" style="display:none;">
+                <label>Linked Staff Member</label>
+                <select name="scholarship_staff_id" class="form-control">
+                    <option value="">Select Staff Member</option>
+                    {% for s in staff_list %}
+                    <option value="{{ s.id }}">{{ s.employee_number }} - {{ s.first_name }} {{ s.last_name }} ({{ s.department or 'No Dept' }})</option>
+                    {% endfor %}
+                </select>
+                <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Select the staff member whose child this is.</p>
+            </div>
+            <div class="form-group" id="scholarshipSponsorGroup" style="display:none;">
+                <label>Scholarship Sponsor / Source</label>
+                <input type="text" name="scholarship_sponsor" class="form-control" placeholder="e.g., School Bursary Fund, Ministry of Education">
+            </div>
+            <div class="form-group" id="scholarshipNotesGroup" style="display:none;">
+                <label>Scholarship Notes</label>
+                <textarea name="scholarship_notes" class="form-control" rows="2" placeholder="Any additional notes about the scholarship"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contact Info -->
+    <div class="card">
+        <div class="card-header"><h3>Contact Information</h3></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>Address</label>
+                <input type="text" name="address" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>City</label>
+                <input type="text" name="city" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Province</label>
+                <input type="text" name="province" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Phone</label>
+                <input type="text" name="phone" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" name="email" class="form-control">
+            </div>
+        </div>
+    </div>
+
+    <!-- Parent/Guardian Info -->
+    <div class="card">
+        <div class="card-header"><h3>Parent/Guardian</h3></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>First Name</label>
+                <input type="text" name="parent_first_name" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Last Name</label>
+                <input type="text" name="parent_last_name" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Relationship</label>
+                <select name="parent_relationship" class="form-control">
+                    <option value="">Select</option>
+                    <option value="Father">Father</option>
+                    <option value="Mother">Mother</option>
+                    <option value="Guardian">Guardian</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Phone</label>
+                <input type="text" name="parent_phone" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" name="parent_email" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Occupation</label>
+                <input type="text" name="parent_occupation" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>National ID</label>
+                <input type="text" name="parent_national_id" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Address</label>
+                <input type="text" name="parent_address" class="form-control">
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-2 d-flex gap-1">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Register Student</button>
+    <a href="{{ url_for('students_list') }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+
+<script>
+// Level → Class dropdown cascade
+const levelClasses = {{ level_classes|safe }};
+const feeLevels = {{ fee_levels_json|safe }};
+
+function isPrimaryLevel(level) {
+    if (!level) return false;
+    const lvl = level.trim().toLowerCase();
+    if (lvl.startsWith('ecd')) return true;
+    const m = lvl.match(/grade\s*(\d+)/);
+    if (m) { const g = parseInt(m[1]); return g >= 1 && g <= 7; }
+    return false;
+}
+
+function getFeeLevelName(level) {
+    if (!level) return null;
+    const lvl = level.trim().toLowerCase();
+    if (lvl.startsWith('ecd')) return 'ECD';
+    const m = lvl.match(/grade\s*(\d+)/);
+    if (m) { const g = parseInt(m[1]); if (g >= 1 && g <= 7) return 'Junior'; }
+    const fm = lvl.match(/form\s*(\d+)/);
+    if (fm) { const f = parseInt(fm[1]); if (f >= 1 && f <= 4) return 'O Level'; if (f >= 5) return 'A Level'; }
+    return null;
+}
+
+document.getElementById('levelSelect').addEventListener('change', function() {
+    const level = this.value;
+    const classSelect = document.getElementById('classSelect');
+    classSelect.innerHTML = '';
+
+    // Find matching classes
+    const matchingClasses = levelClasses[level] || [];
+    if (matchingClasses.length === 0 && level) {
+        // No classes for this level yet — offer to create one
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No classes for ' + level + ' — add one in Settings';
+        classSelect.appendChild(opt);
+    } else {
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = 'Select Class';
+        classSelect.appendChild(defaultOpt);
+        matchingClasses.forEach(function(c) {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.name;
+            classSelect.appendChild(opt);
+        });
+    }
+
+    // Show fee level info
+    const flName = getFeeLevelName(level);
+    const flInfo = document.getElementById('feeLevelInfo');
+    const flNameEl = document.getElementById('feeLevelName');
+    const flAmountEl = document.getElementById('feeLevelAmount');
+    if (flName) {
+        const flData = feeLevels.find(f => f.name === flName);
+        if (flData) {
+            flNameEl.textContent = flData.name + ' — ' + (flData.description || '');
+            flAmountEl.textContent = '$' + flData.total.toFixed(2) + '/term';
+            flInfo.style.display = '';
+        } else {
+            flInfo.style.display = 'none';
+        }
+    } else {
+        flInfo.style.display = 'none';
+    }
+
+    // Show primary subjects info
+    const psInfo = document.getElementById('primarySubjectsInfo');
+    if (isPrimaryLevel(level)) {
+        psInfo.style.display = '';
+    } else {
+        psInfo.style.display = 'none';
+    }
+});
+
+function updateScholarshipFields() {
+    const classification = document.getElementById('feeClassification').value;
+    const isScholarship = classification !== 'Regular';
+    
+    document.getElementById('scholarshipTypeGroup').style.display = isScholarship ? '' : 'none';
+    document.getElementById('scholarshipSponsorGroup').style.display = isScholarship ? '' : 'none';
+    document.getElementById('scholarshipNotesGroup').style.display = isScholarship ? '' : 'none';
+    document.getElementById('staffLinkGroup').style.display = (classification === 'Staff Scholarship') ? '' : 'none';
+    
+    if (classification === 'Orphan') {
+        document.getElementById('scholarshipType').value = 'Full';
+        document.getElementById('scholarshipPercentage').value = '100';
+        updatePercentageVisibility();
+    } else if (classification === 'Regular') {
+        document.getElementById('scholarshipType').value = 'None';
+        document.getElementById('scholarshipPercentage').value = '0';
+    }
+    updatePercentageVisibility();
+}
+
+function updatePercentageVisibility() {
+    const type = document.getElementById('scholarshipType').value;
+    document.getElementById('scholarshipPercentageGroup').style.display = (type === 'Partial') ? '' : 'none';
+}
+
+document.getElementById('feeClassification').addEventListener('change', updateScholarshipFields);
+document.getElementById('scholarshipType').addEventListener('change', updatePercentageVisibility);
+updateScholarshipFields();
+</script>
+{% endblock %}

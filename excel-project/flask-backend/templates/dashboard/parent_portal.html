@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Parent Portal{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1><i class="fas fa-user-friends" style="color:var(--primary);"></i> Parent Portal</h1>
+        <p>Welcome, {{ parent.first_name }} {{ parent.last_name }}</p>
+    </div>
+</div>
+
+{% for child_data in children_data %}
+{% set child = child_data.student %}
+<div class="card" style="margin-bottom:24px;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+        <h3><i class="fas fa-user-graduate" style="color:var(--primary);margin-right:8px;"></i>{{ child.first_name }} {{ child.last_name }}</h3>
+        <div>
+            <span class="badge badge-info">{{ child.admission_number }}</span>
+            <span class="badge badge-success">{{ child.status }}</span>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="grid-3" style="margin-bottom:20px;">
+            <div style="padding:12px;background:var(--bg);border-radius:8px;text-align:center;">
+                <div style="font-size:12px;color:var(--text-light);">Class</div>
+                <div style="font-size:16px;font-weight:700;color:var(--primary);">{{ child.class_.name if child.class_ else 'N/A' }}</div>
+            </div>
+            <div style="padding:12px;background:var(--bg);border-radius:8px;text-align:center;">
+                <div style="font-size:12px;color:var(--text-light);">Fee Classification</div>
+                <div style="font-size:16px;font-weight:700;color:var(--secondary);">{{ child.scholarship_label }}</div>
+            </div>
+            <div style="padding:12px;background:var(--bg);border-radius:8px;text-align:center;">
+                <div style="font-size:12px;color:var(--text-light);">Fee Balance</div>
+                <div style="font-size:16px;font-weight:700;color:{% if child_data.balance.balance > 0 %}var(--accent){% else %}#10b981{% endif %};">${{ "%.2f"|format(child_data.balance.balance) }}</div>
+            </div>
+        </div>
+
+        <!-- Fee Summary -->
+        <div class="card" style="margin-bottom:16px;border:1px solid var(--border);">
+            <div class="card-header" style="padding:10px 16px;"><h4 style="margin:0;font-size:14px;"><i class="fas fa-dollar-sign" style="color:var(--secondary);margin-right:6px;"></i>Fee Details</h4></div>
+            <div class="card-body" style="padding:12px 16px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                    <span>Total Due:</span><strong>${{ "%.2f"|format(child_data.balance.total_due) }}</strong>
+                </div>
+                {% if child_data.balance.scholarship_amount > 0 %}
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;color:var(--accent);">
+                    <span>Scholarship Discount:</span><strong>-${{ "%.2f"|format(child_data.balance.scholarship_amount) }}</strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                    <span>Net Due:</span><strong>${{ "%.2f"|format(child_data.balance.net_due) }}</strong>
+                </div>
+                {% endif %}
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;color:#10b981;">
+                    <span>Total Paid:</span><strong>${{ "%.2f"|format(child_data.balance.paid) }}</strong>
+                </div>
+                <hr style="border:none;border-top:1px solid var(--border);margin:8px 0;">
+                <div style="display:flex;justify-content:space-between;font-size:16px;">
+                    <span><strong>Balance:</strong></span><strong style="color:{% if child_data.balance.balance > 0 %}var(--accent){% else %}#10b981{% endif %};">${{ "%.2f"|format(child_data.balance.balance) }}</strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Attendance -->
+        <div class="card" style="margin-bottom:16px;border:1px solid var(--border);">
+            <div class="card-header" style="padding:10px 16px;"><h4 style="margin:0;font-size:14px;"><i class="fas fa-clipboard-check" style="color:var(--primary);margin-right:6px;"></i>Recent Attendance</h4></div>
+            <div class="card-body" style="padding:0;">
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead><tr><th style="padding:8px 12px;text-align:left;">Date</th><th style="padding:8px 12px;text-align:left;">Status</th><th style="padding:8px 12px;text-align:left;">Remarks</th></tr></thead>
+                    <tbody>
+                    {% for att in child_data.attendances[:10] %}
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <td style="padding:8px 12px;">{{ att.date.strftime('%d %b %Y') }}</td>
+                        <td style="padding:8px 12px;"><span class="badge badge-{{ 'success' if att.status == 'Present' else 'danger' if att.status == 'Absent' else 'warning' }}">{{ att.status }}</span></td>
+                        <td style="padding:8px 12px;color:var(--text-light);">{{ att.remarks or '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" style="padding:12px;text-align:center;color:var(--text-light);">No attendance records</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Recent Results -->
+        {% if child_data.results %}
+        <div class="card" style="margin-bottom:16px;border:1px solid var(--border);">
+            <div class="card-header" style="padding:10px 16px;"><h4 style="margin:0;font-size:14px;"><i class="fas fa-chart-bar" style="color:var(--primary);margin-right:6px;"></i>Exam Results</h4></div>
+            <div class="card-body" style="padding:0;">
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead><tr><th style="padding:8px 12px;text-align:left;">Subject</th><th style="padding:8px 12px;text-align:center;">Marks</th><th style="padding:8px 12px;text-align:center;">Grade</th></tr></thead>
+                    <tbody>
+                    {% for r in child_data.results %}
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <td style="padding:8px 12px;">{{ r.subject.name if r.subject else 'Unknown' }}</td>
+                        <td style="padding:8px 12px;text-align:center;">{{ r.marks_obtained }}/{{ r.marks_total }}</td>
+                        <td style="padding:8px 12px;text-align:center;"><span class="badge badge-{{ 'success' if r.grade in ('A','B') else 'info' if r.grade == 'C' else 'warning' if r.grade == 'D' else 'danger' }}">{{ r.grade or '-' }}</span></td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Recent Payments -->
+        {% if child_data.payments %}
+        <div class="card" style="border:1px solid var(--border);">
+            <div class="card-header" style="padding:10px 16px;"><h4 style="margin:0;font-size:14px;"><i class="fas fa-receipt" style="color:var(--secondary);margin-right:6px;"></i>Payment History</h4></div>
+            <div class="card-body" style="padding:0;">
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead><tr><th style="padding:8px 12px;text-align:left;">Date</th><th style="padding:8px 12px;text-align:left;">Receipt</th><th style="padding:8px 12px;text-align:right;">Amount</th></tr></thead>
+                    <tbody>
+                    {% for p in child_data.payments[:10] %}
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <td style="padding:8px 12px;">{{ p.payment_date.strftime('%d %b %Y') if p.payment_date else '-' }}</td>
+                        <td style="padding:8px 12px;">{{ p.receipt_number }}</td>
+                        <td style="padding:8px 12px;text-align:right;font-weight:600;color:#10b981;">${{ "%.2f"|format(p.amount) }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body" style="text-align:center;padding:40px;">
+        <i class="fas fa-user-friends" style="font-size:48px;color:var(--text-light);margin-bottom:16px;"></i>
+        <h3>No Children Linked</h3>
+        <p style="color:var(--text-light);">No students are currently linked to your parent account. Please contact the school administrator.</p>
+    </div>
+</div>
+{% endfor %}
+
+<!-- School Notices -->
+{% if notices %}
+<div class="card" style="margin-top:24px;">
+    <div class="card-header"><h3><i class="fas fa-bullhorn" style="color:var(--accent);margin-right:8px;"></i>School Notices</h3></div>
+    <div class="card-body">
+        {% for notice in notices %}
+        <div style="padding:12px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:start;">
+            <div>
+                <strong>{{ notice.title }}</strong>
+                <span class="badge badge-{{ 'info' if notice.category == 'General' else 'warning' if notice.category == 'Urgent' else 'primary' }}">{{ notice.category }}</span>
+                <p style="font-size:12px;color:var(--text-light);margin-top:4px;">{{ notice.content[:150] }}{% if notice.content|length > 150 %}...{% endif %}</p>
+            </div>
+            <span style="font-size:11px;color:var(--text-light);white-space:nowrap;">{{ notice.date_posted.strftime('%b %d, %Y') }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

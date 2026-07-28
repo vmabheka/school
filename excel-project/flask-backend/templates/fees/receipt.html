@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Receipt — {{ payment.receipt_number }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1><i class="fas fa-receipt" style="color:var(--primary);margin-right:8px;"></i>Fee Receipt</h1>
+    <p>Official payment receipt with auto-generated signature</p></div>
+    <div class="actions no-print">
+        <a href="{{ url_for('fee_receipt_pdf', id=payment.id) }}" class="btn btn-primary"><i class="fas fa-file-pdf"></i> Download PDF</a>
+        <button onclick="window.print()" class="btn btn-secondary"><i class="fas fa-print"></i> Print</button>
+        <a href="{{ url_for('fees_dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+</div>
+
+<div class="card" style="max-width:720px;margin:0 auto;">
+    <div class="card-body" style="padding:40px;">
+        <div style="text-align:center;margin-bottom:30px;border-bottom:2px solid var(--primary);padding-bottom:20px;">
+            <h2 style="color:var(--primary);margin-bottom:4px;">Excel Group of Schools</h2>
+            <p style="color:var(--text-light);font-size:13px;">Excellence in Education</p>
+            <p style="margin-top:14px;font-size:11px;color:var(--text-light);text-transform:uppercase;letter-spacing:2px;font-weight:600;">Official Fee Receipt</p>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:24px;">
+            <div>
+                <p style="font-size:13px;color:var(--text-light);margin-bottom:4px;">Receipt Number</p>
+                <p style="font-weight:700;font-size:18px;color:var(--primary);">{{ payment.receipt_number }}</p>
+            </div>
+            <div style="text-align:right;">
+                <p style="font-size:13px;color:var(--text-light);margin-bottom:4px;">Date</p>
+                <p style="font-weight:600;font-size:14px;">{{ payment.payment_date.strftime('%d %B %Y') if payment.payment_date else '—' }}</p>
+            </div>
+        </div>
+        <table style="width:100%;font-size:14px;">
+            <tr style="border-bottom:1px solid var(--border);"><td style="padding:12px 0;color:var(--text-light);width:40%;">Student Name</td><td style="padding:12px 0;font-weight:600;">{{ payment.student.first_name }} {{ payment.student.last_name }}</td></tr>
+            <tr style="border-bottom:1px solid var(--border);"><td style="padding:12px 0;color:var(--text-light);">Admission Number</td><td style="padding:12px 0;">{{ payment.student.admission_number }}</td></tr>
+            <tr style="border-bottom:1px solid var(--border);"><td style="padding:12px 0;color:var(--text-light);">Class</td><td style="padding:12px 0;">{{ payment.student.class_.name if payment.student.class_ else '—' }}</td></tr>
+            <tr style="border-bottom:1px solid var(--border);"><td style="padding:12px 0;color:var(--text-light);">Amount Paid</td><td style="padding:12px 0;font-weight:700;font-size:18px;color:var(--primary);">${{ "%.2f"|format(payment.amount) }}</td></tr>
+            <tr style="border-bottom:1px solid var(--border);"><td style="padding:12px 0;color:var(--text-light);">Payment Method</td><td style="padding:12px 0;">{{ payment.payment_method or 'Cash' }}</td></tr>
+            <tr><td style="padding:12px 0;color:var(--text-light);">Description</td><td style="padding:12px 0;">{{ payment.description or 'Fee payment' }}</td></tr>
+        </table>
+
+        {# ─── Signature block (anonymized — no full name, no "auto-generated" label) ─── #}
+        <div class="signature-block no-print" style="margin-top:36px;padding:18px 20px;background:linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);border-left:4px solid var(--primary);border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+            <div style="display:flex;align-items:center;gap:14px;">
+                {% if recorder %}
+                <div style="width:52px;height:52px;background:var(--primary);color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;flex-shrink:0;letter-spacing:0.5px;">
+                    {{ recorder.initials }}
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <p style="font-weight:600;font-size:14px;margin:0;color:var(--text);">
+                        <span class="badge badge-info" style="font-size:10px;vertical-align:middle;margin-right:6px;">{{ recorder.role_label }}</span>
+                        <span class="badge badge-secondary" style="font-size:10px;vertical-align:middle;margin-right:6px;">{{ recorder.position }}</span>
+                        <span style="font-family:monospace;color:var(--text-light);font-size:12px;">@{{ recorder.username }}</span>
+                    </p>
+                    <p style="font-size:12px;color:var(--text-light);margin:6px 0 0;">
+                        <i class="fas fa-clock"></i> Recorded on
+                        <strong>{{ payment.created_at.strftime('%d %B %Y at %H:%M:%S') }} UTC</strong>
+                    </p>
+                    <p style="font-size:11px;color:var(--text-light);margin:4px 0 0;display:flex;flex-wrap:wrap;gap:14px;">
+                        <span><i class="fas fa-fingerprint"></i> <strong>Signature ID:</strong> <code style="background:#fff;padding:2px 6px;border-radius:3px;border:1px solid var(--border);font-family:monospace;">{{ signature_id }}</code></span>
+                    </p>
+                </div>
+                {% else %}
+                <div style="width:52px;height:52px;background:#9ca3af;color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">?</div>
+                <div style="flex:1;">
+                    <p style="font-weight:600;font-size:13px;margin:0;color:var(--text-light);font-style:italic;">Recorder information unavailable (legacy payment)</p>
+                    <p style="font-size:11px;color:var(--text-light);margin:6px 0 0;display:flex;flex-wrap:wrap;gap:14px;">
+                        <span><i class="fas fa-fingerprint"></i> <strong>Signature ID:</strong> <code style="background:#fff;padding:2px 6px;border-radius:3px;border:1px solid var(--border);font-family:monospace;">{{ signature_id }}</code></span>
+                    </p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# Compact signature for print view (anonymized) #}
+        <div class="print-only" style="display:none;margin-top:36px;padding-top:20px;border-top:1px dashed var(--border);text-align:center;">
+            {% if recorder %}
+            <p style="font-size:11px;color:var(--text);margin:0;">
+                <strong>{{ recorder.role_label }}</strong> · {{ recorder.position }} · <span style="font-family:monospace;color:var(--text-light);">@{{ recorder.username }}</span>
+            </p>
+            <p style="font-size:10px;color:var(--text-light);margin:4px 0 0;">
+                Recorded: {{ payment.created_at.strftime('%d %b %Y %H:%M UTC') }} · Signature: {{ signature_id }}
+            </p>
+            {% else %}
+            <p style="font-size:11px;color:var(--text-light);font-style:italic;">Recorder information unavailable</p>
+            <p style="font-size:10px;color:var(--text-light);margin:4px 0 0;">Signature: {{ signature_id }}</p>
+            {% endif %}
+        </div>
+
+        <div style="margin-top:30px;text-align:center;padding-top:20px;border-top:1px dashed var(--border);">
+            <p style="font-size:12px;color:var(--text-light);">This is an official receipt of Excel Group of Schools</p>
+            <p style="font-size:11px;color:var(--text-light);">Keep this receipt for your records. Signature ID is unique and tamper-evident.</p>
+        </div>
+    </div>
+</div>
+
+<style>
+    @media print {
+        .no-print { display: none !important; }
+        .print-only { display: block !important; }
+        .sidebar, .header { display: none !important; }
+        .main { margin: 0; padding: 20px; }
+        .card { box-shadow: none; border: 1px solid #ccc; }
+    }
+</style>
+{% endblock %}

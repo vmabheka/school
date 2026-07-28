@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Staff{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Staff</h1><p>Manage staff members and teachers</p></div>
+    {% if session.get('user_role') == 'admin' %}
+    <a href="{{ url_for('staff_add') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Add Staff</a>
+    <a href="{{ url_for('staff_bulk_import') }}" class="btn btn-success"><i class="fas fa-file-excel"></i> Bulk Import</a>
+    {% endif %}
+</div>
+
+<div class="filter-bar">
+    <form method="GET" class="d-flex gap-1 flex-wrap" style="align-items:center;">
+        <input type="text" name="search" class="form-control" placeholder="Search staff..." value="{{ search }}" style="min-width:250px;">
+        <select name="department" class="form-control">
+            <option value="">All Departments</option>
+            {% for d in departments %}
+            <option value="{{ d }}" {% if dept_filter == d %}selected{% endif %}>{{ d }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i></button>
+        <a href="{{ url_for('staff_list') }}" class="btn btn-secondary"><i class="fas fa-times"></i></a>
+    </form>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Emp No.</th><th>Name</th><th>Department</th><th>Position</th><th>Phone</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+                {% for s in staff.items %}
+                <tr>
+                    <td><strong>{{ s.employee_number }}</strong></td>
+                    <td>{{ s.first_name }} {{ s.last_name }}</td>
+                    <td>{{ s.department or '-' }}</td>
+                    <td>{{ s.position or '-' }}</td>
+                    <td>{{ s.phone or '-' }}</td>
+                    <td><span class="badge badge-{{ 'success' if s.status == 'Active' else 'danger' }}">{{ s.status }}</span></td>
+                    <td>
+                        <a href="{{ url_for('staff_view', id=s.id) }}" class="btn btn-sm btn-info"><i class="fas fa-eye"></i></a>
+                        {% if session.get('user_role') == 'admin' %}
+                        <a href="{{ url_for('staff_edit', id=s.id) }}" class="btn btn-sm btn-secondary"><i class="fas fa-edit"></i></a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-center" style="padding:40px;color:var(--text-light);">No staff found</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if staff.pages > 1 %}
+<div class="pagination">
+    {% if staff.has_prev %}<a href="{{ url_for('staff_list', page=staff.prev_num, search=search, department=dept_filter) }}">&laquo;</a>{% endif %}
+    {% for p in staff.iter_pages() %}
+        {% if p %}<a href="{{ url_for('staff_list', page=p) }}" class="{{ 'active' if p == staff.page else '' }}">{{ p }}</a>{% else %}<span>...</span>{% endif %}
+    {% endfor %}
+    {% if staff.has_next %}<a href="{{ url_for('staff_list', page=staff.next_num) }}">&raquo;</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

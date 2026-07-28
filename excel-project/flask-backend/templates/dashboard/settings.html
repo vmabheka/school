@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div><h1>Settings</h1><p>Configure system settings, academic years, terms, classes, and subjects</p></div>
+</div>
+
+<!-- Dummy Data (Demo / Reset) -->
+<div class="card mb-2">
+    <div class="card-header">
+        <h3><i class="fas fa-database" style="color:var(--secondary);margin-right:8px;"></i>Dummy Demo Data</h3>
+    </div>
+    <div class="card-body">
+        <p style="color:var(--text-light);font-size:13px;margin-bottom:12px;">
+            Quickly populate the system with realistic demo data so learners can explore
+            every screen. For each of the four fee levels
+            (<strong>ECD, Junior, O Level, A Level</strong>) the seeder creates
+            <strong>9 classes</strong> (one per stream:
+            <span style="display:inline-block;background:var(--secondary);color:var(--primary-dark);padding:2px 8px;border-radius:6px;font-weight:600;font-size:11px;margin:0 4px;">
+                {% for s in demo_streams %}{{ s }}{% if not loop.last %}, {% endif %}{% endfor %}
+            </span>)
+            plus <strong>10 students</strong> placed in the Yellow class of each level.
+            A <strong>form master teacher</strong> is also created for every class
+            (login <code>demo0001</code> / <code>{{ demo_teacher_password }}</code>).
+            Students use admission numbers like <code>{{ demo_student_prefix }}0001</code>.
+        </p>
+
+        <div class="stats-grid" style="margin-bottom:14px;">
+            <div class="stat-card">
+                <div class="icon blue"><i class="fas fa-user-graduate"></i></div>
+                <div class="info">
+                    <h3>{{ demo_counts.students }}</h3>
+                    <p>Demo students ({{ demo_student_prefix }}…)</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="icon green"><i class="fas fa-school"></i></div>
+                <div class="info">
+                    <h3>{{ demo_counts.classes }}</h3>
+                    <p>Demo classes (9 streams × 4 levels)</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="icon purple"><i class="fas fa-chalkboard-teacher"></i></div>
+                <div class="info">
+                    <h3>{{ demo_counts.staff }}</h3>
+                    <p>Demo teachers ({{ demo_counts.teachers }} login{{ '' if demo_counts.teachers == 1 else 's' }})</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex gap-1 flex-wrap">
+            <form method="POST" action="{{ url_for('settings_dummy_data_seed') }}" style="display:inline;" onsubmit="return confirm('This will REPLACE all existing demo data (additions only — real data is untouched). Continue?');">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-magic"></i>
+                    {% if demo_counts.students > 0 %}Reset & Re-seed Demo Data{% else %}Seed Demo Data{% endif %}
+                </button>
+            </form>
+            <form method="POST" action="{{ url_for('settings_dummy_data_clear') }}" style="display:inline;" onsubmit="return confirm('Delete ALL demo students, classes and teachers? This cannot be undone.');">
+                <button type="submit" class="btn btn-danger" {% if demo_counts.students == 0 %}disabled{% endif %}>
+                    <i class="fas fa-trash"></i> Clear Demo Data
+                </button>
+            </form>
+        </div>
+        <p style="font-size:11px;color:var(--text-light);margin-top:10px;">
+            <i class="fas fa-info-circle"></i> Real records (admission numbers not starting with
+            <code>{{ demo_student_prefix }}</code>) are never touched by these buttons.
+        </p>
+    </div>
+</div>
+
+<!-- Current Period -->
+<div class="card mb-2">
+    <div class="card-header"><h3>Current Period</h3></div>
+    <div class="card-body">
+        <div class="d-flex gap-2 flex-wrap">
+            <div><strong>Academic Year:</strong> {{ current_ay.name if current_ay else 'Not set' }}</div>
+            <div><strong>Term:</strong> {{ current_term.name if current_term else 'Not set' }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <!-- Academic Year -->
+    <div class="card">
+        <div class="card-header"><h3>Academic Years</h3></div>
+        <div class="card-body">
+            <table style="width:100%;font-size:13px;">
+                <thead><tr><th>Name</th><th>Start</th><th>End</th><th>Current</th></tr></thead>
+                <tbody>
+                    {% for ay in academic_years %}
+                    <tr><td>{{ ay.name }}</td><td>{{ ay.start_date }}</td><td>{{ ay.end_date }}</td><td>{% if ay.is_current %}<span class="badge badge-success">Yes</span>{% endif %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <hr>
+            <h4 style="font-size:14px;margin-bottom:12px;">Add Academic Year</h4>
+            <form method="POST" action="{{ url_for('add_academic_year') }}">
+                <div class="form-group"><label>Name</label><input type="text" name="name" class="form-control" placeholder="e.g., 2026" required></div>
+                <div class="form-grid">
+                    <div class="form-group"><label>Start Date</label><input type="date" name="start_date" class="form-control" required></div>
+                    <div class="form-group"><label>End Date</label><input type="date" name="end_date" class="form-control" required></div>
+                </div>
+                <div class="form-group"><label><input type="checkbox" name="is_current"> Set as current</label></div>
+                <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save"></i> Add</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Terms -->
+    <div class="card">
+        <div class="card-header"><h3>Terms</h3></div>
+        <div class="card-body">
+            <table style="width:100%;font-size:13px;">
+                <thead><tr><th>Name</th><th>Academic Year</th><th>Start</th><th>End</th><th>Current</th></tr></thead>
+                <tbody>
+                    {% for t in terms %}
+                    <tr><td>{{ t.name }}</td><td>{{ t.academic_year.name if t.academic_year else '-' }}</td><td>{{ t.start_date }}</td><td>{{ t.end_date }}</td><td>{% if t.is_current %}<span class="badge badge-success">Yes</span>{% endif %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <hr>
+            <h4 style="font-size:14px;margin-bottom:12px;">Add Term</h4>
+            <form method="POST" action="{{ url_for('add_term') }}">
+                <div class="form-group"><label>Name</label><input type="text" name="name" class="form-control" placeholder="e.g., Term 1" required></div>
+                <div class="form-group"><label>Academic Year</label>
+                    <select name="academic_year_id" class="form-control">{% for ay in academic_years %}<option value="{{ ay.id }}">{{ ay.name }}</option>{% endfor %}</select>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group"><label>Start Date</label><input type="date" name="start_date" class="form-control" required></div>
+                    <div class="form-group"><label>End Date</label><input type="date" name="end_date" class="form-control" required></div>
+                </div>
+                <div class="form-group"><label><input type="checkbox" name="is_current"> Set as current</label></div>
+                <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save"></i> Add</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Subjects -->
+    <div class="card">
+        <div class="card-header"><h3>Subjects</h3></div>
+        <div class="card-body">
+            <table style="width:100%;font-size:13px;">
+                <thead><tr><th>Code</th><th>Name</th><th>Compulsory</th></tr></thead>
+                <tbody>
+                    {% for s in subjects %}
+                    <tr><td>{{ s.code or '-' }}</td><td>{{ s.name }}</td><td>{% if s.is_compulsory %}<span class="badge badge-info">Yes</span>{% else %}<span class="badge badge-secondary">No</span>{% endif %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <hr>
+            <h4 style="font-size:14px;margin-bottom:12px;">Add Subject</h4>
+            <form method="POST" action="{{ url_for('add_subject') }}">
+                <div class="form-grid">
+                    <div class="form-group"><label>Name</label><input type="text" name="name" class="form-control" required></div>
+                    <div class="form-group"><label>Code</label><input type="text" name="code" class="form-control" placeholder="e.g., MATH"></div>
+                </div>
+                <div class="form-group"><label>Description</label><input type="text" name="description" class="form-control"></div>
+                <div class="form-group"><label><input type="checkbox" name="is_compulsory"> Compulsory</label></div>
+                <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save"></i> Add</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Classes -->
+    <div class="card">
+        <div class="card-header"><h3>Classes</h3></div>
+        <div class="card-body">
+            <table style="width:100%;font-size:13px;">
+                <thead><tr><th>Name</th><th>Level</th><th>Stream</th><th>Teacher</th><th>Capacity</th></tr></thead>
+                <tbody>
+                    {% for c in classes %}
+                    <tr><td>{{ c.name }}</td><td>{{ c.level or '-' }}</td><td>{{ c.stream or '-' }}</td><td>{{ c.teacher.first_name }} {{ c.teacher.last_name if c.teacher else '-' }}</td><td>{{ c.capacity }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <hr>
+            <h4 style="font-size:14px;margin-bottom:12px;">Add Class</h4>
+            <form method="POST" action="{{ url_for('add_class') }}">
+                <div class="form-grid">
+                    <div class="form-group"><label>Name</label><input type="text" name="name" class="form-control" id="className" placeholder="Auto-filled from Level + Stream (or type custom name)"></div>
+                    <div class="form-group"><label>Level <span class="required">*</span></label>
+                        <select name="level" class="form-control" id="classLevel" required>
+                            <option value="">Select Level</option>
+                            <optgroup label="ECD">
+                                <option value="ECD A">ECD A</option>
+                                <option value="ECD B">ECD B</option>
+                            </optgroup>
+                            <optgroup label="Junior (Grade 1–7)">
+                                <option value="Grade 1">Grade 1</option>
+                                <option value="Grade 2">Grade 2</option>
+                                <option value="Grade 3">Grade 3</option>
+                                <option value="Grade 4">Grade 4</option>
+                                <option value="Grade 5">Grade 5</option>
+                                <option value="Grade 6">Grade 6</option>
+                                <option value="Grade 7">Grade 7</option>
+                            </optgroup>
+                            <optgroup label="O Level (Form 1–4)">
+                                <option value="Form 1">Form 1</option>
+                                <option value="Form 2">Form 2</option>
+                                <option value="Form 3">Form 3</option>
+                                <option value="Form 4">Form 4</option>
+                            </optgroup>
+                            <optgroup label="A Level (Form 5–6)">
+                                <option value="Form 5">Form 5</option>
+                                <option value="Form 6">Form 6</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Stream</label>
+                        <select name="stream" class="form-control" id="classStream">
+                            <option value="">None</option>
+                            <option value="Yellow">Yellow</option>
+                            <option value="Blue">Blue</option>
+                            <option value="Red">Red</option>
+                            <option value="Purple">Purple</option>
+                            <option value="Green">Green</option>
+                            <option value="Orange">Orange</option>
+                            <option value="Sciences">Sciences</option>
+                            <option value="Arts">Arts</option>
+                            <option value="Commercials">Commercials</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Capacity</label><input type="number" name="capacity" class="form-control" value="40"></div>
+                </div>
+                <div class="form-group"><label>Class Teacher</label>
+                    <select name="teacher_id" class="form-control"><option value="">Select</option>{% for s in active_staff %}<option value="{{ s.id }}">{{ s.first_name }} {{ s.last_name }}</option>{% endfor %}</select>
+                </div>
+                <div class="form-group"><label>Academic Year</label>
+                    <select name="academic_year_id" class="form-control">{% for ay in academic_years %}<option value="{{ ay.id }}" {% if ay.is_current %}selected{% endif %}>{{ ay.name }}</option>{% endfor %}</select>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save"></i> Add</button>
+            </form>
+            <script>
+            document.getElementById('classLevel').addEventListener('change', updateClassName);
+            document.getElementById('classStream').addEventListener('change', updateClassName);
+            function updateClassName() {
+                const level = document.getElementById('classLevel').value;
+                const stream = document.getElementById('classStream').value;
+                const nameInput = document.getElementById('className');
+                if (level && !nameInput.dataset.custom) {
+                    nameInput.value = level + (stream ? ' ' + stream : '');
+                }
+            }
+            document.getElementById('className').addEventListener('input', function() {
+                this.dataset.custom = 'true';
+            });
+            </script>
+        </div>
+    </div>
+</div>
+{% endblock %}
