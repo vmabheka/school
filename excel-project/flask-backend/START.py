@@ -10,7 +10,7 @@ import sys
 # Ensure we're in the right directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-from app import app, db
+from app import app, init_db
 
 print("=" * 60)
 print("Excel Group of Schools - Flask Backend")
@@ -19,7 +19,7 @@ print("=" * 60)
 
 # Initialize database
 with app.app_context():
-    db.create_all()
+    init_db()
     print("✓ Database ready")
 
 print("✓ Server starting...")

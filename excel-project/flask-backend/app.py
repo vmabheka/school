@@ -51,6 +51,10 @@ db = SQLAlchemy(app)
 APP_VERSION = '2.1.0'
 APP_VERSION_DATE = '2026-07-06'
 
+# Initial super-admin credentials used when provisioning a new installation.
+DEFAULT_ADMIN_USERNAME = 'edusync'
+DEFAULT_ADMIN_PASSWORD = 'edusync26'
+
 # ─── Inject theme into every template ─────────────────────────────────
 @app.context_processor
 def inject_theme():
@@ -6176,11 +6180,21 @@ def init_db():
             except Exception:
                 pass
 
-    # Create admin user if not exists
-    if not User.query.filter_by(username='admin').first():
-        admin = User(username='admin', role='super_admin')
-        admin.set_password('admin123')
-        db.session.add(admin)
+    # Provision the default super admin. Existing installations that still use
+    # the previous bootstrap account are migrated once, without resetting the
+    # password on every startup (which would break Change Password).
+    admin = User.query.filter_by(username=DEFAULT_ADMIN_USERNAME).first()
+    if admin is None:
+        admin = User.query.filter_by(username='admin').first()
+        if admin is None:
+            admin = User(username=DEFAULT_ADMIN_USERNAME)
+            db.session.add(admin)
+        else:
+            admin.username = DEFAULT_ADMIN_USERNAME
+        admin.set_password(DEFAULT_ADMIN_PASSWORD)
+
+    admin.role = 'super_admin'
+    admin.is_active = True
 
     # Migrate old role names to new role names
     for old_role, new_role in [('admin', 'super_admin'), ('staff', 'bursar')]:
@@ -6325,7 +6339,7 @@ if __name__ == '__main__':
     print(f"  Version 2.0.0 | Author: Valentine T Mabheka")
     print(f"  Deployment Mode: {mode.upper()}")
     print(f"  Server: http://localhost:5000")
-    print(f"  Default Login: admin / admin123")
+    print(f"  Default Login: edusync / edusync26")
     print(f"  Access Point Monitor: {'ACTIVE' if ap_monitor.status()['running'] else 'STANDBY'}")
     print(f"{'='*60}\n")
     app.run(debug=True, host='0.0.0.0', port=5000)
