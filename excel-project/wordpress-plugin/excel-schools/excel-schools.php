@@ -5,7 +5,7 @@
  * Description: Excel Schools management portal for WordPress — a direct mirror of the
  *              offline Flask school-management app, exposed at /sms/ on this site, kept
  *              in sync with the offline app via the bundled sync engine and REST API.
- * Version: 3.1.2
+ * Version: 3.1.3
  * Author: Valentine T Mabheka
  * Author URI: https://excelgroup.edu.zw
  * License: GPL v2 or later
@@ -18,7 +18,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ESM_VERSION', '3.1.2');
+define('ESM_VERSION', '3.1.3');
 define('ESM_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ESM_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('ESM_PLUGIN_FILE', __FILE__);
@@ -133,6 +133,12 @@ function esm_maybe_upgrade_roles() {
     }
 
     esm_setup_roles();
+    global $wpdb;
+    $staff_subject_table = $wpdb->prefix . 'esm_staff_subjects';
+    $has_sync_id = $wpdb->get_var("SHOW COLUMNS FROM {$staff_subject_table} LIKE 'sync_id'");
+    if (!$has_sync_id) {
+        $wpdb->query("ALTER TABLE {$staff_subject_table} ADD COLUMN sync_id VARCHAR(36) DEFAULT NULL");
+    }
     update_option('esm_roles_version', ESM_VERSION);
 }
 add_action('init', 'esm_maybe_upgrade_roles', 5);

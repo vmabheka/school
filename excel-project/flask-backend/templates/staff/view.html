@@ -5,7 +5,7 @@
 <div class="page-header">
     <div><h1>Staff Profile</h1><p>Employee No: {{ staff.employee_number }}</p></div>
     <div class="actions">
-        {% if session.get('user_role') == 'admin' %}
+        {% if session.get('user_role') == 'super_admin' %}
         <a href="{{ url_for('staff_edit', id=staff.id) }}" class="btn btn-primary"><i class="fas fa-edit"></i> Edit</a>
         {% endif %}
         <a href="{{ url_for('staff_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
@@ -46,15 +46,33 @@
         </div>
     </div>
     <div class="card">
-        <div class="card-header"><h3>Subject Assignments</h3></div>
+        <div class="card-header"><h3>Class &amp; Subject Assignments</h3></div>
+        {% if session.get('user_role') == 'super_admin' %}
+        <div class="card-body" style="border-bottom:1px solid var(--border)">
+            <p style="font-size:12px;color:var(--text-light);margin:0 0 12px">Add one row for every class and subject combination. Example: English → Form 3 Yellow, then English → Form 3 Blue.</p>
+            <form method="POST" action="{{ url_for('staff_assignment_add', id=staff.id) }}">
+                <div class="form-grid">
+                    <div class="form-group"><label>Class</label><select name="class_id" class="form-control" required><option value="">Select class</option>{% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+                    <div class="form-group"><label>Subject</label><select name="subject_id" class="form-control" required><option value="">Select subject</option>{% for subject in all_subjects %}<option value="{{ subject.id }}">{{ subject.name }}</option>{% endfor %}</select></div>
+                    <div class="form-group"><label>Academic Year</label><select name="academic_year_id" class="form-control"><option value="">All/current years</option>{% for year in academic_years %}<option value="{{ year.id }}" {% if year.is_current %}selected{% endif %}>{{ year.name }}{% if year.is_current %} (Current){% endif %}</option>{% endfor %}</select></div>
+                </div>
+                <button class="btn btn-primary" type="submit"><i class="fas fa-plus"></i> Add Assignment</button>
+            </form>
+        </div>
+        {% endif %}
         <div class="table-container">
             <table>
-                <thead><tr><th>Subject</th><th>Class</th></tr></thead>
+                <thead><tr><th>Class</th><th>Subject</th><th>Academic Year</th>{% if session.get('user_role') == 'super_admin' %}<th>Action</th>{% endif %}</tr></thead>
                 <tbody>
-                    {% for s in subjects %}
-                    <tr><td>{{ s.subject.name if s.subject else '-' }}</td><td>{{ s.class_.name if s.class_ else '-' }}</td></tr>
+                    {% for assignment in assignments %}
+                    <tr>
+                        <td>{{ assignment.class_.name if assignment.class_ else '-' }}</td>
+                        <td>{{ assignment.subject.name if assignment.subject else '-' }}</td>
+                        <td>{{ assignment.academic_year.name if assignment.academic_year else 'All/current years' }}</td>
+                        {% if session.get('user_role') == 'super_admin' %}<td><form method="POST" action="{{ url_for('staff_assignment_delete', id=staff.id, assignment_id=assignment.id) }}" onsubmit="return confirm('Remove this teaching assignment?')"><button class="btn btn-sm btn-danger" type="submit"><i class="fas fa-trash"></i></button></form></td>{% endif %}
+                    </tr>
                     {% else %}
-                    <tr><td colspan="2" class="text-center" style="padding:16px;color:var(--text-light);">No assignments</td></tr>
+                    <tr><td colspan="4" class="text-center" style="padding:16px;color:var(--text-light);">No class and subject assignments</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

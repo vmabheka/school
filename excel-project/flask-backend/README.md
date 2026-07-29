@@ -92,6 +92,18 @@ docker run -p 5000:5000 \
   excel-schools
 ```
 
+### Teacher Class and Subject Assignments
+
+1. Sign in as a Super Admin and open **Staff**.
+2. Open a teacher's profile and use **Class & Subject Assignments**.
+3. Add one assignment for each exact class/subject combination and academic year.
+   For example, John Sibanda teaching English to Form 3 Yellow, Blue, Purple,
+   and Red requires four assignment rows. Add a fifth row for Physical
+   Education in Form 1.
+4. Teachers are redirected to `/teacher` and can only see learners in their
+   form-master or explicitly assigned classes. Secondary form-master status
+   does not automatically grant access to every subject.
+
 ### Offline-Online Synchronization
 
 **Method 1: Manual Export/Import (Recommended for periodic sync)**

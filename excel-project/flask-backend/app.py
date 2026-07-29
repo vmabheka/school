@@ -246,10 +246,20 @@ class Staff(db.Model):
 
 class StaffSubject(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'))
-    subject_id = db.Column(db.Integer, db.ForeignKey('subject.id'))
-    class_id = db.Column(db.Integer, db.ForeignKey('class.id'))
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
+    subject_id = db.Column(db.Integer, db.ForeignKey('subject.id'), nullable=False)
+    class_id = db.Column(db.Integer, db.ForeignKey('class.id'), nullable=False)
     academic_year_id = db.Column(db.Integer, db.ForeignKey('academic_year.id'))
+    sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()), unique=True)
+    subject = db.relationship('Subject', backref='staff_assignments')
+    class_ = db.relationship('Class', backref='subject_assignments')
+    academic_year = db.relationship('AcademicYear', backref='staff_subject_assignments')
+    __table_args__ = (
+        db.UniqueConstraint(
+            'staff_id', 'subject_id', 'class_id', 'academic_year_id',
+            name='uq_staff_subject_class_year',
+        ),
+    )
 
 
 class Exam(db.Model):
@@ -645,7 +655,7 @@ class AccessPointMonitor:
             'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
             'ExamResult': ExamResult,
             'Notice': Notice, 'FeeLevel': FeeLevel, 'Class': Class,
-            'Subject': Subject, 'FeeStructure': FeeStructure,
+            'Subject': Subject, 'FeeStructure': FeeStructure, 'StaffSubject': StaffSubject,
         }
         for log in pending_logs:
             try:
@@ -704,7 +714,7 @@ class AccessPointMonitor:
                     'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
                     'ExamResult': ExamResult,
                     'Notice': Notice, 'FeeLevel': FeeLevel, 'FeeStructure': FeeStructure,
-                    'Class': Class, 'Subject': Subject,
+                    'Class': Class, 'Subject': Subject, 'StaffSubject': StaffSubject,
                     'AcademicYear': AcademicYear, 'Term': Term,
                 }
                 synced_ids = []
@@ -1007,14 +1017,47 @@ def _staff_for_current_user():
     return Staff.query.filter_by(user_id=session['user_id']).first()
 
 
-def get_teacher_class_ids(staff_id):
-    """Return list of class IDs the teacher is the form master of."""
-    return [c.id for c in Class.query.filter_by(teacher_id=staff_id).all()]
+def get_teacher_class_ids(staff_id, ay_id=None):
+    """Return every class explicitly assigned to this teacher.
+
+    A teacher may access a class either as its form master (Class.teacher_id)
+    or through a class+subject StaffSubject assignment. This is important for
+    secondary teachers who commonly teach one subject across several streams.
+    """
+    if ay_id is None:
+        current_year = AcademicYear.query.filter_by(is_current=True).first()
+        ay_id = current_year.id if current_year else None
+    form_class_query = Class.query.filter_by(teacher_id=staff_id)
+    if ay_id:
+        form_class_query = form_class_query.filter(db.or_(
+            Class.academic_year_id == ay_id,
+            Class.academic_year_id.is_(None),
+        ))
+    class_ids = {c.id for c in form_class_query.all()}
+    query = StaffSubject.query.filter_by(staff_id=staff_id)
+    if ay_id:
+        query = query.filter(db.or_(
+            StaffSubject.academic_year_id == ay_id,
+            StaffSubject.academic_year_id.is_(None),
+        ))
+    class_ids.update(ss.class_id for ss in query.all() if ss.class_id)
+    return sorted(class_ids)
 
 
-def get_teacher_subject_ids(staff_id):
-    """Return list of subject IDs the teacher is assigned to via StaffSubject."""
-    return [ss.subject_id for ss in StaffSubject.query.filter_by(staff_id=staff_id).all()]
+def get_teacher_subject_ids(staff_id, class_id=None, ay_id=None):
+    """Return subjects explicitly assigned to a teacher, optionally per class."""
+    query = StaffSubject.query.filter_by(staff_id=staff_id)
+    if class_id:
+        query = query.filter_by(class_id=class_id)
+    if ay_id is None:
+        current_year = AcademicYear.query.filter_by(is_current=True).first()
+        ay_id = current_year.id if current_year else None
+    if ay_id:
+        query = query.filter(db.or_(
+            StaffSubject.academic_year_id == ay_id,
+            StaffSubject.academic_year_id.is_(None),
+        ))
+    return sorted({ss.subject_id for ss in query.all() if ss.subject_id})
 
 
 def get_teacher_classes_with_subjects(staff_id, ay_id=None):
@@ -1026,26 +1069,28 @@ def get_teacher_classes_with_subjects(staff_id, ay_id=None):
     """
     from collections import defaultdict
     result = defaultdict(set)
-    for c in Class.query.filter_by(teacher_id=staff_id).all():
-        # Form master → teacher teaches all primary-level learning areas
-        # (or all subjects for secondary). Use the level to decide.
+    form_class_query = Class.query.filter_by(teacher_id=staff_id)
+    if ay_id:
+        form_class_query = form_class_query.filter(db.or_(
+            Class.academic_year_id == ay_id,
+            Class.academic_year_id.is_(None),
+        ))
+    for c in form_class_query.all():
+        # Primary form masters cover the standard primary learning areas.
+        # Secondary form-master status is pastoral only; teaching access must
+        # always come from explicit class+subject assignments.
         if is_primary_level(c.level):
-            for s in Subject.query.filter(Subject.name.in_(PRIMARY_LEARNING_AREAS)).all():
-                result[c.id].add(s.id)
+            for subject in Subject.query.filter(Subject.name.in_(PRIMARY_LEARNING_AREAS)).all():
+                result[c.id].add(subject.id)
         else:
-            # Secondary — teacher is assumed to teach all subjects for that class
-            # unless StaffSubject narrows it.
-            ss = StaffSubject.query.filter_by(staff_id=staff_id, class_id=c.id).all()
-            if ss:
-                for s in ss:
-                    result[c.id].add(s.subject_id)
-            else:
-                for s in Subject.query.all():
-                    result[c.id].add(s.id)
+            result[c.id]  # Keep the form class visible, with no implied subjects.
     # Also add explicit StaffSubject rows (class+subject combos)
     q = StaffSubject.query.filter_by(staff_id=staff_id)
     if ay_id:
-        q = q.filter_by(academic_year_id=ay_id)
+        q = q.filter(db.or_(
+            StaffSubject.academic_year_id == ay_id,
+            StaffSubject.academic_year_id.is_(None),
+        ))
     for ss in q.all():
         if ss.class_id and ss.subject_id:
             result[ss.class_id].add(ss.subject_id)
@@ -1057,9 +1102,14 @@ def teacher_can_access_class(staff_id, class_id):
     return class_id in get_teacher_class_ids(staff_id)
 
 
-def teacher_can_access_subject(staff_id, subject_id):
-    """Return True if this teacher has any StaffSubject assignment to this subject."""
-    return subject_id in get_teacher_subject_ids(staff_id)
+def teacher_can_access_subject(staff_id, subject_id, class_id=None):
+    """Check an explicit subject assignment, optionally for one class."""
+    return subject_id in get_teacher_subject_ids(staff_id, class_id=class_id)
+
+
+def teacher_can_teach(staff_id, class_id, subject_id, ay_id=None):
+    """Require the exact teacher+class+subject combination for mark entry."""
+    return subject_id in get_teacher_classes_with_subjects(staff_id, ay_id).get(class_id, [])
 
 
 def teacher_can_access_student(staff_id, student_id):
@@ -1407,6 +1457,8 @@ def change_password():
 @app.route('/')
 @login_required
 def dashboard():
+    if session.get('user_role') == 'teacher':
+        return redirect(url_for('teacher_home'))
     stats = get_dashboard_stats()
     recent_students = Student.query.filter_by(status='Active').order_by(
         Student.created_at.desc()).limit(5).all()
@@ -1457,7 +1509,12 @@ def students_list():
             query = query.filter_by(fee_classification=scholarship_filter)
     students = query.order_by(Student.last_name).paginate(
         page=page, per_page=20, error_out=False)
-    classes = Class.query.all()
+    if session.get('user_role') == 'teacher':
+        staff = _staff_for_current_user()
+        class_ids = get_teacher_class_ids(staff.id) if staff else []
+        classes = Class.query.filter(Class.id.in_(class_ids)).order_by(Class.name).all() if class_ids else []
+    else:
+        classes = Class.query.order_by(Class.name).all()
     classifications = db.session.query(Student.fee_classification).distinct().all()
     return render_template('students/list.html',
                            students=students,
@@ -1581,12 +1638,19 @@ def student_view(id):
     # Teacher portal: block access to students not in their classes
     if session.get('user_role') == 'teacher':
         staff = _staff_for_current_user()
-        if staff and not teacher_can_access_student(staff.id, id):
+        if not staff or not teacher_can_access_student(staff.id, id):
             flash('You do not have access to this student.', 'danger')
-            return redirect(url_for('teacher_classes'))
-    results = ExamResult.query.filter_by(student_id=id).all()
-    payments = FeePayment.query.filter_by(student_id=id).order_by(
-        FeePayment.payment_date.desc()).all()
+            return redirect(url_for('teacher_home'))
+        assigned_subject_ids = get_teacher_subject_ids(staff.id, class_id=student.class_id)
+        results = ExamResult.query.filter(
+            ExamResult.student_id == id,
+            ExamResult.subject_id.in_(assigned_subject_ids),
+        ).all() if assigned_subject_ids else []
+        payments = []
+    else:
+        results = ExamResult.query.filter_by(student_id=id).all()
+        payments = FeePayment.query.filter_by(student_id=id).order_by(
+            FeePayment.payment_date.desc()).all()
     return render_template('students/view.html',
                            student=student,
                            attendances=[],
@@ -1752,11 +1816,85 @@ def staff_add():
 @login_required
 def staff_view(id):
     staff = Staff.query.get_or_404(id)
-    subjects = StaffSubject.query.filter_by(staff_id=id).all()
+    assignments = StaffSubject.query.filter_by(staff_id=id).order_by(
+        StaffSubject.class_id, StaffSubject.subject_id
+    ).all()
     return render_template('staff/view.html',
                            staff=staff,
                            attendances=[],
-                           subjects=subjects)
+                           subjects=assignments,
+                           assignments=assignments,
+                           classes=Class.query.order_by(Class.name).all(),
+                           all_subjects=Subject.query.order_by(Subject.name).all(),
+                           academic_years=AcademicYear.query.order_by(AcademicYear.start_date.desc()).all())
+
+
+@app.route('/staff/<int:id>/assignments', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def staff_assignment_add(id):
+    """Assign one subject in one class to a teacher for an academic year."""
+    staff = Staff.query.get_or_404(id)
+    linked_user = User.query.get(staff.user_id) if staff.user_id else None
+    if (linked_user and linked_user.role != 'teacher') or (not linked_user and (staff.position or '').lower() not in ('teacher', 'hod')):
+        flash('Class and subject assignments can only be added to teacher accounts.', 'danger')
+        return redirect(url_for('staff_view', id=id))
+    class_id = request.form.get('class_id', type=int)
+    subject_id = request.form.get('subject_id', type=int)
+    academic_year_id = request.form.get('academic_year_id', type=int) or None
+    if not class_id or not subject_id:
+        flash('Select both a class and a subject.', 'danger')
+        return redirect(url_for('staff_view', id=id))
+    Class.query.get_or_404(class_id)
+    Subject.query.get_or_404(subject_id)
+    duplicate = StaffSubject.query.filter_by(
+        staff_id=id,
+        class_id=class_id,
+        subject_id=subject_id,
+        academic_year_id=academic_year_id,
+    ).first()
+    if duplicate:
+        flash('That class and subject assignment already exists.', 'warning')
+        return redirect(url_for('staff_view', id=id))
+
+    assignment = StaffSubject(
+        staff_id=id,
+        class_id=class_id,
+        subject_id=subject_id,
+        academic_year_id=academic_year_id,
+    )
+    db.session.add(assignment)
+    db.session.commit()
+    log_sync('StaffSubject', assignment.id, 'CREATE', {
+        'id': assignment.id,
+        'staff_id': assignment.staff_id,
+        'class_id': assignment.class_id,
+        'subject_id': assignment.subject_id,
+        'academic_year_id': assignment.academic_year_id,
+        'sync_id': assignment.sync_id,
+    })
+    flash(f'Assignment added for {staff.first_name} {staff.last_name}.', 'success')
+    return redirect(url_for('staff_view', id=id))
+
+
+@app.route('/staff/<int:id>/assignments/<int:assignment_id>/delete', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def staff_assignment_delete(id, assignment_id):
+    assignment = StaffSubject.query.filter_by(id=assignment_id, staff_id=id).first_or_404()
+    snapshot = {
+        'id': assignment.id,
+        'staff_id': assignment.staff_id,
+        'class_id': assignment.class_id,
+        'subject_id': assignment.subject_id,
+        'academic_year_id': assignment.academic_year_id,
+        'sync_id': assignment.sync_id,
+    }
+    db.session.delete(assignment)
+    db.session.commit()
+    log_sync('StaffSubject', assignment_id, 'DELETE', snapshot)
+    flash('Teaching assignment removed.', 'success')
+    return redirect(url_for('staff_view', id=id))
 
 
 @app.route('/staff/<int:id>/edit', methods=['GET', 'POST'])
@@ -3013,11 +3151,14 @@ def exam_results(exam_id):
             staff = _staff_for_current_user()
             if staff:
                 try:
-                    if int(class_id or 0) not in get_teacher_class_ids(staff.id):
-                        flash('You are not assigned to that class.', 'danger')
-                        return redirect(url_for('exam_results', exam_id=exam_id))
-                    if int(subject_id or 0) not in get_teacher_subject_ids(staff.id):
-                        flash('You are not assigned to that subject.', 'danger')
+                    selected_class_id = int(class_id or 0)
+                    selected_subject_id = int(subject_id or 0)
+                    ay = get_current_academic_year()
+                    if not teacher_can_teach(
+                        staff.id, selected_class_id, selected_subject_id,
+                        ay.id if ay else None,
+                    ):
+                        flash('You are not assigned to teach that subject for that class.', 'danger')
                         return redirect(url_for('exam_results', exam_id=exam_id))
                 except (TypeError, ValueError):
                     flash('Invalid class or subject selection.', 'danger')
@@ -3052,13 +3193,31 @@ def exam_results(exam_id):
         log_sync('ExamResult', 0, 'CREATE')
         flash('Results recorded successfully.', 'success')
 
-    classes = Class.query.all()
-    subjects = Subject.query.all()
-    results = ExamResult.query.filter_by(exam_id=exam_id).all()
+    assignment_map = {}
+    if session.get('user_role') == 'teacher':
+        staff = _staff_for_current_user()
+        ay = get_current_academic_year()
+        assignment_map = get_teacher_classes_with_subjects(
+            staff.id, ay.id if ay else None
+        ) if staff else {}
+        teachable_class_ids = [cid for cid, sids in assignment_map.items() if sids]
+        classes = Class.query.filter(Class.id.in_(teachable_class_ids)).order_by(Class.name).all() if teachable_class_ids else []
+        subject_ids = sorted({sid for sids in assignment_map.values() for sid in sids})
+        subjects = Subject.query.filter(Subject.id.in_(subject_ids)).order_by(Subject.name).all() if subject_ids else []
+        results = ExamResult.query.join(Student).filter(
+            ExamResult.exam_id == exam_id,
+            Student.class_id.in_(teachable_class_ids),
+            ExamResult.subject_id.in_(subject_ids),
+        ).all() if teachable_class_ids and subject_ids else []
+    else:
+        classes = Class.query.order_by(Class.name).all()
+        subjects = Subject.query.order_by(Subject.name).all()
+        results = ExamResult.query.filter_by(exam_id=exam_id).all()
     return render_template('exams/results.html',
                            exam=exam,
                            classes=classes,
                            subjects=subjects,
+                           assignment_map=assignment_map,
                            results=results)
 
 
@@ -3066,9 +3225,17 @@ def exam_results(exam_id):
 @login_required
 def report_card(exam_id, student_id):
     student = Student.query.get_or_404(student_id)
+    if session.get('user_role') == 'teacher':
+        staff = _staff_for_current_user()
+        if not staff or not teacher_can_access_student(staff.id, student_id):
+            flash('You do not have access to that learner.', 'danger')
+            return redirect(url_for('teacher_home'))
     exam = Exam.query.get_or_404(exam_id)
-    results = ExamResult.query.filter_by(
-        exam_id=exam_id, student_id=student_id).all()
+    results_query = ExamResult.query.filter_by(exam_id=exam_id, student_id=student_id)
+    if session.get('user_role') == 'teacher':
+        subject_ids = get_teacher_subject_ids(staff.id, class_id=student.class_id)
+        results_query = results_query.filter(ExamResult.subject_id.in_(subject_ids))
+    results = results_query.all()
     total_marks = sum(r.marks_obtained for r in results)
     total_possible = sum(r.marks_total for r in results)
     average = (total_marks / total_possible * 100) if total_possible > 0 else 0
@@ -4103,21 +4270,22 @@ def teacher_home():
 
     ay = get_current_academic_year()
     term = get_current_term()
-    class_ids = get_teacher_class_ids(staff.id)
-    classes = Class.query.filter(Class.id.in_(class_ids)).all() if class_ids else []
-    subject_ids = get_teacher_subject_ids(staff.id)
-    subjects = Subject.query.filter(Subject.id.in_(subject_ids)).all() if subject_ids else []
-
+    class_ids = get_teacher_class_ids(staff.id, ay.id if ay else None)
+    classes = Class.query.filter(Class.id.in_(class_ids)).order_by(Class.name).all() if class_ids else []
     # Per-class subject breakdown
     cs_map = get_teacher_classes_with_subjects(staff.id, ay.id if ay else None)
+    subject_ids = sorted({sid for sids in cs_map.values() for sid in sids})
+    subjects = Subject.query.filter(Subject.id.in_(subject_ids)).order_by(Subject.name).all() if subject_ids else []
 
     # Student counts per class
     student_counts = {}
     for c in classes:
         student_counts[c.id] = Student.query.filter_by(class_id=c.id, status='Active').count()
 
+    subjects_by_id = {subject.id: subject for subject in subjects}
     return render_template('dashboard/teacher_portal.html',
                            staff=staff, classes=classes, subjects=subjects,
+                           subjects_by_id=subjects_by_id,
                            cs_map=cs_map, student_counts=student_counts,
                            term=term, ay=ay)
 
@@ -4136,8 +4304,11 @@ def teacher_class_view(class_id):
     cls = Class.query.get_or_404(class_id)
     students = Student.query.filter_by(class_id=class_id, status='Active') \
                             .order_by(Student.last_name, Student.first_name).all()
-    subject_ids = get_teacher_subject_ids(staff.id)
-    subjects = Subject.query.filter(Subject.id.in_(subject_ids)).all() if subject_ids else []
+    ay = get_current_academic_year()
+    subject_ids = get_teacher_classes_with_subjects(
+        staff.id, ay.id if ay else None
+    ).get(class_id, [])
+    subjects = Subject.query.filter(Subject.id.in_(subject_ids)).order_by(Subject.name).all() if subject_ids else []
     return render_template('dashboard/teacher_class.html',
                            cls=cls, students=students, subjects=subjects, staff=staff)
 
@@ -4154,12 +4325,16 @@ def teacher_subject_view(subject_id):
         flash('You do not have access to this subject.', 'danger')
         return redirect(url_for('teacher_home'))
     subject = Subject.query.get_or_404(subject_id)
-    # Restrict to students in teacher's classes
-    class_ids = get_teacher_class_ids(staff.id)
+    ay = get_current_academic_year()
+    assignment_map = get_teacher_classes_with_subjects(staff.id, ay.id if ay else None)
+    class_ids = [cid for cid, subject_ids in assignment_map.items() if subject_id in subject_ids]
+    classes = Class.query.filter(Class.id.in_(class_ids)).order_by(Class.name).all() if class_ids else []
     students = Student.query.filter(Student.class_id.in_(class_ids),
-                                     Student.status == 'Active').all() if class_ids else []
+                                     Student.status == 'Active').order_by(
+                                         Student.last_name, Student.first_name
+                                     ).all() if class_ids else []
     return render_template('dashboard/teacher_subject.html',
-                           subject=subject, students=students, staff=staff)
+                           subject=subject, students=students, classes=classes, staff=staff)
 
 
 # ─── Bulk Import ───────────────────────────────────────────────────────
@@ -5364,7 +5539,16 @@ def report_card_pdf(exam_id, student_id):
     """Download a PDF report card for a student's exam results."""
     exam = Exam.query.get_or_404(exam_id)
     student = Student.query.get_or_404(student_id)
-    results = ExamResult.query.filter_by(student_id=student_id, exam_id=exam_id).all()
+    if session.get('user_role') == 'teacher':
+        staff = _staff_for_current_user()
+        if not staff or not teacher_can_access_student(staff.id, student_id):
+            flash('You do not have access to that learner.', 'danger')
+            return redirect(url_for('teacher_home'))
+    results_query = ExamResult.query.filter_by(student_id=student_id, exam_id=exam_id)
+    if session.get('user_role') == 'teacher':
+        subject_ids = get_teacher_subject_ids(staff.id, class_id=student.class_id)
+        results_query = results_query.filter(ExamResult.subject_id.in_(subject_ids))
+    results = results_query.all()
     if not results:
         flash('No results found for this student in this exam.', 'warning')
         return redirect(url_for('report_card', exam_id=exam_id, student_id=student_id))
@@ -5867,7 +6051,7 @@ def api_sync():
         'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
         'ExamResult': ExamResult,
         'Notice': Notice, 'FeeStructure': FeeStructure, 'FeeLevel': FeeLevel,
-        'Class': Class, 'Subject': Subject,
+        'Class': Class, 'Subject': Subject, 'StaffSubject': StaffSubject,
         'AcademicYear': AcademicYear, 'Term': Term,
     }
 
@@ -5990,7 +6174,7 @@ def api_sync_webhook():
     sync_id_val = entity_data.get('sync_id', '')
     entity_models = {
         'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
-        'FeeLevel': FeeLevel, 'Class': Class, 'Subject': Subject,
+        'FeeLevel': FeeLevel, 'Class': Class, 'Subject': Subject, 'StaffSubject': StaffSubject,
     }
     if entity_type in entity_models and action in ('CREATE', 'UPDATE'):
         model = entity_models[entity_type]
@@ -6101,7 +6285,7 @@ def api_one_button_sync():
                 'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
                 'ExamResult': ExamResult,
                 'Notice': Notice, 'FeeLevel': FeeLevel, 'Class': Class,
-                'Subject': Subject, 'FeeStructure': FeeStructure,
+                'Subject': Subject, 'FeeStructure': FeeStructure, 'StaffSubject': StaffSubject,
             }
             if log.action in ('CREATE', 'UPDATE') and log.entity_type in entity_tables:
                 model = entity_tables[log.entity_type]
@@ -6162,7 +6346,7 @@ def api_one_button_sync():
                 'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
                 'ExamResult': ExamResult,
                 'Notice': Notice, 'FeeLevel': FeeLevel, 'FeeStructure': FeeStructure,
-                'Class': Class, 'Subject': Subject,
+                'Class': Class, 'Subject': Subject, 'StaffSubject': StaffSubject,
                 'AcademicYear': AcademicYear, 'Term': Term,
             }
 
@@ -6333,6 +6517,7 @@ def init_db():
             ('student', 'is_new_learner', 'BOOLEAN', '1'),
             ('student', 'billed_once_off_levies', 'BOOLEAN', '0'),
             ('class', 'sync_id', 'VARCHAR(36)', 'NULL'),
+            ('staff_subject', 'sync_id', 'VARCHAR(36)', 'NULL'),
         ]:
             try:
                 conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type} DEFAULT {def_val}"))
@@ -6344,6 +6529,8 @@ def init_db():
     # duplicating during manual or automatic bidirectional sync.
     for cls in Class.query.filter(Class.sync_id.is_(None)).all():
         cls.sync_id = str(uuid.uuid4())
+    for assignment in StaffSubject.query.filter(StaffSubject.sync_id.is_(None)).all():
+        assignment.sync_id = str(uuid.uuid4())
     db.session.commit()
 
     # Provision the default super admin. Existing installations that still use

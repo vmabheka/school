@@ -220,7 +220,7 @@ class ESM_REST_API {
         $result = ['status' => 'ok', 'sync_id' => $sync_id];
 
         if ($action === 'CREATE' || $action === 'UPDATE') {
-            $existing = $sync_id ? $wpdb->get_row($wpdb->prepare("SELECT id, updated_at FROM $table WHERE sync_id=%s", $sync_id)) : null;
+            $existing = $sync_id ? $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE sync_id=%s", $sync_id)) : null;
             $sanitized = [];
             foreach ($data as $k => $v) {
                 $sanitized[sanitize_key($k)] = is_string($v) ? sanitize_text_field($v) : $v;

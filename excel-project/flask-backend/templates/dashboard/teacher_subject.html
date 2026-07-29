@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ subject.name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1><i class="fas fa-book" style="color:var(--primary)"></i> {{ subject.name }}</h1><p>Learners from classes where you are assigned to teach this subject.</p></div><a href="{{ url_for('teacher_home') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Teacher Portal</a></div>
+<div class="card mb-2"><div class="card-header"><h3>Assigned Classes</h3></div><div class="card-body">{% for cls in classes %}<a class="btn btn-secondary" href="{{ url_for('teacher_class_view', class_id=cls.id) }}">{{ cls.name }}</a>{% else %}No assigned classes.{% endfor %}</div></div>
+<div class="card"><div class="card-header"><h3>Learners ({{ students|length }})</h3></div><div class="table-container"><table><thead><tr><th>Admission No.</th><th>Name</th><th>Class</th></tr></thead><tbody>
+{% for student in students %}<tr><td>{{ student.admission_number }}</td><td>{{ student.first_name }} {{ student.last_name }}</td><td>{{ student.class_.name if student.class_ else '-' }}</td></tr>{% else %}<tr><td colspan="3" class="text-center" style="padding:30px">No active learners in the assigned classes.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}

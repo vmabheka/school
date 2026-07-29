@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Teacher Portal{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div><h1><i class="fas fa-chalkboard-teacher" style="color:var(--primary)"></i> Teacher Portal</h1><p>{{ staff.first_name }} {{ staff.last_name }} · Your assigned classes and subjects only</p></div>
+</div>
+
+<div class="card mb-2" style="border-left:4px solid var(--primary)"><div class="card-body">
+    <strong>{{ ay.name if ay else 'No current academic year' }}</strong> · {{ term.name if term else 'No current term' }}
+    <p style="font-size:12px;color:var(--text-light);margin:5px 0 0">Secondary teaching access is based on exact class-and-subject assignments. Form-master status does not grant access to every subject.</p>
+</div></div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="icon green"><i class="fas fa-school"></i></div><div class="info"><h3>{{ classes|length }}</h3><p>Assigned Classes</p></div></div>
+    <div class="stat-card"><div class="icon purple"><i class="fas fa-book"></i></div><div class="info"><h3>{{ subjects|length }}</h3><p>Assigned Subjects</p></div></div>
+    <div class="stat-card"><div class="icon blue"><i class="fas fa-user-graduate"></i></div><div class="info"><h3>{{ student_counts.values()|sum }}</h3><p>Learners in Assigned Classes</p></div></div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>My Classes &amp; Subjects</h3></div>
+    <div class="table-container"><table>
+        <thead><tr><th>Class</th><th>Role / Subjects</th><th>Learners</th><th>Action</th></tr></thead>
+        <tbody>
+        {% for cls in classes %}
+            <tr>
+                <td><strong>{{ cls.name }}</strong><br><small>{{ cls.level or '' }} {{ cls.stream or '' }}</small></td>
+                <td>
+                    {% if cls.teacher_id == staff.id %}<span class="badge badge-info">Form Master</span>{% endif %}
+                    {% for subject_id in cs_map.get(cls.id, []) %}{% set subject = subjects_by_id.get(subject_id) %}{% if subject %}<span class="badge badge-success">{{ subject.name }}</span>{% endif %}{% endfor %}
+                    {% if not cs_map.get(cls.id) %}<span style="color:var(--text-light);font-size:12px">No teaching subject assigned</span>{% endif %}
+                </td>
+                <td>{{ student_counts.get(cls.id, 0) }}</td>
+                <td><a class="btn btn-sm btn-primary" href="{{ url_for('teacher_class_view', class_id=cls.id) }}">Open Class</a></td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4" class="text-center" style="padding:30px;color:var(--text-light)">No classes are assigned to your account. Ask an administrator to assign a class and subject.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</div>
+{% endblock %}

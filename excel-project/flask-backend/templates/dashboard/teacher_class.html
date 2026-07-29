@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ cls.name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>{{ cls.name }}</h1><p>Only learners in this assigned class are shown.</p></div><a href="{{ url_for('teacher_home') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Teacher Portal</a></div>
+<div class="card mb-2"><div class="card-header"><h3>My Subjects in {{ cls.name }}</h3></div><div class="card-body">
+{% for subject in subjects %}<a class="btn btn-secondary" href="{{ url_for('teacher_subject_view', subject_id=subject.id) }}"><i class="fas fa-book"></i> {{ subject.name }}</a>{% else %}<span style="color:var(--text-light)">No teaching subject has been assigned for this class.</span>{% endfor %}
+</div></div>
+<div class="card"><div class="card-header"><h3>Learners ({{ students|length }})</h3></div><div class="table-container"><table><thead><tr><th>Admission No.</th><th>Name</th><th>Gender</th><th>Status</th></tr></thead><tbody>
+{% for student in students %}<tr><td>{{ student.admission_number }}</td><td>{{ student.first_name }} {{ student.last_name }}</td><td>{{ student.gender or '-' }}</td><td><span class="badge badge-success">{{ student.status }}</span></td></tr>{% else %}<tr><td colspan="4" class="text-center" style="padding:30px">No active learners in this class.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}

@@ -183,6 +183,7 @@ class ESM_Database {
             subject_id BIGINT UNSIGNED,
             class_id BIGINT UNSIGNED,
             academic_year_id BIGINT UNSIGNED,
+            sync_id VARCHAR(36) DEFAULT NULL,
             KEY idx_staff (staff_id),
             KEY idx_subject (subject_id)
         ) $charset;";
