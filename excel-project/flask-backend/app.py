@@ -4234,8 +4234,8 @@ def add_class():
         for subj_name in PRIMARY_SUBJECTS:
             subj = Subject.query.filter_by(name=subj_name).first()
             if not subj:
-                # Auto-create the subject if it doesn't exist
-                code = subj_name[:3].upper()
+                # Auto-create the subject with its stable cross-system code.
+                code = PRIMARY_SUBJECT_CODES[subj_name]
                 subj = Subject(name=subj_name, code=code, is_compulsory=True)
                 db.session.add(subj)
                 db.session.flush()
@@ -5046,16 +5046,24 @@ def fee_level_delete(id):
 
 # ─── Auto-assign Primary Subjects ──────────────────────────────────────
 
-# Heritage-Based Curriculum (HBC) — 6 learning areas for primary level
-# (ECD A through Grade 7) per the Zimbabwe Ministry of Primary & Secondary Education.
+# School-approved subjects for primary level (ECD A through Grade 7).
+# Keep these exact names aligned with WordPress and teacher assignment rules.
 PRIMARY_LEARNING_AREAS = [
-    'Language, Literacy and Communication',
-    'Mathematical Concepts and Numerical Activities',
+    'English',
+    'ChiShona',
+    'Mathematics',
+    'Social Science',
+    'PE and Arts',
     'Science and Technology',
-    'Heritage Studies',
-    'Physical Education, Health and Wellbeing',
-    'Visual and Performing Arts',
 ]
+PRIMARY_SUBJECT_CODES = {
+    'English': 'ENGP',
+    'ChiShona': 'CHIS',
+    'Mathematics': 'MATH',
+    'Social Science': 'SOCS',
+    'PE and Arts': 'PEA',
+    'Science and Technology': 'SNT',
+}
 # Backwards-compatibility alias (kept for any existing template refs)
 PRIMARY_SUBJECTS = PRIMARY_LEARNING_AREAS
 
@@ -6582,46 +6590,48 @@ def init_db():
             )
             db.session.add(t)
 
-    # Create default subjects
-    if not Subject.query.first():
-        # Primary subjects — Heritage-Based Curriculum 6 learning areas (ECD A – Grade 7)
-        primary_subjects = [
-            ('Language, Literacy and Communication', 'LLC',  True),
-            ('Mathematical Concepts and Numerical Activities', 'MCN', True),
-            ('Science and Technology',                    'SNT',  True),
-            ('Heritage Studies',                          'HST',  True),
-            ('Physical Education, Health and Wellbeing', 'PEHW', True),
-            ('Visual and Performing Arts',                'VPA',  True),
-        ]
-        # Secondary subjects (Form 1 – 6)
-        secondary_subjects = [
-            ('Mathematics', 'MATH', True),
-            ('English Language', 'ELAN', True),
-            ('Shona', 'SHON', True),
-            ('Science', 'SCI2', True),
-            ('History', 'HIST', True),
-            ('Geography', 'GEO', True),
-            ('Religious Studies', 'RS', True),
-            ('Physical Education', 'PE', True),
-            ('Art', 'ART', False),
-            ('Music', 'MUS', False),
-            ('Computer Studies', 'CS', False),
-            ('Agriculture', 'AGR', False),
-            ('Commerce', 'COM', False),
-            ('French', 'FRE', False),
-            ('Biology', 'BIO', True),
-            ('Chemistry', 'CHEM', True),
-            ('Physics', 'PHY', True),
-            ('Combined Science', 'CSC', True),
-            ('Principles of Accounts', 'POA', False),
-            ('Business Studies', 'BUST', False),
-            ('Economics', 'ECO', False),
-            ('Literature in English', 'LIT', False),
-            ('Additional Mathematics', 'AMTH', False),
-        ]
-        for name, code, compulsory in primary_subjects + secondary_subjects:
-            s = Subject(name=name, code=code, is_compulsory=compulsory)
-            db.session.add(s)
+    # Ensure the approved primary subjects and standard secondary subjects
+    # exist on both new and upgraded installations. Existing custom subjects
+    # are retained because they may already be referenced by results.
+    primary_subjects = [
+        (name, PRIMARY_SUBJECT_CODES[name], True)
+        for name in PRIMARY_LEARNING_AREAS
+    ]
+    secondary_subjects = [
+        ('English Language', 'ELAN', True),
+        ('Shona', 'SHON', True),
+        ('Science', 'SCI2', True),
+        ('History', 'HIST', True),
+        ('Geography', 'GEO', True),
+        ('Religious Studies', 'RS', True),
+        ('Physical Education', 'PE', True),
+        ('Art', 'ART', False),
+        ('Music', 'MUS', False),
+        ('Computer Studies', 'CS', False),
+        ('Agriculture', 'AGR', False),
+        ('Commerce', 'COM', False),
+        ('French', 'FRE', False),
+        ('Biology', 'BIO', True),
+        ('Chemistry', 'CHEM', True),
+        ('Physics', 'PHY', True),
+        ('Combined Science', 'CSC', True),
+        ('Principles of Accounts', 'POA', False),
+        ('Business Studies', 'BUST', False),
+        ('Economics', 'ECO', False),
+        ('Literature in English', 'LIT', False),
+        ('Additional Mathematics', 'AMTH', False),
+    ]
+    for name, code, compulsory in primary_subjects + secondary_subjects:
+        subject = Subject.query.filter_by(code=code).first()
+        if not subject:
+            subject = Subject.query.filter_by(name=name).first()
+        if not subject:
+            db.session.add(Subject(name=name, code=code, is_compulsory=compulsory))
+        elif name in PRIMARY_LEARNING_AREAS:
+            # Normalize approved primary names/codes when upgrading.
+            subject.name = name
+            subject.code = code
+            subject.is_compulsory = True
 
     # Create default fee levels
     if not FeeLevel.query.first():

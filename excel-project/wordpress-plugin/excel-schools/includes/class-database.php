@@ -472,5 +472,31 @@ class ESM_Database {
                 ]);
             }
         }
+
+        // Approved primary subjects — exact mirror of app.py. Upgrades keep
+        // custom/legacy subjects but ensure these six canonical rows exist.
+        $primary_subjects = [
+            'ENGP' => 'English',
+            'CHIS' => 'ChiShona',
+            'MATH' => 'Mathematics',
+            'SOCS' => 'Social Science',
+            'PEA'  => 'PE and Arts',
+            'SNT'  => 'Science and Technology',
+        ];
+        foreach ($primary_subjects as $code => $name) {
+            $subject_id = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$pfx}esm_subjects WHERE code=%s OR name=%s ORDER BY code=%s DESC LIMIT 1",
+                $code, $name, $code
+            ));
+            if ($subject_id) {
+                $wpdb->update("{$pfx}esm_subjects", [
+                    'name' => $name, 'code' => $code, 'is_compulsory' => 1,
+                ], ['id' => $subject_id]);
+            } else {
+                $wpdb->insert("{$pfx}esm_subjects", [
+                    'name' => $name, 'code' => $code, 'is_compulsory' => 1,
+                ]);
+            }
+        }
     }
 }

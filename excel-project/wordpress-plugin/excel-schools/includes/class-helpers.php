@@ -10,15 +10,15 @@ if (!defined('ABSPATH')) exit;
 
 class ESM_Helpers {
 
-    // Heritage-Based Curriculum (HBC) — 6 learning areas for primary level
-    // (ECD A through Grade 7), mirrored from app.py: PRIMARY_LEARNING_AREAS.
+    // School-approved subjects for primary level (ECD A through Grade 7),
+    // mirrored exactly from app.py: PRIMARY_LEARNING_AREAS.
     const PRIMARY_LEARNING_AREAS = [
-        'Language, Literacy and Communication',
-        'Mathematical Concepts and Numerical Activities',
+        'English',
+        'ChiShona',
+        'Mathematics',
+        'Social Science',
+        'PE and Arts',
         'Science and Technology',
-        'Heritage Studies',
-        'Physical Education, Health and Wellbeing',
-        'Visual and Performing Arts',
     ];
 
     // ─── Number generators (mirror app.py admission/employee/receipt

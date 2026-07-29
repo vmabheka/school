@@ -49,6 +49,7 @@
 
 ### Teacher
 - **Home Page:** Teacher Portal (`/teacher`)
+- Primary form teachers use the six approved subjects: English, ChiShona, Mathematics, Social Science, PE and Arts, and Science and Technology.
 - Teachers see only form-master classes and classes explicitly assigned through a class + subject combination.
 - Secondary teachers receive no implicit subject access: every class/subject pairing must be assigned by a super admin (for example, English for Form 3 Yellow, Blue, Purple, and Red as four assignments).
 - Mark entry and learner lists are restricted to those exact assignments.

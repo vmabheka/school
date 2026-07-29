@@ -92,6 +92,12 @@ docker run -p 5000:5000 \
   excel-schools
 ```
 
+### Primary School Subjects
+
+The approved primary subjects for ECD A through Grade 7 are:
+**English, ChiShona, Mathematics, Social Science, PE and Arts, and Science and Technology**.
+Primary form teachers receive these six subjects for their assigned class.
+
 ### Teacher Class and Subject Assignments
 
 1. Sign in as a Super Admin and open **Staff**.
