@@ -103,6 +103,12 @@ class ESM_Portal {
         if ($page === 'reports' && isset($_GET['download'])) {
             self::download_report($role);
         }
+        if ($page === 'reports' && isset($_GET['pdf'])) {
+            self::download_report_pdf($role);
+        }
+        if ($page === 'invoices' && isset($_GET['pdf'])) {
+            self::download_invoice_pdf($role);
+        }
 
         self::render_portal($page, $role, $user);
         exit;
@@ -267,6 +273,99 @@ class ESM_Portal {
         }
         fclose($out);
         exit;
+    }
+
+    private static function download_report_pdf($role) {
+        if (!current_user_can('esm_manage_reports')) {
+            self::render_forbidden($role);
+            exit;
+        }
+        $report = sanitize_key($_GET['pdf'] ?? 'all');
+        if (!in_array($report, ['all', 'students', 'fees', 'exams'], true)) $report = 'all';
+        global $wpdb;
+        $pfx = $wpdb->prefix;
+        $sections = [];
+
+        if ($report === 'all' || $report === 'students') {
+            $rows = $wpdb->get_results("SELECT c.name,COUNT(s.id) AS total FROM {$pfx}esm_classes c LEFT JOIN {$pfx}esm_students s ON s.class_id=c.id AND s.status='Active' GROUP BY c.id ORDER BY c.name");
+            $data = [['Class', 'Active Students']];
+            foreach ($rows as $row) $data[] = [$row->name, $row->total];
+            $sections[] = ['title' => 'Student Enrollment by Class', 'rows' => $data];
+        }
+        if ($report === 'all' || $report === 'fees') {
+            $rows = $wpdb->get_results("SELECT DATE_FORMAT(payment_date,'%Y-%m') AS month,SUM(amount) AS total FROM {$pfx}esm_fee_payments GROUP BY month ORDER BY month DESC LIMIT 24");
+            $data = [['Month', 'Fees Collected']];
+            foreach ($rows as $row) $data[] = [$row->month, '$' . number_format($row->total, 2)];
+            $sections[] = ['title' => 'Fee Collection', 'rows' => $data];
+        }
+        if ($report === 'all' || $report === 'exams') {
+            $rows = $wpdb->get_results("SELECT e.name,COUNT(r.id) AS total,AVG(r.marks_obtained) AS average_mark FROM {$pfx}esm_exams e LEFT JOIN {$pfx}esm_exam_results r ON r.exam_id=e.id GROUP BY e.id ORDER BY e.start_date DESC");
+            $data = [['Exam', 'Results', 'Average Mark']];
+            foreach ($rows as $row) $data[] = [$row->name, $row->total, $row->average_mark === null ? '-' : number_format($row->average_mark, 1)];
+            $sections[] = ['title' => 'Exam Results Summary', 'rows' => $data];
+        }
+        $school = ESM_Helpers::get_theme()['school_name'] ?? 'Excel Schools';
+        ESM_PDF::download(
+            'school-' . $report . '-report-' . gmdate('Y-m-d') . '.pdf',
+            $school . ' - ' . ucfirst($report) . ' Report',
+            $sections
+        );
+    }
+
+    private static function download_invoice_pdf($role) {
+        if (!current_user_can('esm_manage_fees')) {
+            self::render_forbidden($role);
+            exit;
+        }
+        $invoice_id = absint($_GET['pdf'] ?? 0);
+        global $wpdb;
+        $pfx = $wpdb->prefix;
+        $invoice = $wpdb->get_row($wpdb->prepare(
+            "SELECT i.*,s.first_name,s.last_name,s.admission_number,c.name AS class_name,ay.name AS academic_year,t.name AS term_name FROM {$pfx}esm_invoices i LEFT JOIN {$pfx}esm_students s ON s.id=i.student_id LEFT JOIN {$pfx}esm_classes c ON c.id=s.class_id LEFT JOIN {$pfx}esm_academic_years ay ON ay.id=i.academic_year_id LEFT JOIN {$pfx}esm_terms t ON t.id=i.term_id WHERE i.id=%d",
+            $invoice_id
+        ));
+        if (!$invoice) {
+            status_header(404);
+            wp_die('Invoice not found.');
+        }
+        $items = $wpdb->get_results($wpdb->prepare(
+            "SELECT description,amount FROM {$pfx}esm_invoice_items WHERE invoice_id=%d ORDER BY id",
+            $invoice_id
+        ));
+        $paid = (float) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(amount),0) FROM {$pfx}esm_fee_payments WHERE student_id=%d AND (term_id=%d OR %d=0) AND (academic_year_id=%d OR %d=0)",
+            $invoice->student_id, (int) $invoice->term_id, (int) $invoice->term_id,
+            (int) $invoice->academic_year_id, (int) $invoice->academic_year_id
+        ));
+        $item_rows = [['Description', 'Amount']];
+        foreach ($items as $item) $item_rows[] = [$item->description, '$' . number_format($item->amount, 2)];
+        if (!$items) $item_rows[] = ['Tuition and school charges', '$' . number_format($invoice->subtotal, 2)];
+        $school = ESM_Helpers::get_theme()['school_name'] ?? 'Excel Schools';
+        $sections = [
+            ['title' => 'Invoice Details', 'rows' => [
+                ['Invoice Number', $invoice->invoice_number],
+                ['Student', trim($invoice->first_name . ' ' . $invoice->last_name)],
+                ['Admission Number', $invoice->admission_number],
+                ['Class', $invoice->class_name ?: '-'],
+                ['Academic Year / Term', trim(($invoice->academic_year ?: '-') . ' / ' . ($invoice->term_name ?: '-'))],
+                ['Issue Date', $invoice->issue_date],
+                ['Due Date', $invoice->due_date ?: '-'],
+                ['Status', $invoice->status],
+            ]],
+            ['title' => 'Charges', 'rows' => $item_rows],
+            ['title' => 'Totals', 'rows' => [
+                ['Subtotal', '$' . number_format($invoice->subtotal, 2)],
+                ['Discount', '$' . number_format($invoice->discount_amount, 2)],
+                ['Total Billed', '$' . number_format($invoice->total_amount, 2)],
+                ['Paid', '$' . number_format($paid, 2)],
+                ['Balance', '$' . number_format(max(0, $invoice->total_amount - $paid), 2)],
+            ]],
+        ];
+        ESM_PDF::download(
+            'invoice-' . $invoice->invoice_number . '.pdf',
+            $school . ' - Student Fee Invoice',
+            $sections
+        );
     }
 
     // ─── Rendering ──────────────────────────────────────────────────

@@ -4,9 +4,12 @@ if (!defined('ABSPATH')) exit;
 ?>
 <div class="page-header">
     <div><h1>Reports &amp; Analytics</h1><p>Generate and view school reports</p></div>
-    <?php if ($role === 'esm_super_admin'): ?>
-    <div class="actions"><a class="btn btn-primary" href="<?php echo esc_url(home_url('/sms/reports/?download=all')); ?>"><i class="fas fa-download"></i> Download All Reports</a></div>
-    <?php endif; ?>
+    <div class="actions">
+        <a class="btn btn-danger" href="<?php echo esc_url(home_url('/sms/reports/?pdf=all')); ?>"><i class="fas fa-file-pdf"></i> Download All PDF</a>
+        <?php if ($role === 'esm_super_admin'): ?>
+        <a class="btn btn-secondary" href="<?php echo esc_url(home_url('/sms/reports/?download=all')); ?>"><i class="fas fa-file-csv"></i> Download All CSV</a>
+        <?php endif; ?>
+    </div>
 </div>
 
 <div class="stats-grid">
@@ -22,6 +25,15 @@ if (!defined('ABSPATH')) exit;
         <div class="icon purple"><i class="fas fa-file-alt"></i></div>
         <div class="info"><h3>Exam</h3><p>Results reports</p></div>
     </a>
+</div>
+
+<div class="card" style="margin-bottom:20px;">
+    <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <strong>PDF Downloads:</strong>
+        <a class="btn btn-secondary" href="<?php echo esc_url(home_url('/sms/reports/?pdf=students')); ?>"><i class="fas fa-file-pdf"></i> Student Report</a>
+        <a class="btn btn-secondary" href="<?php echo esc_url(home_url('/sms/reports/?pdf=fees')); ?>"><i class="fas fa-file-pdf"></i> Fee Report</a>
+        <a class="btn btn-secondary" href="<?php echo esc_url(home_url('/sms/reports/?pdf=exams')); ?>"><i class="fas fa-file-pdf"></i> Exam Report</a>
+    </div>
 </div>
 
 <?php

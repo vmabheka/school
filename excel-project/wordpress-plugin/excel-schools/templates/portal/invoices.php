@@ -58,7 +58,7 @@ $status_badge = ['Unpaid' => 'badge-danger', 'Partially Paid' => 'badge-warning'
 <div class="card">
     <div class="table-container">
         <table>
-            <thead><tr><th>Invoice #</th><th>Student</th><th>Class</th><th>Issue Date</th><th>Subtotal</th><th>Discount</th><th>Total Billed</th><th>Status</th></tr></thead>
+            <thead><tr><th>Invoice #</th><th>Student</th><th>Class</th><th>Issue Date</th><th>Subtotal</th><th>Discount</th><th>Total Billed</th><th>Status</th><th>PDF</th></tr></thead>
             <tbody>
                 <?php if ($invoices): foreach ($invoices as $i): ?>
                 <tr>
@@ -70,9 +70,10 @@ $status_badge = ['Unpaid' => 'badge-danger', 'Partially Paid' => 'badge-warning'
                     <td>$<?php echo esc_html(number_format($i->discount_amount, 2)); ?></td>
                     <td><strong>$<?php echo esc_html(number_format($i->total_amount, 2)); ?></strong></td>
                     <td><span class="badge <?php echo esc_attr($status_badge[$i->status] ?? 'badge-secondary'); ?>"><?php echo esc_html($i->status); ?></span></td>
+                    <td><a class="btn btn-sm btn-secondary" href="<?php echo esc_url(home_url('/sms/invoices/?pdf=' . $i->id)); ?>"><i class="fas fa-file-pdf"></i> Download</a></td>
                 </tr>
                 <?php endforeach; else: ?>
-                <tr><td colspan="8" class="text-center" style="padding:30px;color:var(--text-light);">No invoices found</td></tr>
+                <tr><td colspan="9" class="text-center" style="padding:30px;color:var(--text-light);">No invoices found</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
