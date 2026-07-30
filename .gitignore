@@ -362,7 +362,9 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-# Local production secrets
+# Local Python environments and production secrets
+.venv/
+venv/
 .env
 .env.production
 .env.*.local

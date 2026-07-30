@@ -13,7 +13,9 @@ Gunicorn is installed automatically in the Docker image. For a native Linux inst
 .venv/bin/gunicorn --config gunicorn.conf.py wsgi:app
 ```
 
-The installer creates an isolated virtual environment, installs all requirements, verifies Gunicorn, and compiles the WSGI entry point.
+The installer creates an isolated virtual environment, installs all requirements, verifies Gunicorn, and compiles the WSGI entry point. The convenience Linux launchers (`start.sh`, `START_HERE.sh`, and `run.sh`) now perform this installation automatically and start Gunicorn on port 5000.
+
+On Windows, run `START.bat`. Because Gunicorn does not support Windows, the batch launcher creates `.venv`, installs the Windows-compatible Waitress WSGI server, initializes the database, and serves the same `wsgi:app` entry point on port 5000.
 
 ## 2. Create production secrets
 

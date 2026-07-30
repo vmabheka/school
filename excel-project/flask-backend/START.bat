@@ -1,94 +1,84 @@
 @echo off
 setlocal enabledelayedexpansion
-
 cd /d "%~dp0"
 
 echo.
 echo ============================================================
-echo   Excel Schools - Complete Startup Script
-echo   Version 2.1.0
+echo   Excel Schools - Windows WSGI Startup
 echo ============================================================
 echo.
 
-:: ============================================
-:: Step 1: Check Python Installation
-:: ============================================
-echo [1/4] Checking for Python installation...
-
+:: Gunicorn does not support Windows. This launcher installs and runs Waitress,
+:: a production-quality WSGI server that supports Windows natively.
+echo [1/5] Checking Python installation...
 where python >nul 2>nul
-if %errorlevel% neq 0 (
-    where py >nul 2>nul
-    if %errorlevel% neq 0 (
-        where python3 >nul 2>nul
-        if %errorlevel% neq 0 (
-            echo.
-            echo ERROR: Python is not installed or not in PATH.
-            echo Please install Python 3.9+ from https://python.org
-            echo.
-            pause
-            exit /b 1
-        ) else (
-            set PYTHON_CMD=python3
-        )
-    ) else (
-        set PYTHON_CMD=py
-    )
+if %errorlevel% equ 0 (
+    set "PYTHON_CMD=python"
 ) else (
-    set PYTHON_CMD=python
+    where py >nul 2>nul
+    if %errorlevel% equ 0 (
+        set "PYTHON_CMD=py"
+    ) else (
+        echo ERROR: Python 3.9 or newer is required.
+        echo Download it from https://www.python.org/downloads/
+        pause
+        exit /b 1
+    )
+)
+!PYTHON_CMD! --version
+
+ echo.
+echo [2/5] Creating the isolated Python environment...
+if not exist ".venv\Scripts\python.exe" (
+    !PYTHON_CMD! -m venv .venv
+    if !errorlevel! neq 0 (
+        echo ERROR: Could not create .venv.
+        pause
+        exit /b 1
+    )
+)
+set "VENV_PYTHON=.venv\Scripts\python.exe"
+set "WAITRESS=.venv\Scripts\waitress-serve.exe"
+
+ echo.
+echo [3/5] Installing dependencies and the Waitress WSGI server...
+"!VENV_PYTHON!" -m pip install --upgrade pip setuptools wheel
+if !errorlevel! neq 0 goto :install_error
+"!VENV_PYTHON!" -m pip install --upgrade -r requirements.txt
+if !errorlevel! neq 0 goto :install_error
+if not exist "!WAITRESS!" (
+    echo ERROR: Waitress was not installed correctly.
+    pause
+    exit /b 1
+)
+"!VENV_PYTHON!" -c "import waitress; print('Waitress WSGI server installed successfully.')"
+
+ echo.
+echo [4/5] Initializing/upgrading the database...
+"!VENV_PYTHON!" -c "from app import app, init_db; ctx=app.app_context(); ctx.push(); init_db(); ctx.pop(); print('Database initialized successfully.')"
+if !errorlevel! neq 0 (
+    echo ERROR: Database initialization failed.
+    pause
+    exit /b 1
 )
 
-echo Found Python: !PYTHON_CMD!
-echo.
-
-:: ============================================
-:: Step 2: Install Dependencies
-:: ============================================
-echo [2/4] Installing required packages...
-
-!PYTHON_CMD! -m pip install --upgrade pip --quiet
-
-echo Installing from requirements.txt...
-!PYTHON_CMD! -m pip install -r requirements.txt --quiet
-
-if %errorlevel% neq 0 (
-    echo.
-    echo Installing core packages individually...
-    !PYTHON_CMD! -m pip install Flask Flask-SQLAlchemy Flask-CORS Werkzeug openpyxl requests reportlab --quiet
-)
-
-echo.
-echo [3/4] Verifying Flask-CORS installation...
-!PYTHON_CMD! -c "import flask_cors; print('Flask-CORS OK')" 2>nul
-if %errorlevel% neq 0 (
-    echo Installing Flask-CORS...
-    !PYTHON_CMD! -m pip install Flask-CORS --quiet
-)
-
-echo.
-echo [4/4] Starting Excel Schools Flask Server...
-echo.
-
-:: ============================================
-:: Step 3: Start the Server
-:: ============================================
-echo Starting server using START.py...
-!PYTHON_CMD! START.py
-
-if %errorlevel% neq 0 (
-    echo.
-    echo Trying alternative server file...
-    !PYTHON_CMD! launch.py
-)
-
-if %errorlevel% neq 0 (
-    echo.
-    echo Trying server.py...
-    !PYTHON_CMD! server.py
-)
-
-echo.
+if not defined WSGI_HOST set "WSGI_HOST=0.0.0.0"
+if not defined WSGI_PORT set "WSGI_PORT=5000"
+ echo.
+echo [5/5] Starting Waitress WSGI server...
+echo Server: http://127.0.0.1:!WSGI_PORT!
+echo Press Ctrl+C to stop the server.
 echo ============================================================
-echo   Server has stopped.
-echo ============================================================
+"!WAITRESS!" --host=!WSGI_HOST! --port=!WSGI_PORT! --threads=8 wsgi:app
+set "SERVER_EXIT=!errorlevel!"
+
+echo.
+echo Server stopped with exit code !SERVER_EXIT!.
 pause
-endlocal
+exit /b !SERVER_EXIT!
+
+:install_error
+echo.
+echo ERROR: Dependency installation failed. Check your internet connection and Python installation.
+pause
+exit /b 1
