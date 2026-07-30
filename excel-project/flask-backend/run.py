@@ -45,7 +45,7 @@ def main():
     print(f"  Version: 2.0.0")
     print(f"  Deployment Mode: {mode.upper()}")
     print(f"  Server: http://{args.host}:{args.port}")
-    print(f"  Default Login: edusync / edusync26")
+    print("  Admin credentials are configured through the environment.")
     print(f"{'='*60}\n")
     
     app.run(

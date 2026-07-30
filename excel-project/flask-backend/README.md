@@ -59,6 +59,11 @@ python run.py --online
 
 ## Deployment
 
+For a production server, use the hardened Docker/PostgreSQL/Gunicorn setup in
+[`PRODUCTION.md`](PRODUCTION.md). It includes environment variables, persistent
+volumes, health checks, Nginx HTTPS proxying, backups, and an operational
+launch checklist.
+
 ### Offline Deployment (School Network/Local)
 ```bash
 python run.py --host 0.0.0.0 --port 5000

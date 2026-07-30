@@ -20,6 +20,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
                    flash, jsonify, session, send_file, make_response)
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import openpyxl
@@ -28,22 +29,75 @@ import requests
 
 # ─── App Configuration ────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}, r"/sync*": {"origins": "*"}})
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'excel-schools-secret-key-2024')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
-    'DATABASE_URL', 'sqlite:///excel_schools.db'
+_deployment_mode = os.environ.get('DEPLOYMENT_MODE', 'offline').strip().lower()
+_is_production = _deployment_mode == 'online'
+_secret_key = os.environ.get('SECRET_KEY', 'excel-schools-secret-key-2024')
+_database_url = os.environ.get('DATABASE_URL', 'sqlite:///excel_schools.db')
+
+if _is_production:
+    if len(_secret_key) < 32 or _secret_key in {
+        'excel-schools-secret-key-2024',
+        'excel-schools-change-this-in-production',
+        'change-this-to-a-long-random-string',
+    }:
+        raise RuntimeError('Production requires a unique SECRET_KEY of at least 32 characters.')
+    if _database_url.startswith('sqlite:') and os.environ.get('ALLOW_SQLITE_PRODUCTION') != 'true':
+        raise RuntimeError('Production requires PostgreSQL/MySQL; set ALLOW_SQLITE_PRODUCTION=true only for temporary testing.')
+
+app.config.update(
+    SECRET_KEY=_secret_key,
+    SQLALCHEMY_DATABASE_URI=_database_url,
+    SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    SQLALCHEMY_ENGINE_OPTIONS={
+        'pool_pre_ping': True,
+        'pool_recycle': int(os.environ.get('DB_POOL_RECYCLE', '300')),
+    },
+    UPLOAD_FOLDER=os.environ.get(
+        'UPLOAD_FOLDER', os.path.join(os.path.dirname(__file__), 'static', 'uploads')
+    ),
+    MAX_CONTENT_LENGTH=int(os.environ.get('MAX_UPLOAD_MB', '16')) * 1024 * 1024,
+    SCHOOL_NAME=os.environ.get('SCHOOL_NAME', 'Excel Group of Schools'),
+    SCHOOL_MOTTO=os.environ.get('SCHOOL_MOTTO', 'Excellence in Education'),
+    SCHOOL_LOGO='images/logo.png',
+    DEPLOYMENT_MODE=_deployment_mode,
+    SYNC_ENDPOINT=os.environ.get('SYNC_ENDPOINT', ''),
+    SYNC_API_KEY=os.environ.get('SYNC_API_KEY', ''),
+    SESSION_COOKIE_SECURE=_is_production,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PREFERRED_URL_SCHEME='https' if _is_production else 'http',
+    PERMANENT_SESSION_LIFETIME=timedelta(
+        minutes=int(os.environ.get('SESSION_LIFETIME_MINUTES', '480'))
+    ),
 )
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
-app.config['SCHOOL_NAME'] = 'Excel Group of Schools'
-app.config['SCHOOL_MOTTO'] = 'Excellence in Education'
-app.config['SCHOOL_LOGO'] = 'images/logo.png'
-app.config['DEPLOYMENT_MODE'] = os.environ.get('DEPLOYMENT_MODE', 'offline')  # online|offline
-app.config['SYNC_ENDPOINT'] = os.environ.get('SYNC_ENDPOINT', '')
-app.config['SYNC_API_KEY'] = os.environ.get('SYNC_API_KEY', '')
+
+if os.environ.get('TRUST_PROXY', 'false').lower() == 'true':
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
+_cors_origins = [
+    origin.strip() for origin in os.environ.get('CORS_ORIGINS', '').split(',')
+    if origin.strip()
+]
+# Browser CORS is disabled unless explicit origins are configured. Server-to-
+# server sync is unaffected because it does not require browser CORS headers.
+if _cors_origins:
+    CORS(app, resources={r"/api/*": {"origins": _cors_origins}})
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+    if _is_production:
+        response.headers.setdefault(
+            'Strict-Transport-Security', 'max-age=31536000; includeSubDomains'
+        )
+    return response
+
 
 db = SQLAlchemy(app)
 
@@ -51,9 +105,13 @@ db = SQLAlchemy(app)
 APP_VERSION = '2.1.0'
 APP_VERSION_DATE = '2026-07-06'
 
-# Initial super-admin credentials used when provisioning a new installation.
-DEFAULT_ADMIN_USERNAME = 'edusync'
-DEFAULT_ADMIN_PASSWORD = 'edusync26'
+# Initial super-admin credentials used only when provisioning a new database.
+DEFAULT_ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'edusync')
+DEFAULT_ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'edusync26')
+if _is_production and (
+    len(DEFAULT_ADMIN_PASSWORD) < 16 or DEFAULT_ADMIN_PASSWORD == 'edusync26'
+):
+    raise RuntimeError('Production requires a unique ADMIN_PASSWORD of at least 16 characters.')
 
 # ─── Inject theme into every template ─────────────────────────────────
 @app.context_processor
@@ -6507,6 +6565,17 @@ def api_stats():
     return jsonify(get_dashboard_stats())
 
 
+@app.route('/healthz')
+def healthz():
+    """Unauthenticated liveness/readiness check for containers and proxies."""
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        return jsonify({'status': 'ok', 'version': APP_VERSION}), 200
+    except Exception:
+        app.logger.exception('Database health check failed')
+        return jsonify({'status': 'unhealthy'}), 503
+
+
 # ─── Initialize Database ──────────────────────────────────────────────
 
 def init_db():
@@ -6702,7 +6771,7 @@ if __name__ == '__main__':
     print(f"  Version 2.0.0 | Author: Valentine T Mabheka")
     print(f"  Deployment Mode: {mode.upper()}")
     print(f"  Server: http://localhost:5000")
-    print(f"  Default Login: edusync / edusync26")
+    print(f"  Admin Username: {DEFAULT_ADMIN_USERNAME}")
     print(f"  Access Point Monitor: {'ACTIVE' if ap_monitor.status()['running'] else 'STANDBY'}")
     print(f"{'='*60}\n")
     app.run(debug=True, host='0.0.0.0', port=5000)
