@@ -23,15 +23,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command:
-      - gunicorn
-      - --bind=0.0.0.0:8000
-      - --workers=${WEB_WORKERS:-2}
-      - --threads=${WEB_THREADS:-4}
-      - --timeout=${WEB_TIMEOUT:-120}
-      - --access-logfile=-
-      - --error-logfile=-
-      - wsgi:app
+    command: ["gunicorn", "--config=gunicorn.conf.py", "wsgi:app"]
     ports:
       # Intentionally localhost-only. Put Nginx/Caddy/your hosting proxy in
       # front of this port to terminate HTTPS.

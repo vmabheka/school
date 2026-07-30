@@ -6,6 +6,15 @@ This deployment runs the Flask app behind Gunicorn with PostgreSQL and keeps it 
 
 Install Docker Engine, the Docker Compose plugin, Nginx, and Certbot on a Linux server. Point the chosen application domain (for example `school.example.com`) to the server.
 
+Gunicorn is installed automatically in the Docker image. For a native Linux installation instead, run:
+
+```bash
+./install-wsgi-server.sh
+.venv/bin/gunicorn --config gunicorn.conf.py wsgi:app
+```
+
+The installer creates an isolated virtual environment, installs all requirements, verifies Gunicorn, and compiles the WSGI entry point.
+
 ## 2. Create production secrets
 
 ```bash
