@@ -2636,12 +2636,16 @@ def _build_debtor_row(student, term_id, ay_id):
 
     class_obj = student.class_
     class_name = class_obj.name if class_obj else 'Unassigned'
-    level_name = get_fee_level_name(class_obj.level) if class_obj and class_obj.level else ''
+    grade_level = class_obj.level if class_obj and class_obj.level else ''
+    level_name = get_fee_level_name(grade_level) if grade_level else ''
+    school_name = ('Primary' if is_primary_level(grade_level) else 'Secondary') if grade_level else ''
 
     return {
         'student': student,
         'class_name': class_name,
+        'grade_level': grade_level,
         'level_name': level_name,
+        'school_name': school_name,
         'invoice': invoice,
         'invoice_number': invoice.invoice_number,
         'issue_date': invoice.issue_date,
@@ -2663,14 +2667,16 @@ def _build_debtor_row(student, term_id, ay_id):
 def _query_debtors(term, ay, filters):
     """Apply filters and return list of debtor row dicts.
 
-    `filters` is a dict with keys: search, class_id, level, scholarship,
-    min_balance, sort_by.
+    `filters` supports search, class_id, grade_level, school, fee level,
+    scholarship, minimum balance, and sorting.
     """
     if not term or not ay:
         return []
 
     search = (filters.get('search') or '').strip()
     class_filter = filters.get('class_id') or None
+    grade_level_filter = (filters.get('grade_level') or '').strip()
+    school_filter = (filters.get('school') or '').strip().lower()
     level_filter = (filters.get('level') or '').strip()
     scholarship_filter = (filters.get('scholarship') or '').strip()
     min_balance = filters.get('min_balance')
@@ -2688,13 +2694,29 @@ def _query_debtors(term, ay, filters):
             query = query.filter(Student.class_id == int(class_filter))
         except (TypeError, ValueError):
             pass
+
+    if grade_level_filter or school_filter or level_filter:
+        query = query.join(Class, Student.class_id == Class.id)
+    if grade_level_filter:
+        query = query.filter(Class.level == grade_level_filter)
+    if school_filter == 'primary':
+        query = query.filter(db.or_(
+            Class.level.ilike('ECD%'),
+            Class.level.ilike('Grade%'),
+            Class.level.ilike('Gr %'),
+            Class.level.ilike('Primary%'),
+        ))
+    elif school_filter == 'secondary':
+        query = query.filter(db.or_(
+            Class.level.ilike('Form%'),
+            Class.level.ilike('Secondary%'),
+        ))
     if level_filter:
-        query = query.join(Class, isouter=False)
         if level_filter == 'ECD':
             query = query.filter(Class.level.ilike('ECD%'))
         elif level_filter == 'Junior':
             query = query.filter(db.or_(
-                Class.level.ilike('Grade %'),
+                Class.level.ilike('Grade%'),
                 Class.level.ilike('Gr %'),
             ))
         elif level_filter == 'O Level':
@@ -2778,6 +2800,8 @@ def debtors_list():
     filters = {
         'search': request.args.get('search', ''),
         'class_id': request.args.get('class_id', ''),
+        'grade_level': request.args.get('grade_level', ''),
+        'school': request.args.get('school', ''),
         'level': request.args.get('level', ''),
         'scholarship': request.args.get('scholarship', ''),
         'min_balance': request.args.get('min_balance', ''),
@@ -2796,6 +2820,9 @@ def debtors_list():
     moderately_overdue = sum(1 for r in debtors if 0 < r['days_overdue'] <= 30)
 
     classes = Class.query.order_by(Class.name).all()
+    grade_levels = sorted({
+        level for level, in db.session.query(Class.level).distinct().all() if level
+    })
     classifications = sorted({c for c, in db.session.query(Student.fee_classification).distinct().all() if c})
 
     return render_template(
@@ -2811,9 +2838,12 @@ def debtors_list():
         term=term,
         ay=ay,
         classes=classes,
+        grade_levels=grade_levels,
         classifications=classifications,
         search=filters['search'],
         class_filter=filters['class_id'],
+        grade_level_filter=filters['grade_level'],
+        school_filter=filters['school'],
         level_filter=filters['level'],
         scholarship_filter=filters['scholarship'],
         min_balance=filters['min_balance'],
@@ -2840,6 +2870,8 @@ def debtors_export():
     filters = {
         'search': request.args.get('search', ''),
         'class_id': request.args.get('class_id', ''),
+        'grade_level': request.args.get('grade_level', ''),
+        'school': request.args.get('school', ''),
         'level': request.args.get('level', ''),
         'scholarship': request.args.get('scholarship', ''),
         'min_balance': request.args.get('min_balance', ''),
@@ -2863,7 +2895,7 @@ def debtors_export():
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow([
-            'Adm No', 'First Name', 'Last Name', 'Class', 'Level',
+            'Adm No', 'First Name', 'Last Name', 'Class', 'Grade / School / Fee Level',
             'Gender', 'Scholarship', 'Invoice No', 'Issue Date', 'Due Date',
             'Days Overdue', 'Subtotal', 'Discount', 'Net Due', 'Paid',
             'Balance Owed', 'Invoice Status', 'Parent Name', 'Parent Phone',
@@ -2876,7 +2908,7 @@ def debtors_export():
                 stu.first_name or '',
                 stu.last_name or '',
                 r['class_name'],
-                r['level_name'],
+                ' / '.join(v for v in (r['grade_level'], r['school_name'], r['level_name']) if v),
                 stu.gender or '',
                 stu.scholarship_label or 'Regular',
                 r['invoice_number'] or '',
@@ -2942,7 +2974,7 @@ def debtors_export():
         c2.alignment = Alignment(horizontal='center', vertical='center')
 
         headers = [
-            'Adm No', 'First Name', 'Last Name', 'Class', 'Level',
+            'Adm No', 'First Name', 'Last Name', 'Class', 'Grade / School / Fee Level',
             'Gender', 'Scholarship', 'Invoice No', 'Issue Date', 'Due Date',
             'Days Overdue', 'Subtotal ($)', 'Discount ($)', 'Net Due ($)',
             'Paid ($)', 'Balance Owed ($)', 'Invoice Status',
@@ -2968,7 +3000,7 @@ def debtors_export():
                 stu.first_name or '',
                 stu.last_name or '',
                 r['class_name'],
-                r['level_name'],
+                ' / '.join(v for v in (r['grade_level'], r['school_name'], r['level_name']) if v),
                 stu.gender or '',
                 stu.scholarship_label or 'Regular',
                 r['invoice_number'] or '',

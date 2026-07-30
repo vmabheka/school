@@ -16,15 +16,15 @@
     </div>
     <div class="actions d-flex gap-1">
         {% if total_debtors > 0 %}
-        <a href="{{ url_for('debtors_export', format='csv', search=search, class_id=class_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
+        <a href="{{ url_for('debtors_export', format='csv', search=search, class_id=class_filter, grade_level=grade_level_filter, school=school_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
            class="btn btn-secondary" title="Download as CSV (Excel/Numbers compatible)">
             <i class="fas fa-file-csv"></i> CSV
         </a>
-        <a href="{{ url_for('debtors_export', format='excel', search=search, class_id=class_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
+        <a href="{{ url_for('debtors_export', format='excel', search=search, class_id=class_filter, grade_level=grade_level_filter, school=school_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
            class="btn btn-success" title="Download formatted Excel workbook">
             <i class="fas fa-file-excel"></i> Excel
         </a>
-        <a href="{{ url_for('debtors_export', format='pdf', search=search, class_id=class_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
+        <a href="{{ url_for('debtors_export', format='pdf', search=search, class_id=class_filter, grade_level=grade_level_filter, school=school_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
            class="btn btn-danger" title="Download print-ready PDF report">
             <i class="fas fa-file-pdf"></i> PDF
         </a>
@@ -94,8 +94,19 @@
                 <option value="{{ c.id }}" {% if class_filter == c.id|string %}selected{% endif %}>{{ c.name }}</option>
                 {% endfor %}
             </select>
-            <select name="level" class="form-control">
-                <option value="">All Levels</option>
+            <select name="grade_level" class="form-control" title="Grade or form level">
+                <option value="">All Grades / Levels</option>
+                {% for grade_level in grade_levels %}
+                <option value="{{ grade_level }}" {% if grade_level_filter == grade_level %}selected{% endif %}>{{ grade_level }}</option>
+                {% endfor %}
+            </select>
+            <select name="school" class="form-control" title="Primary or Secondary school">
+                <option value="">All Schools</option>
+                <option value="primary" {% if school_filter == 'primary' %}selected{% endif %}>Primary School</option>
+                <option value="secondary" {% if school_filter == 'secondary' %}selected{% endif %}>Secondary School</option>
+            </select>
+            <select name="level" class="form-control" title="Fee level">
+                <option value="">All Fee Levels</option>
                 <option value="ECD" {% if level_filter == 'ECD' %}selected{% endif %}>ECD</option>
                 <option value="Junior" {% if level_filter == 'Junior' %}selected{% endif %}>Junior (Grade 1–7)</option>
                 <option value="O Level" {% if level_filter == 'O Level' %}selected{% endif %}>O Level (Form 1–4)</option>
@@ -120,7 +131,7 @@
                 {% endfor %}
             </select>
             <button type="submit" class="btn btn-primary"><i class="fas fa-filter"></i> Apply</button>
-            {% if search or class_filter or level_filter or scholarship_filter or min_balance or sort_by != 'balance_desc' %}
+            {% if search or class_filter or grade_level_filter or school_filter or level_filter or scholarship_filter or min_balance or sort_by != 'balance_desc' %}
             <a href="{{ url_for('debtors_list') }}" class="btn btn-secondary"><i class="fas fa-times"></i> Reset</a>
             {% endif %}
         </form>
@@ -185,8 +196,11 @@
                     </td>
                     <td>
                         {{ r.class_name }}
+                        {% if r.grade_level %}
+                        <br><small style="color:var(--text-light);">{{ r.grade_level }} · {{ r.school_name }} School</small>
+                        {% endif %}
                         {% if r.level_name %}
-                        <br><small style="color:var(--text-light);">{{ r.level_name }}</small>
+                        <br><small class="badge badge-info">{{ r.level_name }} fee level</small>
                         {% endif %}
                     </td>
                     <td>
