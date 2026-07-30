@@ -366,3 +366,4 @@ FodyWeavers.xsd
 .env
 .env.production
 .env.*.local
+excel-project/flask-backend/backups/
