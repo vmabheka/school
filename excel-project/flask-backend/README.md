@@ -64,12 +64,61 @@ For a production server, use the hardened Docker/PostgreSQL/Gunicorn setup in
 volumes, health checks, Nginx HTTPS proxying, backups, and an operational
 launch checklist.
 
-### Offline Deployment (School Network/Local)
-```bash
-python run.py --host 0.0.0.0 --port 5000
+### One Offline Server for the School Network
+
+Use **one computer only** as the central server. Every desktop, laptop, tablet,
+or phone connected to the same router opens the system in a browser and feeds
+data into the database on that server computer.
+
+#### Windows EXE setup
+
+1. Build the Windows package with `build-windows-exe.bat`, or copy these two
+   files from `dist` to the computer selected as the server:
+   - `ExcelSchools-Offline.exe`
+   - `setup-lan-server.bat`
+2. Connect the server computer to the school router, preferably by Ethernet.
+3. In Windows **Settings → Network & Internet → Properties**, set the network
+   profile to **Private**.
+4. Double-click `setup-lan-server.bat` and approve the administrator prompt.
+   It creates a Private-network Windows Firewall rule for TCP port 5000,
+   displays the server URLs, and starts the Waitress WSGI server.
+5. Keep the black server window open. On each other device, open one of the
+   displayed addresses, for example:
+
+   ```text
+   http://192.168.1.25:5000
+   ```
+
+6. Sign in with a separate user account appropriate to each staff member's
+   role. Do **not** copy or run the EXE on client devices.
+
+The central database, uploads, and a generated session secret are stored in:
+
+```text
+%LOCALAPPDATA%\ExcelSchools
 ```
 
-The system runs on the local network. Access it from any connected device using the school's network IP address.
+Back up that directory regularly. Assign the server computer a DHCP reservation
+(static LAN address) in the router so its URL does not change. Disable sleep on
+the server computer during school hours. The firewall rule is Private-profile
+only; do not expose port 5000 directly to the public internet.
+
+To use another port before running the setup script:
+
+```bat
+set EXCEL_SCHOOLS_PORT=8080
+setup-lan-server.bat
+```
+
+#### Python source setup (Linux/macOS/Windows)
+
+```bash
+# Listen on every LAN interface. Run this only on the server computer.
+GUNICORN_BIND=0.0.0.0:5000 ./start.sh
+```
+
+Client devices then browse to `http://SERVER_IPV4:5000`. All writes pass through
+the single WSGI process; client devices never open or copy the SQLite file.
 
 ### Online Deployment (School Website)
 

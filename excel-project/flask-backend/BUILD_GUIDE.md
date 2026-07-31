@@ -50,6 +50,12 @@ Outputs:
 - `dist\ExcelSchools-Offline.exe`
 - `dist\ExcelSchools-Offline.exe.sha256`
 - `dist\production-server.txt`
+- `dist\setup-lan-server.bat`
+
+For a central school-network server, copy both the EXE and
+`setup-lan-server.bat` to the server computer, then run the setup batch file as
+Administrator. It configures a Private-network firewall rule and displays the
+URL that client devices should open.
 
 Verify the embedded server manually with:
 

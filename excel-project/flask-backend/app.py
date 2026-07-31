@@ -44,14 +44,24 @@ if _is_production:
     if _database_url.startswith('sqlite:') and os.environ.get('ALLOW_SQLITE_PRODUCTION') != 'true':
         raise RuntimeError('Production requires PostgreSQL/MySQL; set ALLOW_SQLITE_PRODUCTION=true only for temporary testing.')
 
+_engine_options = {
+    'pool_pre_ping': True,
+    'pool_recycle': int(os.environ.get('DB_POOL_RECYCLE', '300')),
+}
+if _database_url.startswith('sqlite:'):
+    # One WSGI process owns the central offline database while multiple LAN
+    # clients submit requests concurrently. Extend lock waits and permit the
+    # Waitress worker threads to share SQLAlchemy-managed connections.
+    _engine_options['connect_args'] = {
+        'timeout': int(os.environ.get('SQLITE_BUSY_TIMEOUT', '30')),
+        'check_same_thread': False,
+    }
+
 app.config.update(
     SECRET_KEY=_secret_key,
     SQLALCHEMY_DATABASE_URI=_database_url,
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
-    SQLALCHEMY_ENGINE_OPTIONS={
-        'pool_pre_ping': True,
-        'pool_recycle': int(os.environ.get('DB_POOL_RECYCLE', '300')),
-    },
+    SQLALCHEMY_ENGINE_OPTIONS=_engine_options,
     UPLOAD_FOLDER=os.environ.get(
         'UPLOAD_FOLDER', os.path.join(os.path.dirname(__file__), 'static', 'uploads')
     ),

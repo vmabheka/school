@@ -52,15 +52,17 @@ findstr /c:"PRODUCTION_WSGI_STATUS=embedded-and-ready" "dist\production-server.t
 if !errorlevel! neq 0 goto :server_error
 type "dist\production-server.txt"
 
-echo [5/5] Creating checksum...
+echo [5/5] Creating LAN setup helper and checksum...
+copy /y "setup-lan-server.bat" "dist\setup-lan-server.bat" >nul
 "!BUILD_PYTHON!" -c "import hashlib,pathlib; p=pathlib.Path(r'dist\ExcelSchools-Offline.exe'); pathlib.Path(str(p)+'.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')"
 
 echo.
 echo Build completed successfully:
 echo   %CD%\dist\ExcelSchools-Offline.exe
 echo   Embedded server: Waitress production WSGI
+echo   LAN setup: %CD%\dist\setup-lan-server.bat
 echo.
-echo Copy the EXE to the offline Windows computer and double-click it.
+echo Copy the EXE and setup-lan-server.bat to the offline Windows computer and double-click it.
 pause
 exit /b 0
 
