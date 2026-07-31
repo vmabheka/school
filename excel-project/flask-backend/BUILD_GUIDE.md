@@ -6,8 +6,8 @@
 |----------|---------------|--------|
 | **Linux** | `./build.sh` | `dist/ExcelSchools/ExcelSchools` |
 | **Linux (portable)** | `./build.sh --portable` | `dist/ExcelSchools-portable` |
-| **Windows** | `build.bat` | `dist\ExcelSchools\ExcelSchools.exe` |
-| **Windows (portable)** | `build.bat --portable` | `dist\ExcelSchools-portable.exe` |
+| **Windows (portable)** | `build-windows-exe.bat` | `dist\ExcelSchools-Offline.exe` |
+| **Windows (GitHub Actions)** | Workflow: Build Windows Offline EXE | Downloadable artifact |
 | **macOS** | `./build_macos.sh` | `dist/ExcelSchools/ExcelSchools` |
 | **Docker** | `docker build -t excel-schools .` | Docker image |
 
@@ -40,17 +40,19 @@ chmod +x build.sh
 
 ### 3. Build for Windows
 
+PyInstaller must run on Windows to produce a Windows executable. Open Command Prompt in this directory and run:
+
 ```cmd
-REM Install PyInstaller first
-pip install pyinstaller
-
-REM Build both
-build.bat --all
-
-REM Or just one:
-build.bat --portable
-build.bat --directory
+build-windows-exe.bat
 ```
+
+Outputs:
+- `dist\ExcelSchools-Offline.exe`
+- `dist\ExcelSchools-Offline.exe.sha256`
+
+The executable bundles Python, templates, static files, Waitress, and the application. School data is stored persistently under `%LOCALAPPDATA%\ExcelSchools`, not inside the EXE.
+
+Alternatively, run the GitHub Actions workflow **Build Windows Offline EXE** and download the `ExcelSchools-Offline-Windows` artifact.
 
 ### 4. Build for macOS
 
