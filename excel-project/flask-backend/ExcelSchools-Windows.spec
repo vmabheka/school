@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 project_root = Path(SPECPATH)
 
@@ -10,6 +10,10 @@ datas = [
 ]
 binaries = []
 hiddenimports = collect_submodules('flask') + collect_submodules('flask_sqlalchemy')
+# Waitress is the Windows-compatible production WSGI server. Include all of
+# its modules and package metadata, then verify it from the frozen EXE.
+datas += copy_metadata('waitress')
+hiddenimports += collect_submodules('waitress')
 for package in ('reportlab', 'openpyxl', 'waitress'):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
     datas += pkg_datas

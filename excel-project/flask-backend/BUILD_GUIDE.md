@@ -49,8 +49,15 @@ build-windows-exe.bat
 Outputs:
 - `dist\ExcelSchools-Offline.exe`
 - `dist\ExcelSchools-Offline.exe.sha256`
+- `dist\production-server.txt`
 
-The executable bundles Python, templates, static files, Waitress, and the application. School data is stored persistently under `%LOCALAPPDATA%\ExcelSchools`, not inside the EXE.
+Verify the embedded server manually with:
+
+```cmd
+dist\ExcelSchools-Offline.exe --verify-production-server
+```
+
+The executable bundles Python, templates, static files, the application, and the **Waitress production WSGI server**. The build fails unless the frozen EXE confirms `PRODUCTION_WSGI_STATUS=embedded-and-ready`; verification details are written to `dist\production-server.txt`. School data is stored persistently under `%LOCALAPPDATA%\ExcelSchools`, not inside the EXE.
 
 Alternatively, run the GitHub Actions workflow **Build Windows Offline EXE** and download the `ExcelSchools-Offline-Windows` artifact.
 

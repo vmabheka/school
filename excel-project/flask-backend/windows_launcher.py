@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import socket
 import sys
@@ -50,6 +51,28 @@ def open_browser_when_ready(url: str) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description='Excel Schools Offline Windows server')
+    parser.add_argument('--verify-production-server', action='store_true')
+    parser.add_argument('--no-browser', action='store_true')
+    args = parser.parse_args()
+
+    # Importing Waitress here is intentional: PyInstaller includes it in the
+    # executable and the build script verifies this import in the frozen EXE.
+    import waitress
+    from waitress import serve
+
+    if args.verify_production_server:
+        version = getattr(waitress, '__version__', None)
+        if not version:
+            try:
+                from importlib.metadata import version as package_version
+                version = package_version('waitress')
+            except Exception:
+                version = 'bundled'
+        print(f'PRODUCTION_WSGI_SERVER=Waitress {version}')
+        print('PRODUCTION_WSGI_STATUS=embedded-and-ready')
+        return 0
+
     data_dir, port = configure_runtime()
     host = os.environ.get('EXCEL_SCHOOLS_HOST', '0.0.0.0')
     if not port_available(host, port):
@@ -60,19 +83,19 @@ def main() -> int:
     # Imports happen after environment setup so SQLite and uploads are stored
     # outside PyInstaller's temporary extraction directory.
     from app import app, init_db
-    from waitress import serve
 
     with app.app_context():
         init_db()
 
     url = f'http://127.0.0.1:{port}'
     print('=' * 62)
-    print(' Excel Schools Offline')
+    print(' Excel Schools Offline - Waitress Production WSGI Server')
     print(f' Open: {url}')
     print(f' Data: {data_dir}')
     print(' Keep this window open. Press Ctrl+C to stop the server.')
     print('=' * 62)
-    threading.Thread(target=open_browser_when_ready, args=(url,), daemon=True).start()
+    if not args.no_browser:
+        threading.Thread(target=open_browser_when_ready, args=(url,), daemon=True).start()
     try:
         serve(app, host=host, port=port, threads=8, channel_timeout=120)
     except KeyboardInterrupt:
