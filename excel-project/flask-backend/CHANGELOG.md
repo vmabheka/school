@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.3.0] — 2026-08-03
+
+### Fixed (Flask app — LAN client access)
+
+- **`windows_launcher.py`**: LAN mode now always binds `0.0.0.0`, prints every
+  address client devices should open, and logs each incoming request (IP,
+  method, path, status) so the admin can see clients connecting
+- **Firewall fix**: `setup-lan-server.bat` now creates a **port-based** Windows
+  Firewall allow rule (TCP port, Private + Domain profiles) instead of an
+  EXE-path rule — the PyInstaller one-file EXE listens from a temporary child
+  process folder, so path-scoped rules never matched and clients were blocked
+- **Automatic firewall configuration**: when the EXE is started as
+  Administrator it refreshes the port rule itself; otherwise it prints the
+  one-time command to run
+- **`--diagnose`** mode prints LAN addresses, active Windows network profiles
+  (warns when Public), firewall rule state and port holders
+- **New `test-client.bat`** (in `dist`): run on a failing client — ping, TCP
+  port, and `/healthz` tests with step-by-step fix guidance
+- **`START.bat`** prints the LAN URLs clients should use and points to
+  `setup-lan-server.bat` for the firewall
+- Legacy launchers (`server.py`, `launch.py`, `GO.py`, `run_flask.py`) now
+  bind `0.0.0.0` instead of `127.0.0.1` so they also serve the network
+- README: full "If client devices cannot connect" troubleshooting section
+  (firewall, Private profile, AP isolation, antivirus, port tests)
+
+### Added (earlier rounds, recorded here)
+
+- **Central LAN server mode**: one computer hosts the offline server
+  (`--lan`), all other devices feed data into it via the browser
+- **Windows offline EXE** (`build-windows-exe.bat` → `dist\ExcelSchools-Offline.exe`)
+  embedding the Waitress production WSGI server with `--verify-production-server`
+  build-time verification
+- **WSGI installers**: `install-wsgi-server.sh` + Gunicorn on Linux/macOS,
+  Waitress in `START.bat` on Windows
+- **Production deployment**: Docker/PostgreSQL/Gunicorn stack,
+  `PRODUCTION.md`, hardened env validation, health checks, backups, Nginx
+  reverse-proxy example
+- **Debtor filters** (class, grade level, school, fee level) in Flask and
+  WordPress portals
+- **PDF downloads** for online reports and invoices
+- **Teacher portal**: class + subject assignments per teacher (secondary),
+  approved primary subjects (English, ChiShona, Mathematics, Social Science,
+  PE and Arts, Science and Technology)
+- **Complete offline export** for WordPress sync (all models) with manual JSON
+  import; bursar sync privileges, class creation, and role-specific dashboards
+
+---
+
 ## [2.1.0] — 2026-07-06
 
 ### Added (Flask app + WordPress plugin)

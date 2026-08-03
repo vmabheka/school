@@ -72,16 +72,20 @@ data into the database on that server computer.
 
 #### Windows EXE setup
 
-1. Build the Windows package with `build-windows-exe.bat`, or copy these two
+1. Build the Windows package with `build-windows-exe.bat`, or copy these three
    files from `dist` to the computer selected as the server:
-   - `ExcelSchools-Offline.exe`
-   - `setup-lan-server.bat`
+   - `ExcelSchools-Offline.exe` — the server itself
+   - `setup-lan-server.bat` — opens the firewall and starts the server
+   - `test-client.bat` — connection test to run on any device that cannot connect
 2. Connect the server computer to the school router, preferably by Ethernet.
 3. In Windows **Settings → Network & Internet → Properties**, set the network
-   profile to **Private**.
+   profile to **Private** (Public networks block sharing by default).
 4. Double-click `setup-lan-server.bat` and approve the administrator prompt.
-   It creates a Private-network Windows Firewall rule for TCP port 5000,
-   displays the server URLs, and starts the Waitress WSGI server.
+   It creates a **port-based** Windows Firewall allow rule for TCP port 5000 on
+   the Private and Domain profiles (a port rule is used on purpose: the EXE
+   listens from a temporary folder, so a rule scoped to the EXE file path never
+   matches), prints every server URL, copies them to the clipboard, and starts
+   the Waitress WSGI server.
 5. Keep the black server window open. On each other device, open one of the
    displayed addresses, for example:
 
@@ -90,7 +94,8 @@ data into the database on that server computer.
    ```
 
 6. Sign in with a separate user account appropriate to each staff member's
-   role. Do **not** copy or run the EXE on client devices.
+   role. Do **not** copy or run the EXE on client devices — they only need a
+   browser (a phone works too).
 
 The central database, uploads, and a generated session secret are stored in:
 
@@ -100,8 +105,8 @@ The central database, uploads, and a generated session secret are stored in:
 
 Back up that directory regularly. Assign the server computer a DHCP reservation
 (static LAN address) in the router so its URL does not change. Disable sleep on
-the server computer during school hours. The firewall rule is Private-profile
-only; do not expose port 5000 directly to the public internet.
+the server computer during school hours. The firewall rule covers Private and
+Domain networks only; do not expose port 5000 directly to the public internet.
 
 To use another port before running the setup script:
 
@@ -110,6 +115,47 @@ set EXCEL_SCHOOLS_PORT=8080
 setup-lan-server.bat
 ```
 
+To also allow connections while the network profile is **Public** (only if you
+accept the risk on a trusted network):
+
+```bat
+set EXCEL_SCHOOLS_ALLOW_PUBLIC_PROFILE=1
+setup-lan-server.bat
+```
+
+#### If client devices cannot connect
+
+Run these checks in order:
+
+1. **On the server**, keep the server window open and look at the addresses it
+   printed. The clients must open one of the `http://<IP>:5000` addresses —
+   not `127.0.0.1` (that only works on the server computer itself).
+2. **On the server**, confirm the server window prints incoming requests. If
+   nothing appears when a client tries to connect, the network/firewall is
+   blocking the traffic (go to step 3–5). If requests appear, the app is fine
+   and the problem is on the client side (steps 6–7).
+3. **Firewall**: on the server run `setup-lan-server.bat` as **Administrator**
+   once. It recreates the port-based allow rule. Check antivirus firewalls
+   (Avast, Kaspersky, McAfee, Bitdefender…) for extra blocking rules.
+4. **Network profile**: the server's network must be **Private**. Run
+   `ExcelSchools-Offline.exe --diagnose` on the server to see every network
+   profile, the firewall rule state, and the port status in one place.
+5. **Router**: disable **AP isolation / client isolation** on the router, or
+   connect the server by Ethernet cable. Guest Wi-Fi cannot reach the server.
+6. **On the failing client**, copy `test-client.bat` from the server (or run
+   these commands directly):
+
+   ```bat
+   ping 192.168.1.25
+   powershell -Command "Test-NetConnection 192.168.1.25 -Port 5000"
+   curl -i http://192.168.1.25:5000/healthz
+   ```
+
+   `test-client.bat 192.168.1.25` runs all three tests and prints the fix for
+   each result.
+7. **Wrong network**: make sure the client is on the same Wi-Fi name / same
+   router as the server. Different Wi-Fi networks cannot see each other.
+
 #### Python source setup (Linux/macOS/Windows)
 
 ```bash
@@ -117,8 +163,10 @@ setup-lan-server.bat
 GUNICORN_BIND=0.0.0.0:5000 ./start.sh
 ```
 
-Client devices then browse to `http://SERVER_IPV4:5000`. All writes pass through
-the single WSGI process; client devices never open or copy the SQLite file.
+On Linux/macOS the same firewall rules apply (`ufw allow 5000/tcp` or
+`firewall-cmd --add-port=5000/tcp`). Client devices then browse to
+`http://SERVER_IPV4:5000`. All writes pass through the single WSGI process;
+client devices never open or copy the SQLite file.
 
 ### Online Deployment (School Website)
 

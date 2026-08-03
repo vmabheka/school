@@ -67,6 +67,12 @@ if not defined WSGI_PORT set "WSGI_PORT=5000"
  echo.
 echo [5/5] Starting Waitress WSGI server...
 echo Server: http://127.0.0.1:!WSGI_PORT!
+if /i "!WSGI_HOST!"=="0.0.0.0" (
+    echo Other devices on this network:
+    for /f "usebackq tokens=*" %%A in (`powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } | ForEach-Object { '   http://' + $_.IPAddress + ':!WSGI_PORT!' }"`) do echo %%A
+    echo If client devices cannot connect, run setup-lan-server.bat as
+    echo Administrator once to open the Windows Firewall for port !WSGI_PORT!.
+)
 echo Press Ctrl+C to stop the server.
 echo ============================================================
 "!WAITRESS!" --host=!WSGI_HOST! --port=!WSGI_PORT! --threads=8 wsgi:app

@@ -51,11 +51,20 @@ Outputs:
 - `dist\ExcelSchools-Offline.exe.sha256`
 - `dist\production-server.txt`
 - `dist\setup-lan-server.bat`
+- `dist\test-client.bat`
 
-For a central school-network server, copy both the EXE and
-`setup-lan-server.bat` to the server computer, then run the setup batch file as
-Administrator. It configures a Private-network firewall rule and displays the
-URL that client devices should open.
+For a central school-network server, copy the EXE, `setup-lan-server.bat` and
+`test-client.bat` to the server computer, then run the setup batch file as
+Administrator. It configures a **port-based** Windows Firewall allow rule
+(Private + Domain profiles) and displays the URL that client devices should
+open. `test-client.bat` is a connection test to run on any client device that
+cannot reach the server.
+
+Diagnose server-side network problems with:
+
+```cmd
+dist\ExcelSchools-Offline.exe --diagnose
+```
 
 Verify the embedded server manually with:
 
