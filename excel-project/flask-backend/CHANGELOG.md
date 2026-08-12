@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.2.1] — 2026-08-12 (WordPress plugin)
+
+### Fixed (WordPress portal — 404 "Access Denied" on /sms/)
+
+- **In-place plugin updates now upgrade the database and rewrite rules.**
+  WordPress does not run the activation hook during an update, so installing
+  the new version over an existing one never created the new tables/columns
+  (e.g. `esm_cost_centers`, `student.cost_center_id`) and never refreshed the
+  `/sms/` rewrite rules — pages that touched the new tables threw SQL errors
+  and the portal could 404. The `init`-time upgrade routine now calls
+  `ESM_Database::create_tables()` + `seed_defaults()`, re-applies roles,
+  re-registers the rewrite rules and flushes them whenever the plugin version
+  changes. Plugin bumped to **3.2.1** so the routine runs on the current
+  install.
+- **`/sms/` routing no longer depends on the rewrite rules.** The portal
+  router now falls back to parsing the `/sms/<page>/` path directly from the
+  request URI, so the portal works even if permalinks are set to Plain or the
+  rules are stale — instead of returning a WordPress 404.
+- Guarded the cost-centre queries in the Debtors portal page and the Settings
+  Cost Centres tab so a missing table can never take the page down.
+
+---
+
 ## [2.6.2] — 2026-08-12
 
 ### Fixed (Flask app)

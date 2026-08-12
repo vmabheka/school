@@ -108,6 +108,7 @@ function esm_setting($school_settings, $key, $default = '') {
     <?php else: ?>
     <?php if ($tab === 'cost-centers'):
         $centers = $wpdb->get_results("SELECT cc.*, (SELECT COUNT(*) FROM {$pfx}esm_students s WHERE s.cost_center_id = cc.id) AS learners FROM {$pfx}esm_cost_centers cc ORDER BY cc.name");
+        if (!is_array($centers)) $centers = [];
     ?>
         <div style="max-width:700px;margin-top:20px;">
             <h2>Add Cost Centre</h2>

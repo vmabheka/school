@@ -16,6 +16,7 @@ if (!in_array($school_filter, ['', 'primary', 'secondary'], true)) $school_filte
 $classes = $wpdb->get_results("SELECT id, name, level FROM {$pfx}esm_classes ORDER BY name");
 $grade_levels = $wpdb->get_col("SELECT DISTINCT level FROM {$pfx}esm_classes WHERE level IS NOT NULL AND level<>'' ORDER BY level");
 $cost_centers = $wpdb->get_results("SELECT id, name, code FROM {$pfx}esm_cost_centers ORDER BY name");
+if (!is_array($cost_centers)) $cost_centers = [];
 
 // Super admins see money totals; bursars see only the % collected vs target.
 $is_admin_view = current_user_can('manage_options');

@@ -5,7 +5,7 @@
  * Description: MobiSchola management portal for WordPress — a direct mirror of the
  *              offline Flask school-management app, exposed at /sms/ on this site, kept
  *              in sync with the offline app via the bundled sync engine and REST API.
- * Version: 3.2.0
+ * Version: 3.2.1
  * Author: Edutechweb
  * Author URI: https://excelgroup.edu.zw
  * License: GPL v2 or later
@@ -18,7 +18,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ESM_VERSION', '3.2.0');
+define('ESM_VERSION', '3.2.1');
 define('ESM_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ESM_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('ESM_PLUGIN_FILE', __FILE__);
@@ -123,23 +123,39 @@ function esm_setup_roles() {
 }
 
 /**
- * Reconcile role capabilities after in-place plugin updates. WordPress does
- * not run activation hooks during an update, so existing bursar roles need
- * this one-time migration to receive sync access.
+ * Reconcile roles, database schema and rewrite rules after in-place plugin
+ * updates. WordPress does not run activation hooks during an update, so
+ * without this routine the new tables (e.g. esm_cost_centers), new columns
+ * (cost_center_id), and the /sms/ rewrite rules would never be created on an
+ * existing site — causing SQL errors and 404 "Access Denied" pages.
  */
 function esm_maybe_upgrade_roles() {
     if (get_option('esm_roles_version') === ESM_VERSION) {
         return;
     }
 
-    esm_setup_roles();
+    // 1) Create/upgrade every table and column (idempotent: CREATE TABLE IF
+    //    NOT EXISTS + column checks). This covers the cost-centres table and
+    //    the student cost_center_id/entry_mode columns added in 3.2.0.
+    ESM_Database::create_tables();
     ESM_Database::seed_defaults();
+
+    // 2) Reconcile role capabilities.
+    esm_setup_roles();
+
+    // 3) Migrate any legacy column the old upgrade path handled.
     global $wpdb;
     $staff_subject_table = $wpdb->prefix . 'esm_staff_subjects';
     $has_sync_id = $wpdb->get_var("SHOW COLUMNS FROM {$staff_subject_table} LIKE 'sync_id'");
     if (!$has_sync_id) {
         $wpdb->query("ALTER TABLE {$staff_subject_table} ADD COLUMN sync_id VARCHAR(36) DEFAULT NULL");
     }
+
+    // 4) Regenerate the /sms/ rewrite rules so the portal does not 404 after
+    //    an in-place update (they are otherwise only flushed on activation).
+    ESM_Portal::register_rewrite_rules();
+    flush_rewrite_rules();
+
     update_option('esm_roles_version', ESM_VERSION);
 }
 add_action('init', 'esm_maybe_upgrade_roles', 5);

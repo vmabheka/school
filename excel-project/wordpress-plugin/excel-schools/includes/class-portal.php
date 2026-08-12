@@ -67,7 +67,19 @@ class ESM_Portal {
      */
     public static function route() {
         $page = get_query_var('esm_portal', false);
-        if ($page === false) return;
+        if ($page === false || $page === '') {
+            // Fallback: parse the /sms/<page>/ path straight from the request
+            // URI. This keeps the portal working even when the rewrite rules
+            // are stale (e.g. after an in-place plugin update or a permalink
+            // change) instead of returning a WordPress 404.
+            $uri = isset($_SERVER['REQUEST_URI']) ? rawurldecode($_SERVER['REQUEST_URI']) : '';
+            $path = $uri ? (parse_url($uri, PHP_URL_PATH) ?: '') : '';
+            if (preg_match('#^/sms(?:/([a-z0-9\-]+))?/?$#i', $path, $m)) {
+                $page = !empty($m[1]) ? strtolower($m[1]) : 'dashboard';
+            } else {
+                return;
+            }
+        }
 
         if ($page === 'login') {
             self::render_login();
