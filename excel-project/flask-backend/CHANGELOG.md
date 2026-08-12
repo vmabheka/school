@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.4.1] — 2026-08-03
+
+### Added (Flask app)
+
+- **`remove-onceoff-levies.py`** — one-off utility script that removes the
+  **Textbook Levy (Once-off)** and **Registration Fee (Once-off)** lines from
+  uploaded learners' invoices, recalculates each invoice (subtotal, discount,
+  total and status — scholarship discounts included), and marks every affected
+  learner as already billed so the system never adds these two fees again,
+  even when invoices are regenerated for future terms. Supports
+  `--dry-run` (preview), `--yes` (skip confirmation), and is safe to re-run
+  (second run finds nothing). A double-clickable **`remove-onceoff-levies.bat`**
+  wrapper is included for Windows.
+
+---
+
 ## [2.4.0] — 2026-08-03
 
 ### Added (Flask app)

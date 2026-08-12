@@ -115,6 +115,20 @@ set EXCEL_SCHOOLS_PORT=8080
 setup-lan-server.bat
 ```
 
+### Remove Textbook Levy & Registration Fee from uploaded learners
+
+If learners already billed in a previous import carry the once-off
+**Textbook Levy** and **Registration Fee** lines, run the cleanup script on
+the server computer (stop the server first):
+
+```bash
+python remove-onceoff-levies.py          # preview with: --dry-run
+```
+
+On Windows, double-click `remove-onceoff-levies.bat`. The script removes the
+two fees, recalculates the invoices, and marks the learners so the fees are
+never billed to them again.
+
 To also allow connections while the network profile is **Public** (only if you
 accept the risk on a trusted network):
 
