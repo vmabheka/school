@@ -254,6 +254,8 @@ class Student(db.Model):
     is_new_learner = db.Column(db.Boolean, default=True)
     billed_once_off_levies = db.Column(db.Boolean, default=False)
     entry_mode = db.Column(db.String(20), default='Day')  # Day or Stay In (boarding)
+    cost_center_id = db.Column(db.Integer, db.ForeignKey('cost_center.id'))
+    cost_center = db.relationship('CostCenter', backref='students')
     # Relations
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     parents = db.relationship('Parent', secondary=student_parent, backref='students')
@@ -368,6 +370,23 @@ class ExamResult(db.Model):
     grade = db.Column(db.String(5))
     remarks = db.Column(db.String(200))
     sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()))
+
+
+class CostCenter(db.Model):
+    """Customisable cost centres used to group learners for reporting.
+
+    Defaults: Primary, Secondary and Stay In. Institutions can add, rename
+    or remove centres on the Cost Centres page; learners are auto-assigned
+    (Stay In > Primary > Secondary) and can be overridden per student.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), nullable=False, unique=True)
+    code = db.Column(db.String(20), unique=True, nullable=False)
+    description = db.Column(db.String(200))
+    sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()))
+
+    def __repr__(self):
+        return f'<CostCenter {self.name}>'
 
 
 class FeeStructure(db.Model):
@@ -1437,6 +1456,44 @@ def generate_invoice_number():
 STAY_IN_FEE_PRIMARY_SECONDARY = 300.0
 STAY_IN_FEE_A_LEVEL = 260.0
 
+# Default cost centres (customisable — see /settings/cost-centers).
+# Learners are auto-assigned: Stay In > Primary > Secondary.
+COST_CENTER_DEFAULTS = [
+    ('Primary', 'PRM', 'Primary School (ECD A to Grade 7)'),
+    ('Secondary', 'SEC', 'Secondary School (Form 1 to Form 6)'),
+    ('Stay In', 'STY', 'Boarding learners (billed the Stay In fee)'),
+]
+
+
+def assign_cost_center(student):
+    """Pick the best-matching cost centre for a learner.
+
+    Rule: Stay In learners go to the "Stay In" centre; otherwise primary
+    classes go to "Primary" and everything else to "Secondary". Centres are
+    matched by code first (PRM/SEC/STY), then by name, so renaming a centre
+    keeps the auto-assignment working. Returns the assigned cost_center_id.
+    """
+    if student is None:
+        return None
+
+    def _find(code, name):
+        return (CostCenter.query.filter_by(code=code).first()
+                or CostCenter.query.filter(
+                    db.func.lower(CostCenter.name) == name.lower()).first())
+
+    cc_stay = _find('STY', 'Stay In')
+    cc_primary = _find('PRM', 'Primary')
+    cc_secondary = _find('SEC', 'Secondary')
+
+    if getattr(student, 'entry_mode', 'Day') == 'Stay In' and cc_stay:
+        student.cost_center_id = cc_stay.id
+    elif (student.class_ and student.class_.level
+          and is_primary_level(student.class_.level) and cc_primary):
+        student.cost_center_id = cc_primary.id
+    elif cc_secondary:
+        student.cost_center_id = cc_secondary.id
+    return student.cost_center_id
+
 
 def normalize_entry_mode(value):
     """Map user input (Excel, forms) to the canonical entry modes Day / Stay In."""
@@ -1802,6 +1859,14 @@ def student_add():
             scholarship_staff_id=request.form.get('scholarship_staff_id') if request.form.get('scholarship_staff_id') else None,
             scholarship_notes=request.form.get('scholarship_notes'),
         )
+        # Cost centre: explicit selection wins, otherwise auto-assign
+        # (Stay In > Primary > Secondary).
+        cc_choice = request.form.get('cost_center_id')
+        if cc_choice:
+            try:
+                student.cost_center_id = int(cc_choice)
+            except (TypeError, ValueError):
+                pass
 
         # Handle photo upload
         if 'photo' in request.files:
@@ -1816,6 +1881,8 @@ def student_add():
 
         db.session.add(student)
         db.session.flush()
+        if not student.cost_center_id:
+            assign_cost_center(student)
         generate_student_invoice(student)
 
         # NOTE: Students do NOT get user accounts.
@@ -1873,7 +1940,8 @@ def student_add():
                            next_admission=next_admission,
                            today=date.today().isoformat(),
                            level_classes=json.dumps(level_classes),
-                           fee_levels_json=json.dumps(fee_levels_json))
+                           fee_levels_json=json.dumps(fee_levels_json),
+                           cost_centers=CostCenter.query.order_by(CostCenter.name).all())
 
 
 @app.route('/students/<int:id>')
@@ -1920,6 +1988,7 @@ def student_reassign_class(id):
         return redirect(url_for('student_view', id=id))
     old_class_name = student.class_.name if student.class_ else 'No class'
     student.class_id = cls.id
+    assign_cost_center(student)
     student.updated_at = datetime.utcnow()
     db.session.commit()
     log_sync('Student', student.id, 'UPDATE', {
@@ -1959,6 +2028,7 @@ def students_bulk_reassign_class():
     for student in Student.query.filter(Student.id.in_(ids)).all():
         if student.class_id != cls.id:
             student.class_id = cls.id
+            assign_cost_center(student)
             student.updated_at = datetime.utcnow()
             moved += 1
     db.session.commit()
@@ -2057,6 +2127,17 @@ def student_edit(id):
                     file.save(filepath)
                     student.photo = f"uploads/{filename}"
 
+        # Cost centre: explicit selection wins, otherwise re-auto-assign
+        # (class or entry mode may have changed).
+        cc_choice = request.form.get('cost_center_id')
+        if cc_choice:
+            try:
+                student.cost_center_id = int(cc_choice)
+            except (TypeError, ValueError):
+                assign_cost_center(student)
+        else:
+            assign_cost_center(student)
+
         generate_student_invoice(student)
         db.session.commit()
         log_sync('Student', student.id, 'UPDATE')
@@ -2082,7 +2163,8 @@ def student_edit(id):
                            staff_list=staff_list,
                            fee_levels=fee_levels,
                            level_classes=json.dumps(level_classes),
-                           fee_levels_json=json.dumps(fee_levels_json))
+                           fee_levels_json=json.dumps(fee_levels_json),
+                           cost_centers=CostCenter.query.order_by(CostCenter.name).all())
 
 
 @app.route('/students/<int:id>/delete', methods=['POST'])
@@ -2886,11 +2968,12 @@ def _generate_signature_id(payment):
     return f"SIG-{digest}"
 
 
-def _build_debtor_row(student, term_id, ay_id):
+def _build_debtor_row(student, term_id, ay_id, include_fully_paid=False):
     """Build a debtor data dict for one student in a given term/year.
 
-    Returns None if the student has no invoice or has fully paid
-    (i.e. is not a debtor).
+    Returns None if the student has no invoice — or, unless
+    include_fully_paid is True, if they have fully paid (i.e. are not
+    a debtor). include_fully_paid is used to compute collection targets.
     """
     if not student.class_id or not term_id or not ay_id:
         return None
@@ -2912,7 +2995,7 @@ def _build_debtor_row(student, term_id, ay_id):
 
     net_due = float(invoice.total_amount or 0.0)
     balance = max(0.0, net_due - paid)
-    if balance <= 0.0:
+    if balance <= 0.0 and not include_fully_paid:
         return None  # Not a debtor
 
     today = date.today()
@@ -2976,12 +3059,14 @@ def _query_debtors(term, ay, filters):
 
     search = (filters.get('search') or '').strip()
     class_filter = filters.get('class_id') or None
+    cost_center_filter = filters.get('cost_center') or None
     grade_level_filter = (filters.get('grade_level') or '').strip()
     school_filter = (filters.get('school') or '').strip().lower()
     level_filter = (filters.get('level') or '').strip()
     scholarship_filter = (filters.get('scholarship') or '').strip()
     min_balance = filters.get('min_balance')
     sort_by = filters.get('sort_by') or 'balance_desc'
+    include_fully_paid = filters.get('include_fully_paid', False)
 
     query = Student.query.filter(Student.status == 'Active')
     if search:
@@ -2993,6 +3078,11 @@ def _query_debtors(term, ay, filters):
     if class_filter:
         try:
             query = query.filter(Student.class_id == int(class_filter))
+        except (TypeError, ValueError):
+            pass
+    if cost_center_filter:
+        try:
+            query = query.filter(Student.cost_center_id == int(cost_center_filter))
         except (TypeError, ValueError):
             pass
 
@@ -3039,7 +3129,7 @@ def _query_debtors(term, ay, filters):
 
     debtors = []
     for stu in students:
-        row = _build_debtor_row(stu, term.id, ay.id)
+        row = _build_debtor_row(stu, term.id, ay.id, include_fully_paid=include_fully_paid)
         if row is None:
             continue
         if min_balance is not None:
@@ -3101,6 +3191,7 @@ def debtors_list():
     filters = {
         'search': request.args.get('search', ''),
         'class_id': request.args.get('class_id', ''),
+        'cost_center': request.args.get('cost_center', ''),
         'grade_level': request.args.get('grade_level', ''),
         'school': request.args.get('school', ''),
         'level': request.args.get('level', ''),
@@ -3120,7 +3211,20 @@ def debtors_list():
     severely_overdue = sum(1 for r in debtors if r['days_overdue'] > 30)
     moderately_overdue = sum(1 for r in debtors if 0 < r['days_overdue'] <= 30)
 
+    # Collection target: total fees collectible across every learner matching
+    # the filters (fully paid included), and the percentage collected.
+    # Only the super admin sees the money amounts; other finance roles see
+    # the percentage only.
+    all_rows = _query_debtors(term, ay, dict(filters, min_balance='',
+                                             include_fully_paid=True))
+    total_collectible = sum(r['net_due'] for r in all_rows)
+    total_collected_all = sum(r['paid'] for r in all_rows)
+    percent_collected = ((total_collected_all / total_collectible * 100.0)
+                         if total_collectible > 0 else 0.0)
+    is_super_admin = session.get('user_role') == 'super_admin'
+
     classes = Class.query.order_by(Class.name).all()
+    cost_centers = CostCenter.query.order_by(CostCenter.name).all()
     grade_levels = sorted({
         level for level, in db.session.query(Class.level).distinct().all() if level
     })
@@ -3136,13 +3240,19 @@ def debtors_list():
         total_scholarships=total_scholarships,
         severely_overdue=severely_overdue,
         moderately_overdue=moderately_overdue,
+        total_collectible=total_collectible,
+        total_collected_all=total_collected_all,
+        percent_collected=percent_collected,
+        is_super_admin=is_super_admin,
         term=term,
         ay=ay,
         classes=classes,
+        cost_centers=cost_centers,
         grade_levels=grade_levels,
         classifications=classifications,
         search=filters['search'],
         class_filter=filters['class_id'],
+        cost_center_filter=filters['cost_center'],
         grade_level_filter=filters['grade_level'],
         school_filter=filters['school'],
         level_filter=filters['level'],
@@ -3171,6 +3281,7 @@ def debtors_export():
     filters = {
         'search': request.args.get('search', ''),
         'class_id': request.args.get('class_id', ''),
+        'cost_center': request.args.get('cost_center', ''),
         'grade_level': request.args.get('grade_level', ''),
         'school': request.args.get('school', ''),
         'level': request.args.get('level', ''),
@@ -3187,6 +3298,17 @@ def debtors_export():
     total_owed = sum(r['balance'] for r in debtors)
     total_net_due = sum(r['net_due'] for r in debtors)
     total_paid = sum(r['paid'] for r in debtors)
+
+    # Collection percentage vs the target (all matching learners, not just
+    # debtors). Money totals are super-admin-only; other roles get the
+    # percentage only.
+    is_super_admin = session.get('user_role') == 'super_admin'
+    all_rows = _query_debtors(term, ay, dict(filters, min_balance='',
+                                             include_fully_paid=True))
+    _collectible = sum(r['net_due'] for r in all_rows)
+    _collected_all = sum(r['paid'] for r in all_rows)
+    percent_collected = ((_collected_all / _collectible * 100.0)
+                         if _collectible > 0 else 0.0)
     term_label = f"{term.name}_{ay.name}" if term and ay else 'Current'
     timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M')
     base_name = f"Debtors_{term_label}_{timestamp}"
@@ -3227,12 +3349,22 @@ def debtors_export():
                 r['parent_email'],
                 r['last_payment_date'].isoformat() if r['last_payment_date'] else '',
             ])
-        # Total row
+        # Total row — money totals are super-admin-only; other finance roles
+        # see the percentage collected vs the target.
         writer.writerow([])
-        writer.writerow(['', '', '', '', '', '', '', '', '', '',
-                         'TOTAL', '', '', f"{total_net_due:.2f}",
-                         f"{total_paid:.2f}",
-                         f"{total_owed:.2f}", '', '', '', '', ''])
+        if is_super_admin:
+            writer.writerow(['', '', '', '', '', '', '', '', '', '',
+                             'TOTAL', '', '', f"{total_net_due:.2f}",
+                             f"{total_paid:.2f}",
+                             f"{total_owed:.2f}", '', '', '', '', ''])
+        else:
+            writer.writerow(['', '', '', '', '', '', '', '', '', '',
+                             'TOTAL', '', '', '', '',
+                             '', '', '', '', '', ''])
+            writer.writerow(['', '', '', '', '', '', '', '', '', '',
+                             'COLLECTION RATE', '', '',
+                             f"{percent_collected:.1f}% of target",
+                             '', '', '', '', '', ''])
 
         resp = make_response(buf.getvalue())
         resp.headers['Content-Type'] = 'text/csv; charset=utf-8'
@@ -3333,15 +3465,21 @@ def debtors_export():
         # Totals row
         ws.cell(row=row_idx, column=1, value=f"TOTAL — {len(debtors)} debtors").font = total_font
         ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=11)
-        total_cell_net = ws.cell(row=row_idx, column=14, value=round(total_net_due, 2))
-        total_cell_paid = ws.cell(row=row_idx, column=15, value=round(sum(r['paid'] for r in debtors), 2))
-        total_cell_bal = ws.cell(row=row_idx, column=16, value=round(total_owed, 2))
+        if is_super_admin:
+            total_cell_net = ws.cell(row=row_idx, column=14, value=round(total_net_due, 2))
+            total_cell_paid = ws.cell(row=row_idx, column=15, value=round(sum(r['paid'] for r in debtors), 2))
+            total_cell_bal = ws.cell(row=row_idx, column=16, value=round(total_owed, 2))
+        else:
+            total_cell_net = ws.cell(row=row_idx, column=14, value=f"{percent_collected:.1f}% of target")
+            total_cell_paid = ws.cell(row=row_idx, column=15, value='')
+            total_cell_bal = ws.cell(row=row_idx, column=16, value='')
         for col in (14, 15, 16):
             cell = ws.cell(row=row_idx, column=col)
             cell.font = total_font
             cell.fill = total_fill
             cell.border = border
-            cell.number_format = '#,##0.00'
+            if is_super_admin:
+                cell.number_format = '#,##0.00'
             cell.alignment = Alignment(horizontal='right')
 
         # Column widths
@@ -3409,10 +3547,16 @@ def debtors_export():
                                                                 fontSize=12, alignment=TA_CENTER,
                                                                 fontName='Helvetica-Bold',
                                                                 textColor=primary)))
-        meta = (f"Term: {term.name if term else 'N/A'} ({ay.name if ay else 'N/A'}) | "
-                f"Generated: {datetime.utcnow().strftime('%d %b %Y %H:%M')} UTC | "
-                f"Total Debtors: {len(debtors)} | "
-                f"Total Owed: {theme.get('currency_symbol', '$')}{total_owed:,.2f}")
+        if is_super_admin:
+            meta = (f"Term: {term.name if term else 'N/A'} ({ay.name if ay else 'N/A'}) | "
+                    f"Generated: {datetime.utcnow().strftime('%d %b %Y %H:%M')} UTC | "
+                    f"Total Debtors: {len(debtors)} | "
+                    f"Total Owed: {theme.get('currency_symbol', '$')}{total_owed:,.2f}")
+        else:
+            meta = (f"Term: {term.name if term else 'N/A'} ({ay.name if ay else 'N/A'}) | "
+                    f"Generated: {datetime.utcnow().strftime('%d %b %Y %H:%M')} UTC | "
+                    f"Total Debtors: {len(debtors)} | "
+                    f"Collection: {percent_collected:.1f}% of target")
         story.append(Paragraph(meta, sub_style))
         story.append(HRFlowable(width='100%', thickness=1, color=primary))
         story.append(Spacer(1, 4 * mm))
@@ -3454,14 +3598,23 @@ def debtors_export():
                 Paragraph(r['parent_phone'] or '-', cell_style),
             ])
 
-        # Totals row
-        data.append([
-            Paragraph('<b>TOTAL</b>', cell_bold), '', '', '', '', '', '',
-            Paragraph(f"<b>{total_net_due:,.2f}</b>", ParagraphStyle('TR1', parent=cell_right, fontName='Helvetica-Bold')),
-            Paragraph(f"<b>{sum(r['paid'] for r in debtors):,.2f}</b>", ParagraphStyle('TR2', parent=cell_right, fontName='Helvetica-Bold')),
-            Paragraph(f"<b>{total_owed:,.2f}</b>", ParagraphStyle('TR3', parent=cell_right, fontName='Helvetica-Bold', textColor=red)),
-            Paragraph(f"<b>{len(debtors)} debtors</b>", cell_bold), '',
-        ])
+        # Totals row — money totals are super-admin-only; other finance roles
+        # see the collection percentage vs the target.
+        if is_super_admin:
+            data.append([
+                Paragraph('<b>TOTAL</b>', cell_bold), '', '', '', '', '', '',
+                Paragraph(f"<b>{total_net_due:,.2f}</b>", ParagraphStyle('TR1', parent=cell_right, fontName='Helvetica-Bold')),
+                Paragraph(f"<b>{sum(r['paid'] for r in debtors):,.2f}</b>", ParagraphStyle('TR2', parent=cell_right, fontName='Helvetica-Bold')),
+                Paragraph(f"<b>{total_owed:,.2f}</b>", ParagraphStyle('TR3', parent=cell_right, fontName='Helvetica-Bold', textColor=red)),
+                Paragraph(f"<b>{len(debtors)} debtors</b>", cell_bold), '',
+            ])
+        else:
+            data.append([
+                Paragraph('<b>TOTAL</b>', cell_bold), '', '', '', '', '', '',
+                Paragraph(f"<b>{percent_collected:.1f}% of target collected</b>",
+                          ParagraphStyle('TR4', parent=cell_bold, textColor=green)),
+                '', '', Paragraph(f"<b>{len(debtors)} debtors</b>", cell_bold), '',
+            ])
 
         table = Table(data, colWidths=pdf_widths, repeatRows=1)
         ts = TableStyle([
@@ -3938,6 +4091,7 @@ SYNC_EXPORT_MODELS = {
     'exam_results': ExamResult,
     'fee_levels': FeeLevel,
     'fee_structures': FeeStructure,
+    'cost_centers': CostCenter,
     'fee_payments': FeePayment,
     'invoices': Invoice,
     'invoice_items': InvoiceItem,
@@ -4941,6 +5095,7 @@ def students_bulk_import():
                             student.scholarship_staff_id = staff_member.id
                     db.session.add(student)
                     db.session.flush()
+                    assign_cost_center(student)
                     generate_student_invoice(student)
                     # NOTE: Students do NOT get user accounts.
                     # They access the system via the Student Portal linked to their parent's account.
@@ -5575,6 +5730,64 @@ def fee_level_delete(id):
     db.session.commit()
     flash('Fee level deleted.', 'success')
     return redirect(url_for('fee_levels_list'))
+
+
+# ─── Cost Centres (customisable) ───────────────────────────────────────
+
+@app.route('/settings/cost-centers', methods=['GET', 'POST'])
+@login_required
+@role_required('super_admin')
+def cost_centers():
+    """Manage the customisable cost centres used by the Debtors report."""
+    if request.method == 'POST':
+        name = (request.form.get('name') or '').strip()
+        code = (request.form.get('code') or '').strip().upper()
+        description = (request.form.get('description') or '').strip()
+        if not name or not code:
+            flash('Cost centre name and code are required.', 'danger')
+        elif CostCenter.query.filter(db.or_(
+                CostCenter.name == name, CostCenter.code == code)).first():
+            flash('A cost centre with that name or code already exists.', 'danger')
+        else:
+            cc = CostCenter(name=name, code=code, description=description or None)
+            db.session.add(cc)
+            db.session.commit()
+            log_sync('CostCenter', cc.id, 'CREATE', {
+                'name': cc.name, 'code': cc.code,
+                'description': cc.description, 'sync_id': cc.sync_id,
+            })
+            flash(f'Cost centre "{name}" created. Learners are auto-assigned '
+                  f'to Primary / Secondary / Stay In; use the student form to '
+                  f'override.', 'success')
+        return redirect(url_for('cost_centers'))
+
+    centers = CostCenter.query.order_by(CostCenter.name).all()
+    counts = dict(db.session.query(Student.cost_center_id,
+                                   db.func.count(Student.id))
+                  .group_by(Student.cost_center_id).all())
+    return render_template('fees/cost_centers.html',
+                           centers=centers, counts=counts,
+                           total_students=Student.query.count())
+
+
+@app.route('/settings/cost-centers/<int:id>/delete', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def cost_center_delete(id):
+    cc = db.get_or_404(CostCenter, id)
+    if cc.code in ('PRM', 'SEC', 'STY'):
+        flash(f'"{cc.name}" is a default cost centre and cannot be deleted — '
+              f'rename it instead.', 'warning')
+    else:
+        affected = Student.query.filter_by(cost_center_id=cc.id).count()
+        Student.query.filter_by(cost_center_id=cc.id).update(
+            {Student.cost_center_id: None}, synchronize_session=False)
+        db.session.delete(cc)
+        db.session.commit()
+        log_sync('CostCenter', id, 'DELETE')
+        flash(f'Cost centre "{cc.name}" deleted '
+              f'({affected} learner(s) left unassigned).', 'success')
+    return redirect(url_for('cost_centers'))
 
 
 # ─── Auto-assign Primary Subjects ──────────────────────────────────────
@@ -7071,6 +7284,7 @@ def init_db():
             ('student', 'is_new_learner', 'BOOLEAN', '1'),
             ('student', 'billed_once_off_levies', 'BOOLEAN', '0'),
             ('student', 'entry_mode', 'VARCHAR(20)', "'Day'"),
+            ('student', 'cost_center_id', 'INTEGER', 'NULL'),
             ('fee_level', 'stay_in_fee', 'FLOAT', '0'),
             ('fee_structure', 'stay_in_fee', 'FLOAT', '0'),
             ('class', 'sync_id', 'VARCHAR(36)', 'NULL'),
@@ -7242,6 +7456,16 @@ def init_db():
             fl.textbook_levy = tb_levy
             fl.stay_in_fee = stay_fee
             fl.total = tuition + dev_levy
+
+    # Default cost centres (customisable per institution)
+    if not CostCenter.query.first():
+        for name, code, desc in COST_CENTER_DEFAULTS:
+            db.session.add(CostCenter(name=name, code=code, description=desc))
+
+    # Backfill: assign a cost centre to every learner that does not have one
+    # (existing installations upgraded in place keep their data).
+    for student in Student.query.filter(Student.cost_center_id.is_(None)).all():
+        assign_cost_center(student)
 
     db.session.commit()
 

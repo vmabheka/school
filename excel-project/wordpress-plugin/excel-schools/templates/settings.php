@@ -44,6 +44,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['esm_nonce'])) {
         }
         echo '<div class="notice notice-success"><p>Appearance saved.</p></div>';
     }
+
+    if (($_POST['esm_action'] ?? '') === 'add_cost_center') {
+        $name = sanitize_text_field($_POST['cc_name'] ?? '');
+        $code = strtoupper(sanitize_text_field($_POST['cc_code'] ?? ''));
+        $desc = sanitize_text_field($_POST['cc_description'] ?? '');
+        if ($name && $code) {
+            $exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$pfx}esm_cost_centers WHERE name=%s OR code=%s", $name, $code));
+            if ($exists) {
+                echo '<div class="notice notice-warning"><p>Cost centre with that name or code already exists.</p></div>';
+            } else {
+                $wpdb->insert("{$pfx}esm_cost_centers",
+                              ['name' => $name, 'code' => $code, 'description' => $desc ?: null]);
+                echo '<div class="notice notice-success"><p>Cost centre added.</p></div>';
+            }
+        } else {
+            echo '<div class="notice notice-error"><p>Name and code are required.</p></div>';
+        }
+    }
+
+    if (($_POST['esm_action'] ?? '') === 'delete_cost_center') {
+        $id = absint($_POST['cc_id'] ?? 0);
+        $cc = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$pfx}esm_cost_centers WHERE id=%d", $id));
+        if ($cc && in_array($cc->code, ['PRM', 'SEC', 'STY'], true)) {
+            echo '<div class="notice notice-warning"><p>Default cost centres (Primary, Secondary, Stay In) cannot be deleted — rename them instead.</p></div>';
+        } elseif ($cc) {
+            $wpdb->update("{$pfx}esm_students", ['cost_center_id' => null], ['cost_center_id' => $id]);
+            $wpdb->delete("{$pfx}esm_cost_centers", ['id' => $id]);
+            echo '<div class="notice notice-success"><p>Cost centre deleted.</p></div>';
+        }
+    }
 }
 
 $theme = ESM_Helpers::get_theme();
@@ -57,6 +88,7 @@ function esm_setting($school_settings, $key, $default = '') {
     <h2 class="nav-tab-wrapper">
         <a href="?page=excel-schools-settings&tab=general" class="nav-tab <?php echo $tab === 'general' ? 'nav-tab-active' : ''; ?>">General</a>
         <a href="?page=excel-schools-settings&tab=appearance" class="nav-tab <?php echo $tab === 'appearance' ? 'nav-tab-active' : ''; ?>">Appearance</a>
+        <a href="?page=excel-schools-settings&tab=cost-centers" class="nav-tab <?php echo $tab === 'cost-centers' ? 'nav-tab-active' : ''; ?>">Cost Centres</a>
     </h2>
 
     <?php if ($tab === 'general'): ?>
@@ -74,6 +106,45 @@ function esm_setting($school_settings, $key, $default = '') {
     </form>
 
     <?php else: ?>
+    <?php if ($tab === 'cost-centers'):
+        $centers = $wpdb->get_results("SELECT cc.*, (SELECT COUNT(*) FROM {$pfx}esm_students s WHERE s.cost_center_id = cc.id) AS learners FROM {$pfx}esm_cost_centers cc ORDER BY cc.name");
+    ?>
+        <div style="max-width:700px;margin-top:20px;">
+            <h2>Add Cost Centre</h2>
+            <form method="POST" class="form-table" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                <?php wp_nonce_field('esm_settings_action', 'esm_nonce'); ?>
+                <input type="hidden" name="esm_action" value="add_cost_center">
+                <p><input type="text" name="cc_name" placeholder="Name (e.g. Sixth Form)" class="regular-text" required></p>
+                <p><input type="text" name="cc_code" placeholder="Code (e.g. SIX)" style="width:100px;" required></p>
+                <p><input type="text" name="cc_description" placeholder="Description (optional)" class="regular-text"></p>
+                <p><button class="button button-primary">Add</button></p>
+            </form>
+            <table class="widefat striped" style="margin-top:16px;">
+                <thead><tr><th>Name</th><th>Code</th><th>Description</th><th>Learners</th><th></th></tr></thead>
+                <tbody>
+                <?php foreach ($centers as $cc): ?>
+                    <tr>
+                        <td><strong><?php echo esc_html($cc->name); ?></strong>
+                            <?php if (in_array($cc->code, ['PRM', 'SEC', 'STY'], true)): ?><span class="badge" style="background:#e5e7eb;padding:2px 6px;border-radius:8px;font-size:10px;">default</span><?php endif; ?>
+                        </td>
+                        <td><code><?php echo esc_html($cc->code); ?></code></td>
+                        <td><?php echo esc_html($cc->description ?: '-'); ?></td>
+                        <td><?php echo (int) $cc->learners; ?></td>
+                        <td>
+                            <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this cost centre?');">
+                                <?php wp_nonce_field('esm_settings_action', 'esm_nonce'); ?>
+                                <input type="hidden" name="esm_action" value="delete_cost_center">
+                                <input type="hidden" name="cc_id" value="<?php echo (int) $cc->id; ?>">
+                                <button class="button button-small button-link-delete">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p style="color:#666;">Learners are auto-assigned (Stay In → Primary → Secondary) by the offline app and synced here. These centres filter the Debtors report; money totals are visible to administrators only, bursars see the % collected vs target.</p>
+        </div>
+    <?php else: ?>
     <form method="POST" enctype="multipart/form-data" style="max-width:600px;margin-top:20px;">
         <?php wp_nonce_field('esm_settings_action', 'esm_nonce'); ?>
         <input type="hidden" name="esm_action" value="save_appearance">
@@ -88,6 +159,7 @@ function esm_setting($school_settings, $key, $default = '') {
         </table>
         <?php submit_button('Save Appearance'); ?>
     </form>
+    <?php endif; ?>
     <?php endif; ?>
 
     <hr>

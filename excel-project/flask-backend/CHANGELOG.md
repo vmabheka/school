@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.6.0] — 2026-08-12
+
+### Added (Flask app + WordPress portal)
+
+#### Debtors report: cost centre filter + role-based totals
+- **Cost centres (customisable)**: new Cost Centre entity seeded with
+  **Primary, Secondary and Stay In**. Super admins can add, rename or delete
+  centres on the new **Cost Centres** page (Settings → Finance → Cost Centres,
+  also linked from the Debtors report and the student forms). Defaults are
+  protected from deletion. The WordPress Settings page gains a matching Cost
+  Centres tab.
+- **Auto-assignment**: every learner is assigned a cost centre automatically —
+  Stay In → Primary → Secondary — based on entry mode and class level, on add,
+  edit, bulk import and class reassignment, and backfilled for existing
+  installations on startup. The student add/edit forms allow an explicit
+  override.
+- **Debtors filters**: the Debtors report now filters by **Class** and
+  **Cost Centre** (in addition to the existing grade/school/level filters),
+  in both the offline app and the WordPress portal, with a Cost Centre column
+  in the table.
+- **Role-based totals**: the **Total Fees Collectible (target)**, Total
+  Outstanding, Collected So Far and Scholarship Discounts are visible to the
+  **Super Admin only**. The **Bursar** (and accountant) sees only the
+  **percentage collected vs the target** — shown as a large card plus a
+  collection progress bar; CSV/Excel/PDF exports replace money totals with the
+  percentage for non-super-admin roles. Identical rules in the WordPress
+  portal (administrators vs bursars).
+- Cost centres and the student assignment are included in the offline↔online
+  sync (new `cost_centers` entity; students carry `cost_center_id`).
+
+---
+
 ## [2.5.0] — 2026-08-12
 
 ### Added (Flask app)

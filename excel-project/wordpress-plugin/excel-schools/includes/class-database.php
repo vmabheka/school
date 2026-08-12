@@ -30,6 +30,7 @@ class ESM_Database {
         'esm_timetable_slots',
         'esm_notices', 'esm_messages',
         'esm_sync_log', 'esm_school_settings', 'esm_appearance_settings',
+        'esm_cost_centers',
     ];
 
     public static function get_table_names() {
@@ -411,8 +412,44 @@ class ESM_Database {
             description VARCHAR(200)
         ) $charset;";
 
+        // ── CostCenter (customisable) ───────────────────────────────
+        $sqls[] = "CREATE TABLE IF NOT EXISTS {$pfx}esm_cost_centers (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(80) NOT NULL UNIQUE,
+            code VARCHAR(20) NOT NULL UNIQUE,
+            description VARCHAR(200),
+            sync_id VARCHAR(36) DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) $charset;";
+
         foreach ($sqls as $sql) {
             $wpdb->query($sql);
+        }
+
+        // ── Upgrade: cost_center_id column on students ──────────────
+        $student_cols = $wpdb->get_col("SHOW COLUMNS FROM {$pfx}esm_students");
+        if (!in_array('cost_center_id', $student_cols, true)) {
+            $wpdb->query("ALTER TABLE {$pfx}esm_students ADD COLUMN cost_center_id BIGINT UNSIGNED NULL, ADD KEY idx_cost_center (cost_center_id)");
+        }
+        $students_cols = $wpdb->get_col("SHOW COLUMNS FROM {$pfx}esm_students");
+        if (!in_array('entry_mode', $students_cols, true)) {
+            $wpdb->query("ALTER TABLE {$pfx}esm_students ADD COLUMN entry_mode VARCHAR(20) DEFAULT 'Day'");
+        }
+
+        // ── Seed default cost centres ───────────────────────────────
+        $existing = $wpdb->get_var("SELECT COUNT(*) FROM {$pfx}esm_cost_centers");
+        if (!$existing) {
+            $defaults = [
+                ['Primary', 'PRM', 'Primary School (ECD A to Grade 7)'],
+                ['Secondary', 'SEC', 'Secondary School (Form 1 to Form 6)'],
+                ['Stay In', 'STY', 'Boarding learners (billed the Stay In fee)'],
+            ];
+            foreach ($defaults as $d) {
+                $wpdb->insert(
+                    $pfx . 'esm_cost_centers',
+                    ['name' => $d[0], 'code' => $d[1], 'description' => $d[2]]
+                );
+            }
         }
 
         update_option('esm_db_version', ESM_VERSION);

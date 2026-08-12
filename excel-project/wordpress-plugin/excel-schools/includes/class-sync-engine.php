@@ -46,6 +46,7 @@ class ESM_Sync_Engine {
         'TimetableSlot'=> 'esm_timetable_slots',
         'Message'      => 'esm_messages',
         'SchoolSetting'=> 'esm_school_settings',
+        'CostCenter'   => 'esm_cost_centers',
     ];
 
     // Entities exposed via /api/export/<entity> and /api/import/<entity>
@@ -58,7 +59,7 @@ class ESM_Sync_Engine {
         'exams', 'exam_results', 'fee_levels', 'fee_structures',
         'fee_payments', 'invoices', 'invoice_items', 'hostels', 'rooms',
         'room_allocations', 'timetable_slots', 'notices', 'messages',
-        'school_settings',
+        'school_settings', 'cost_centers',
     ];
 
     public static function run_sync() {
@@ -246,6 +247,7 @@ class ESM_Sync_Engine {
                 'rooms' => 'Room', 'room_allocations' => 'RoomAllocation',
                 'timetable_slots' => 'TimetableSlot', 'notices' => 'Notice',
                 'messages' => 'Message', 'school_settings' => 'SchoolSetting',
+                'cost_centers' => 'CostCenter',
             ];
             // Keep parent records ahead of rows that refer to them.
             foreach (self::$exportable_entities as $entity) {

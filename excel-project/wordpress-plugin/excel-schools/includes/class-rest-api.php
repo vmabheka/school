@@ -142,6 +142,7 @@ class ESM_REST_API {
             'timetable_slots'=> 'esm_timetable_slots',
             'messages'       => 'esm_messages',
             'school_settings'=> 'esm_school_settings',
+            'cost_centers'   => 'esm_cost_centers',
         ];
     }
 
@@ -158,6 +159,7 @@ class ESM_REST_API {
             'Exam' => 'esm_exams', 'Hostel' => 'esm_hostels', 'Room' => 'esm_rooms',
             'RoomAllocation' => 'esm_room_allocations', 'TimetableSlot' => 'esm_timetable_slots',
             'Message' => 'esm_messages', 'SchoolSetting' => 'esm_school_settings',
+            'CostCenter' => 'esm_cost_centers',
         ];
     }
 
