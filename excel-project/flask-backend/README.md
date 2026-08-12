@@ -129,6 +129,16 @@ On Windows, double-click `remove-onceoff-levies.bat`. The script removes the
 two fees, recalculates the invoices, and marks the learners so the fees are
 never billed to them again.
 
+The script **finds the school database automatically**: it checks the Windows
+EXE data folder (`%LOCALAPPDATA%\ExcelSchools\excel_schools.db`) first, then
+the source-mode `instance/excel_schools.db`, and prints which database it is
+using so you can verify it is the right one. If it reports "No items found"
+in the wrong database, point it at the right file with:
+
+```bash
+python remove-onceoff-levies.py --db "C:\Users\...\AppData\Local\ExcelSchools\excel_schools.db"
+```
+
 To also allow connections while the network profile is **Public** (only if you
 accept the risk on a trusted network):
 

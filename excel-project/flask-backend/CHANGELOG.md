@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.4.2] — 2026-08-03
+
+### Fixed (Flask app)
+
+- **`remove-onceoff-levies.py` now targets the correct database.** The first
+  version always opened the source-mode database (`instance/excel_schools.db`)
+  and silently found nothing when the school data lived in the Windows EXE
+  data folder (`%LOCALAPPDATA%\ExcelSchools\excel_schools.db`). The script now
+  auto-detects the database: explicit `--db <path>` / `EXCEL_SCHOOLS_DB` /
+  `DATABASE_URL` first, then the EXE data folder, then the source-mode
+  database — and prints exactly which database it is using (with file size and
+  modification time) at the top of the output. If it still finds nothing, it
+  explains the possible database locations instead of just reporting an empty
+  result. `--db <path>` is also available to force a specific file.
+
+---
+
 ## [2.4.1] — 2026-08-03
 
 ### Added (Flask app)
