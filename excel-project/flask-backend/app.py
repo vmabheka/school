@@ -1604,7 +1604,7 @@ def student_add():
             admission_number=admission_number,
             first_name=request.form.get('first_name'),
             last_name=request.form.get('last_name'),
-            other_names=request.form.get('other_names'),
+            other_names=_clean_optional_text(request.form.get('other_names')),
             date_of_birth=datetime.strptime(request.form.get('date_of_birth'), '%Y-%m-%d').date() if request.form.get('date_of_birth') else None,
             gender=request.form.get('gender'),
             national_id=request.form.get('national_id'),
@@ -1734,7 +1734,7 @@ def student_edit(id):
     if request.method == 'POST':
         student.first_name = request.form.get('first_name', student.first_name)
         student.last_name = request.form.get('last_name', student.last_name)
-        student.other_names = request.form.get('other_names')
+        student.other_names = _clean_optional_text(request.form.get('other_names'))
         student.date_of_birth = datetime.strptime(request.form.get('date_of_birth'), '%Y-%m-%d').date() if request.form.get('date_of_birth') else student.date_of_birth
         student.gender = request.form.get('gender', student.gender)
         student.national_id = request.form.get('national_id')
@@ -4483,6 +4483,84 @@ def teacher_subject_view(subject_id):
 
 # ─── Bulk Import ───────────────────────────────────────────────────────
 
+def _clean_optional_text(value):
+    """Return stripped text or None for blank/placeholder cells."""
+    text = (value or '').strip()
+    if text.lower() in ('-', 'n/a', 'na', 'none', 'nil', '—', '–'):
+        return None
+    return text or None
+
+
+def _parse_class_name(class_name):
+    """Best-effort split of a class name into (level, stream).
+
+    Examples:
+        'Grade 7A'        -> ('Grade 7', 'A')
+        'Grade 5 Yellow'  -> ('Grade 5', 'Yellow')
+        'Form 3 Blue'     -> ('Form 3', 'Blue')
+        'ECD A Yellow'    -> ('ECD A', 'Yellow')
+        'ECD Yellow'      -> ('ECD A', 'Yellow')
+        'Unknown Class'   -> ('Unknown Class', '')   (nothing is lost)
+    """
+    name = (class_name or '').strip()
+    if not name:
+        return '', ''
+    lower = name.lower()
+    m = re.match(r'^(ecd)\s*([ab])?(?:\s+(.*))?$', lower)
+    if m:
+        level = 'ECD ' + m.group(2).upper() if m.group(2) else 'ECD A'
+        return level, (m.group(3) or '').strip().title()
+    for prefix, label in (('grade', 'Grade'), ('gr', 'Grade'), ('form', 'Form')):
+        m = re.match(rf'^({prefix}\s*\d{{1,2}})\s*([a-z]?)(?:\s+(.*))?$', lower)
+        if m:
+            level = label + ' ' + m.group(1).split()[-1]
+            stream = (m.group(3) or '').strip().title() or m.group(2).upper()
+            return level, stream
+    return name, ''
+
+
+def _auto_create_class(class_name):
+    """Create a class on the fly during bulk import (no teacher assigned).
+
+    Teacher allocation is always done manually afterwards on the Classes
+    page, so the created class starts without a form teacher.
+    """
+    level, stream = _parse_class_name(class_name)
+    ay = get_current_academic_year()
+    cls = Class(
+        name=class_name.strip(),
+        level=level or None,
+        stream=stream or None,
+        capacity=40,
+        academic_year_id=ay.id if ay else None,
+    )
+    db.session.add(cls)
+    db.session.flush()
+    # Auto-assign the approved primary learning areas for primary classes,
+    # exactly like creating the class from the Classes page.
+    if level and is_primary_level(level):
+        for subj_name in PRIMARY_SUBJECTS:
+            subj = Subject.query.filter_by(name=subj_name).first()
+            if not subj:
+                subj = Subject(
+                    name=subj_name,
+                    code=PRIMARY_SUBJECT_CODES[subj_name],
+                    is_compulsory=True,
+                )
+                db.session.add(subj)
+                db.session.flush()
+    log_sync('Class', cls.id, 'CREATE', {
+        'name': cls.name,
+        'level': cls.level,
+        'stream': cls.stream,
+        'teacher_id': None,
+        'capacity': cls.capacity,
+        'academic_year_id': cls.academic_year_id,
+        'sync_id': cls.sync_id,
+    })
+    return cls
+
+
 @app.route('/students/bulk-import', methods=['GET', 'POST'])
 @login_required
 @role_required('super_admin', 'bursar')
@@ -4501,6 +4579,8 @@ def students_bulk_import():
             ws = wb.active
             headers = [str(cell.value).strip().lower() if cell.value else '' for cell in ws[1]]
             created = 0
+            classes_created = 0
+            created_class_cache = {}
             errors = []
             is_first_import = (SyncSetting.get('initial_bulk_import_done') != 'true')
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -4513,11 +4593,19 @@ def students_bulk_import():
                     if Student.query.filter_by(admission_number=adm).first():
                         errors.append(f"Row {row_idx}: Admission number {adm} already exists")
                         continue
+                    # Resolve the class, creating it automatically when the
+                    # name is not in the system yet (teacher allocated later).
                     class_id = None
-                    if row_data.get('class_name'):
-                        cls = Class.query.filter_by(name=row_data.get('class_name')).first()
-                        if cls:
-                            class_id = cls.id
+                    class_name = (row_data.get('class_name') or '').strip()
+                    if class_name:
+                        cls = created_class_cache.get(class_name.lower())
+                        if cls is None:
+                            cls = Class.query.filter_by(name=class_name).first()
+                        if cls is None:
+                            cls = _auto_create_class(class_name)
+                            created_class_cache[class_name.lower()] = cls
+                            classes_created += 1
+                        class_id = cls.id
                     dob = None
                     if row_data.get('date_of_birth'):
                         try:
@@ -4534,23 +4622,23 @@ def students_bulk_import():
                         admission_number=adm,
                         first_name=row_data.get('first_name', '').strip(),
                         last_name=row_data.get('last_name', '').strip(),
-                        other_names=row_data.get('other_names', '').strip() or None,
+                        other_names=_clean_optional_text(row_data.get('other_names')),
                         date_of_birth=dob,
                         gender=row_data.get('gender', '').strip() or None,
-                        national_id=row_data.get('national_id', '').strip() or None,
+                        national_id=_clean_optional_text(row_data.get('national_id')),
                         class_id=class_id,
                         admission_date=adm_date,
-                        previous_school=row_data.get('previous_school', '').strip() or None,
-                        address=row_data.get('address', '').strip() or None,
-                        city=row_data.get('city', '').strip() or None,
-                        province=row_data.get('province', '').strip() or None,
-                        phone=row_data.get('phone', '').strip() or None,
-                        email=row_data.get('email', '').strip() or None,
+                        previous_school=_clean_optional_text(row_data.get('previous_school')),
+                        address=_clean_optional_text(row_data.get('address')),
+                        city=_clean_optional_text(row_data.get('city')),
+                        province=_clean_optional_text(row_data.get('province')),
+                        phone=_clean_optional_text(row_data.get('phone')),
+                        email=_clean_optional_text(row_data.get('email')),
                         fee_classification=row_data.get('fee_classification', 'Regular').strip() or 'Regular',
                         scholarship_type=row_data.get('scholarship_type', 'None').strip() or 'None',
                         scholarship_percentage=float(row_data.get('scholarship_percentage', 0) or 0),
-                        scholarship_sponsor=row_data.get('scholarship_sponsor', '').strip() or None,
-                        scholarship_notes=row_data.get('scholarship_notes', '').strip() or None,
+                        scholarship_sponsor=_clean_optional_text(row_data.get('scholarship_sponsor')),
+                        scholarship_notes=_clean_optional_text(row_data.get('scholarship_notes')),
                         is_new_learner=not is_first_import,
                         billed_once_off_levies=is_first_import,
                     )
@@ -4570,6 +4658,10 @@ def students_bulk_import():
                 SyncSetting.set('initial_bulk_import_done', 'true')
             db.session.commit()
             msg = f'Successfully imported {created} students.'
+            if classes_created:
+                msg += (f' {classes_created} new class'
+                        f'{"es" if classes_created != 1 else ""} auto-created'
+                        f' (assign teachers in Classes).')
             if errors:
                 msg += f' {len(errors)} rows had errors.'
             flash(msg, 'success' if created > 0 else 'warning')
@@ -4648,7 +4740,7 @@ def students_excel_template():
         ["1.", "Fill in the 'Students Import' sheet with your student data."],
         ["2.", "Leave 'admission_number' blank to auto-generate."],
         ["3.", 'date_of_birth and admission_date must be YYYY-MM-DD format.'],
-        ["4.", "'class_name' must exactly match an existing class in the system."],
+        ["4.", "'class_name' — if the class does not exist yet it is created automatically; only the teacher allocation is done manually later (Classes page)."],
         ["5.", "gender must be Male or Female."],
         ["", ""],
         ["FEE CLASSIFICATION OPTIONS:", ""],

@@ -15,7 +15,7 @@
 <div class="profile-header">
     <div class="avatar-lg">{{ staff.first_name[0] }}{{ staff.last_name[0] }}</div>
     <div>
-        <h2>{{ staff.first_name }} {{ staff.other_names }} {{ staff.last_name }}</h2>
+        <h2>{{ staff.first_name }} {{ staff.other_names or '' }} {{ staff.last_name }}</h2>
         <p>{{ staff.position or 'Staff' }} &bull; {{ staff.department or 'No Department' }} &bull; {{ staff.status }}</p>
     </div>
 </div>

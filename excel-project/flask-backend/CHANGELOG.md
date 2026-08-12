@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.3.2] — 2026-08-03
+
+### Changed (Flask app — student upload)
+
+- **Blank "Other Names" are now ignored everywhere**: the bulk import, the add
+  student form, and the edit student form store `NULL` when the field is blank
+  (or filled with placeholders like `-`, `N/A`, `None`), and the student list /
+  profile / staff profile pages no longer render the literal word "None" in a
+  name — a blank field simply shows the first and last name.
+- **Classes are auto-created during student upload**: when a row's
+  `class_name` does not exist yet, the class is created automatically with the
+  correct level and stream detected from the name (`Grade 7A` → level "Grade
+  7", stream "A"; `Form 3 Blue` → "Form 3"/"Blue"; `ECD A Yellow` →
+  "ECD A"/"Yellow"). Primary classes also get the six approved learning areas
+  auto-assigned, exactly like creating the class from the Classes page.
+  **Only teacher allocation remains manual** — auto-created classes have no
+  form teacher and the success message reminds the admin to assign teachers in
+  Classes. Existing classes are reused and never duplicated.
+- Upload page guide and downloadable Excel template updated to explain the new
+  behaviour.
+
+---
+
 ## [2.3.1] — 2026-08-03
 
 ### Fixed (Flask app)

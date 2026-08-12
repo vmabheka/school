@@ -19,7 +19,7 @@
 <div class="profile-header">
     <div class="avatar-lg">{{ student.first_name[0] }}{{ student.last_name[0] }}</div>
     <div>
-        <h2>{{ student.first_name }} {{ student.other_names }} {{ student.last_name }}</h2>
+        <h2>{{ student.first_name }} {{ student.other_names or '' }} {{ student.last_name }}</h2>
         <p>{{ student.class_.name if student.class_ else 'No Class' }} &bull; {{ student.admission_number }} &bull; {{ student.status }}</p>
     </div>
 </div>
