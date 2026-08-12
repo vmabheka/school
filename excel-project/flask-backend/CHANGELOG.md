@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.3.1] — 2026-08-03
+
+### Fixed (Flask app)
+
+- **"Internal Server Error" when clearing dummy data**: `_clear_dummy_data`
+  deleted demo classes/staff through the ORM while `staff_subject` rows still
+  referenced them. Those columns are `NOT NULL`, so SQLAlchemy's
+  nullify-on-delete raised `IntegrityError: NOT NULL constraint failed:
+  staff_subject.class_id` and the browser showed a 500. The clear routine now
+  deletes `staff_subject` (and timetable slots) for demo classes/staff first,
+  removes all student child rows (invoice items, invoices, payments, exam
+  results, hostel allocations), unassigns demo teachers from every class, then
+  deletes the demo parents — and rolls back with a friendly flash message if
+  anything still fails, so the page can never 500 again. Re-seeding (which
+  clears first) works too, and real data is untouched.
+
+---
+
 ## [2.3.0] — 2026-08-03
 
 ### Fixed (Flask app — LAN client access)

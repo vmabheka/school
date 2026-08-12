@@ -4141,52 +4141,96 @@ def _clear_dummy_data(silent=False):
 
     Returns (success, message).
     """
-    # 1) Students (cascades to fee payments/invoices via FK on student_id)
-    demo_students = Student.query.filter(
-        Student.admission_number.like(f'{DEMO_STUDENT_PREFIX}%')).all()
-    demo_student_ids = [s.id for s in demo_students]
-    demo_class_ids = [s.class_id for s in demo_students if s.class_id]
+    try:
+        # 1) Identify the demo records first (same class names the seeder uses).
+        demo_students = Student.query.filter(
+            Student.admission_number.like(f'{DEMO_STUDENT_PREFIX}%')).all()
+        demo_student_ids = [s.id for s in demo_students]
 
-    # 2) Invoice items + invoices for demo students
-    if demo_student_ids:
-        InvoiceItem.query.filter(
-            InvoiceItem.invoice_id.in_(
-                db.session.query(Invoice.id).filter(Invoice.student_id.in_(demo_student_ids))
-            )
-        ).delete(synchronize_session=False)
-        Invoice.query.filter(Invoice.student_id.in_(demo_student_ids)).delete(
-            synchronize_session=False)
-        FeePayment.query.filter(FeePayment.student_id.in_(demo_student_ids)).delete(
-            synchronize_session=False)
+        demo_class_names = []
+        for _, prefix, _, level_streams in DEMO_LEVELS:
+            for stream in level_streams:
+                demo_class_names.append(f"{prefix} {stream}")
+        demo_classes = Class.query.filter(Class.name.in_(demo_class_names)).all()
+        demo_class_ids = [c.id for c in demo_classes]
+
+        demo_staff = Staff.query.filter(
+            Staff.employee_number.like(f'{DEMO_STAFF_PREFIX}%')).all()
+        demo_staff_ids = [s.id for s in demo_staff]
+        demo_user_ids = [s.user_id for s in demo_staff if s.user_id]
+
+        # 2) Delete child rows BEFORE their parents. StaffSubject has NOT NULL
+        #    foreign keys to staff and class, so deleting a demo class/staff
+        #    through the ORM would try to NULL those FKs and raise an
+        #    IntegrityError ("Internal Server Error" in the browser).
+        if demo_staff_ids or demo_class_ids:
+            StaffSubject.query.filter(
+                db.or_(
+                    StaffSubject.staff_id.in_(demo_staff_ids),
+                    StaffSubject.class_id.in_(demo_class_ids),
+                )
+            ).delete(synchronize_session=False)
+            TimetableSlot.query.filter(
+                db.or_(
+                    TimetableSlot.staff_id.in_(demo_staff_ids),
+                    TimetableSlot.class_id.in_(demo_class_ids),
+                )
+            ).delete(synchronize_session=False)
+
+        # 3) Student child rows (invoice items, invoices, payments, results,
+        #    hostel allocations) for demo students.
+        if demo_student_ids:
+            InvoiceItem.query.filter(
+                InvoiceItem.invoice_id.in_(
+                    db.session.query(Invoice.id).filter(
+                        Invoice.student_id.in_(demo_student_ids))
+                )
+            ).delete(synchronize_session=False)
+            Invoice.query.filter(
+                Invoice.student_id.in_(demo_student_ids)).delete(
+                    synchronize_session=False)
+            FeePayment.query.filter(
+                FeePayment.student_id.in_(demo_student_ids)).delete(
+                    synchronize_session=False)
+            ExamResult.query.filter(
+                ExamResult.student_id.in_(demo_student_ids)).delete(
+                    synchronize_session=False)
+            RoomAllocation.query.filter(
+                RoomAllocation.student_id.in_(demo_student_ids)).delete(
+                    synchronize_session=False)
+
+        # 4) Unassign demo teachers from EVERY class (demo or not) so the
+        #    staff rows can be removed cleanly.
+        if demo_staff_ids:
+            Class.query.filter(Class.teacher_id.in_(demo_staff_ids)).update(
+                {Class.teacher_id: None}, synchronize_session=False)
+
+        # 5) Delete the demo parents themselves, then linked user accounts.
         for s in demo_students:
             db.session.delete(s)
+        for c in demo_classes:
+            db.session.delete(c)
+        for s in demo_staff:
+            db.session.delete(s)
+        if demo_user_ids:
+            User.query.filter(User.id.in_(demo_user_ids)).delete(
+                synchronize_session=False)
 
-    # 3) Demo classes (unassign teacher first, then delete)
-    demo_class_names = [f"{prefix} {stream}"
-                        for _, prefix, _, _ in DEMO_LEVELS
-                        for stream in DEMO_STREAMS]
-    demo_classes = Class.query.filter(Class.name.in_(demo_class_names)).all()
-    for c in demo_classes:
-        c.teacher_id = None
-    db.session.flush()
-    for c in demo_classes:
-        db.session.delete(c)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        msg = f'Failed to clear demo data: {exc}'
+        if not silent:
+            return False, msg
+        return False, msg
 
-    # 4) Demo staff + linked user accounts
-    demo_staff = Staff.query.filter(
-        Staff.employee_number.like(f'{DEMO_STAFF_PREFIX}%')).all()
-    demo_user_ids = [s.user_id for s in demo_staff if s.user_id]
-    for s in demo_staff:
-        db.session.delete(s)
-    if demo_user_ids:
-        User.query.filter(User.id.in_(demo_user_ids)).delete(synchronize_session=False)
-
-    db.session.commit()
     counts = {
         'students': len(demo_students),
         'classes': len(demo_classes),
+        'staff': len(demo_staff),
     }
-    msg = f'Cleared {counts["students"]} demo students and {counts["classes"]} demo classes.'
+    msg = (f'Cleared {counts["students"]} demo students, {counts["classes"]} '
+           f'demo classes and {counts["staff"]} demo staff.')
     if not silent:
         return True, msg
     return True, msg
