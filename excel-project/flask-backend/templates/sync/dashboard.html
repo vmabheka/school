@@ -144,7 +144,7 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
             <div class="form-group">
                 <label>WordPress Endpoint URL</label>
-                <input type="url" name="endpoint" id="sync-endpoint" value="{{ endpoint }}" placeholder="https://school.example.com"
+                <input type="url" name="endpoint" id="sync-endpoint" value="{{ endpoint }}" placeholder="https://crm.egs.ac.zw"
                     style="width:100%;padding:12px 14px;border:2px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);cursor:text;outline:none;transition:border-color 0.2s"
                     onfocus="this.style.borderColor='var(--primary)';this.style.boxShadow='0 0 0 3px rgba(26,86,50,0.1)'"
                     onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
@@ -164,7 +164,7 @@
             </div>
         </div>
         <div style="margin-top:12px;padding:10px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12px;color:#15803d">
-            <i class="fas fa-info-circle"></i> Enter the URL of your WordPress site (e.g. <code>https://crm.egs.ac.zw</code>) and the API key shown on the WordPress Sync Settings page. Then click <strong>Save Configuration</strong> to connect.
+            <i class="fas fa-info-circle"></i> Enter the URL of your WordPress site — either <code>https://crm.egs.ac.zw</code> or the full plugin namespace <code>https://crm.egs.ac.zw/wp-json/excel-schools/v2</code> (both are accepted) — plus the API key shown on the WordPress Sync Settings page. Then click <strong>Save Configuration</strong> to connect.
         </div>
         <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px"><i class="fas fa-save"></i> Save Configuration</button>
     </div>

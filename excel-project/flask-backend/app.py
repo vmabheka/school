@@ -111,6 +111,26 @@ def add_security_headers(response):
     return response
 
 
+@app.errorhandler(500)
+def handle_internal_error(exc):
+    """Friendly error page instead of the bare 'Internal Server Error'."""
+    db.session.rollback()
+    app.logger.error('Internal Server Error: %s', exc, exc_info=True)
+    try:
+        return render_template('error.html',
+                               message=str(exc) or 'An unexpected error occurred.'), 500
+    except Exception:
+        return ('<h1>Internal Server Error</h1>'
+                '<p>An unexpected error occurred. Check the server console '
+                'for details.</p>'), 500
+
+
+@app.errorhandler(404)
+def handle_not_found(exc):
+    return render_template('error.html',
+                           message='The page you requested was not found.'), 404
+
+
 db = SQLAlchemy(app)
 
 # App version (synced with WordPress plugin)
@@ -611,6 +631,27 @@ import socket
 import time as _time
 
 
+def _wp_rest_base(endpoint):
+    """Return the WordPress REST base URL for the MobiSchola plugin.
+
+    The WordPress plugin registers its routes under the
+    ``excel-schools/v2`` namespace (e.g. ``/wp-json/excel-schools/v2/sync``),
+    while this app's own REST routes live under ``/api/...``. Accept either
+    stored style so the offline app can always reach the online portal:
+
+      * ``https://crm.egs.ac.zw``                        (bare site URL)
+      * ``https://crm.egs.ac.zw/wp-json/excel-schools/v2`` (full namespace)
+
+    Returns '' when no endpoint is configured.
+    """
+    base = (endpoint or '').strip().rstrip('/')
+    if not base:
+        return ''
+    if '/wp-json/excel-schools/v2' in base:
+        return base
+    return base + '/wp-json/excel-schools/v2'
+
+
 class AccessPointMonitor:
     """
     Background thread that monitors internet connectivity via the school's
@@ -697,7 +738,7 @@ class AccessPointMonitor:
             try:
                 import requests as _req
                 resp = _req.get(
-                    f"{endpoint.rstrip('/')}/api/stats",
+                    f"{_wp_rest_base(endpoint)}/stats",
                     headers={'X-ESM-API-Key': api_key},
                     timeout=8,
                 )
@@ -799,7 +840,7 @@ class AccessPointMonitor:
                     'timestamp': log.created_at.isoformat() if log.created_at else datetime.utcnow().isoformat(),
                 }
                 resp = _req.post(
-                    f"{endpoint.rstrip('/')}/api/sync",
+                    f"{_wp_rest_base(endpoint)}/sync",
                     json=payload,
                     headers={'Content-Type': 'application/json', 'X-ESM-API-Key': api_key},
                     timeout=30,
@@ -820,7 +861,7 @@ class AccessPointMonitor:
         pulled = 0
         try:
             resp = _req.get(
-                f"{endpoint.rstrip('/')}/api/sync/pending",
+                f"{_wp_rest_base(endpoint)}/sync/pending",
                 headers={'X-ESM-API-Key': api_key},
                 timeout=30,
             )
@@ -896,7 +937,7 @@ class AccessPointMonitor:
                 if synced_ids:
                     try:
                         _req.post(
-                            f"{endpoint.rstrip('/')}/api/sync/mark-synced",
+                            f"{_wp_rest_base(endpoint)}/sync/mark-synced",
                             json={'ids': synced_ids, 'api_key': api_key},
                             headers={'Content-Type': 'application/json', 'X-ESM-API-Key': api_key},
                             timeout=15,
@@ -4334,7 +4375,7 @@ def sync_push():
                 'data': log.data_snapshot,
                 'api_key': app.config['SYNC_API_KEY'],
             }
-            resp = requests.post(f"{endpoint}/api/sync", json=payload, timeout=30)
+            resp = requests.post(f"{_wp_rest_base(endpoint)}/sync", json=payload, timeout=30)
             if resp.status_code == 200:
                 log.sync_status = 'synced'
                 log.sync_timestamp = datetime.utcnow()
@@ -4808,51 +4849,65 @@ def classes_list():
 @login_required
 @role_required('super_admin', 'bursar')
 def add_class():
-    level = request.form.get('level')
-    stream = request.form.get('stream', '')
-    name = request.form.get('name')
+    level = (request.form.get('level') or '').strip()
+    stream = (request.form.get('stream') or '').strip()
+    name = (request.form.get('name') or '').strip()
     if not name:
         # Auto-generate name from level + stream
         name = f"{level} {stream}" if stream else level
-    academic_year_id = request.form.get('academic_year_id') or None
-    duplicate = Class.query.filter_by(name=name, academic_year_id=academic_year_id).first()
-    if duplicate:
-        flash('A class with that name already exists for the selected academic year.', 'warning')
+    if not name:
+        flash('Please provide a level (and stream) or a class name.', 'warning')
         return redirect(url_for('classes_list'))
 
-    cls = Class(
-        name=name,
-        level=level,
-        stream=stream,
-        teacher_id=request.form.get('teacher_id') or None,
-        capacity=max(1, int(request.form.get('capacity', 40))),
-        academic_year_id=academic_year_id,
-    )
-    db.session.add(cls)
-    db.session.flush()
+    # Defensive parsing: blank or non-numeric capacity / year / teacher must
+    # never crash the form (previously int('') raised -> Internal Server Error).
+    academic_year_id = _safe_int(request.form.get('academic_year_id'), 0) or None
+    teacher_id = _safe_int(request.form.get('teacher_id'), 0) or None
+    capacity = max(1, _safe_int(request.form.get('capacity'), 40))
 
-    # Auto-assign primary subjects if this is a primary level class
-    if is_primary_level(level):
-        for subj_name in PRIMARY_SUBJECTS:
-            subj = Subject.query.filter_by(name=subj_name).first()
-            if not subj:
-                # Auto-create the subject with its stable cross-system code.
-                code = PRIMARY_SUBJECT_CODES[subj_name]
-                subj = Subject(name=subj_name, code=code, is_compulsory=True)
-                db.session.add(subj)
-                db.session.flush()
+    try:
+        duplicate = Class.query.filter_by(name=name, academic_year_id=academic_year_id).first()
+        if duplicate:
+            flash('A class with that name already exists for the selected academic year.', 'warning')
+            return redirect(url_for('classes_list'))
 
-    db.session.commit()
-    log_sync('Class', cls.id, 'CREATE', {
-        'name': cls.name,
-        'level': cls.level,
-        'stream': cls.stream,
-        'teacher_id': cls.teacher_id,
-        'capacity': cls.capacity,
-        'academic_year_id': cls.academic_year_id,
-        'sync_id': cls.sync_id,
-    })
-    flash('Class added.' + (' Primary subjects auto-assigned.' if is_primary_level(level) else ''), 'success')
+        cls = Class(
+            name=name,
+            level=level or None,
+            stream=stream or None,
+            teacher_id=teacher_id,
+            capacity=capacity,
+            academic_year_id=academic_year_id,
+        )
+        db.session.add(cls)
+        db.session.flush()
+
+        # Auto-assign primary subjects if this is a primary level class
+        if is_primary_level(level):
+            for subj_name in PRIMARY_SUBJECTS:
+                subj = Subject.query.filter_by(name=subj_name).first()
+                if not subj:
+                    # Auto-create the subject with its stable cross-system code.
+                    code = PRIMARY_SUBJECT_CODES[subj_name]
+                    subj = Subject(name=subj_name, code=code, is_compulsory=True)
+                    db.session.add(subj)
+                    db.session.flush()
+
+        db.session.commit()
+        log_sync('Class', cls.id, 'CREATE', {
+            'name': cls.name,
+            'level': cls.level,
+            'stream': cls.stream,
+            'teacher_id': cls.teacher_id,
+            'capacity': cls.capacity,
+            'academic_year_id': cls.academic_year_id,
+            'sync_id': cls.sync_id,
+        })
+        flash('Class added.' + (' Primary subjects auto-assigned.' if is_primary_level(level) else ''), 'success')
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.error('add_class failed: %s', exc, exc_info=True)
+        flash(f'Could not create the class: {exc}', 'danger')
     return redirect(url_for('classes_list'))
 
 
@@ -4947,6 +5002,14 @@ def _clean_optional_text(value):
     if text.lower() in ('-', 'n/a', 'na', 'none', 'nil', '—', '–'):
         return None
     return text or None
+
+
+def _safe_int(value, default=0):
+    """Parse an integer from user input without raising on blank/garbage."""
+    try:
+        return int(str(value or '').strip() or default)
+    except (TypeError, ValueError):
+        return default
 
 
 def _parse_class_name(class_name):
@@ -5593,7 +5656,7 @@ def appearance_sync_to_wordpress():
             'source': 'flask',
         }
         resp = requests.post(
-            f"{endpoint}/wp-json/excel-schools/v2/theme/import",
+            f"{_wp_rest_base(endpoint)}/theme/import",
             json=payload,
             headers={'Content-Type': 'application/json', 'X-ESM-API-Key': api_key},
             timeout=15,
@@ -5622,7 +5685,7 @@ def appearance_pull_from_wordpress():
         return redirect(url_for('appearance_settings'))
     try:
         resp = requests.get(
-            f"{endpoint}/wp-json/excel-schools/v2/theme/export",
+            f"{_wp_rest_base(endpoint)}/theme/export",
             headers={'X-ESM-API-Key': api_key},
             timeout=15,
         )
@@ -7025,7 +7088,7 @@ def api_check_internet():
     api_key = SyncSetting.get('sync_api_key', '') or app.config.get('SYNC_API_KEY', '')
     try:
         resp = requests.get(
-            f"{endpoint.rstrip('/')}/api/stats",
+            f"{_wp_rest_base(endpoint)}/stats",
             headers={'X-ESM-API-Key': api_key},
             timeout=8
         )
@@ -7104,7 +7167,7 @@ def api_one_button_sync():
                 'timestamp': log.created_at.isoformat() if log.created_at else datetime.utcnow().isoformat(),
             }
             resp = requests.post(
-                f"{endpoint.rstrip('/')}/api/sync",
+                f"{_wp_rest_base(endpoint)}/sync",
                 json=payload,
                 headers={'Content-Type': 'application/json', 'X-ESM-API-Key': api_key},
                 timeout=30
@@ -7126,7 +7189,7 @@ def api_one_button_sync():
     # STEP 2: Pull changes from WordPress
     try:
         resp = requests.get(
-            f"{endpoint.rstrip('/')}/api/sync/pending",
+            f"{_wp_rest_base(endpoint)}/sync/pending",
             headers={'X-ESM-API-Key': api_key},
             timeout=30
         )
@@ -7207,7 +7270,7 @@ def api_one_button_sync():
             if synced_ids:
                 try:
                     requests.post(
-                        f"{endpoint.rstrip('/')}/api/sync/mark-synced",
+                        f"{_wp_rest_base(endpoint)}/sync/mark-synced",
                         json={'ids': synced_ids, 'api_key': api_key},
                         headers={'Content-Type': 'application/json', 'X-ESM-API-Key': api_key},
                         timeout=15

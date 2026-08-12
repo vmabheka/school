@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.6.3] — 2026-08-12
+
+### Fixed (Flask app)
+
+- **"Add Class" no longer returns Internal Server Error.** The form crashed
+  with `ValueError: invalid literal for int()` when the capacity field was
+  blank or non-numeric. Capacity, academic year and teacher id are now parsed
+  defensively (blank/garbage values fall back to safe defaults), the class
+  name is validated, and any unexpected error rolls back and shows a friendly
+  flash message instead of a 500. A friendly error page (with the actual
+  detail) now replaces the bare "Internal Server Error" for any future 500,
+  and 404s get a matching page.
+- **Offline app can now reach the WordPress portal (handshake/sync).** The
+  WordPress plugin registers its REST routes under the `excel-schools/v2`
+  namespace (`/wp-json/excel-schools/v2/stats`, `/sync`, `/sync/pending`,
+  `/theme/import`, …) but the offline app was building URLs as
+  `<endpoint>/api/stats` and `<endpoint>/api/sync` — a 404 on the WordPress
+  side, so the connection check always reported "offline" and sync never
+  worked. A new `_wp_rest_base()` helper now builds the correct namespace URL
+  and accepts both stored styles: the bare site URL
+  (`https://crm.egs.ac.zw`) or the full plugin namespace
+  (`https://crm.egs.ac.zw/wp-json/excel-schools/v2`). Applied to the
+  connection check, the access-point monitor, one-button sync (push / pull /
+  mark-synced), manual push and theme push/pull. Verified end-to-end against
+  a mock WordPress server: every request hits the correct
+  `/wp-json/excel-schools/v2/...` path.
+
+---
+
 ## [3.2.1] — 2026-08-12 (WordPress plugin)
 
 ### Fixed (WordPress portal — 404 "Access Denied" on /sms/)
