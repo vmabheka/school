@@ -238,6 +238,7 @@ class Student(db.Model):
     scholarship_notes = db.Column(db.Text)
     is_new_learner = db.Column(db.Boolean, default=True)
     billed_once_off_levies = db.Column(db.Boolean, default=False)
+    entry_mode = db.Column(db.String(20), default='Day')  # Day or Stay In (boarding)
     # Relations
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     parents = db.relationship('Parent', secondary=student_parent, backref='students')
@@ -366,6 +367,7 @@ class FeeStructure(db.Model):
     registration_fee = db.Column(db.Float, default=10)
     textbook_levy = db.Column(db.Float, default=0)
     boarding = db.Column(db.Float, default=0)
+    stay_in_fee = db.Column(db.Float, default=0)  # boarding learners only; 0 = automatic by level
     transport = db.Column(db.Float, default=0)
     lunch = db.Column(db.Float, default=0)
     library = db.Column(db.Float, default=0)
@@ -521,6 +523,7 @@ class FeeLevel(db.Model):
     registration_fee = db.Column(db.Float, default=10)
     textbook_levy = db.Column(db.Float, default=0)
     boarding = db.Column(db.Float, default=0)
+    stay_in_fee = db.Column(db.Float, default=0)  # boarding learners only; 0 = automatic by level
     transport = db.Column(db.Float, default=0)
     lunch = db.Column(db.Float, default=0)
     library = db.Column(db.Float, default=0)
@@ -1292,6 +1295,31 @@ def generate_invoice_number():
     return f"{prefix}0001"
 
 
+# Stay In (boarding) fees billed every term to learners whose entry mode is
+# "Stay In": $300 for primary and secondary (O Level), $260 for A Level.
+# A fee level/structure can override this with its own stay_in_fee amount.
+STAY_IN_FEE_PRIMARY_SECONDARY = 300.0
+STAY_IN_FEE_A_LEVEL = 260.0
+
+
+def normalize_entry_mode(value):
+    """Map user input (Excel, forms) to the canonical entry modes Day / Stay In."""
+    text = (value or '').strip().lower()
+    if text in ('stay in', 'stay-in', 'stayin', 'boarding', 'boarder',
+                'boarding student', 'resident', 'residential', 'hostel', 'hosteller'):
+        return 'Stay In'
+    return 'Day'
+
+
+def get_stay_in_fee_default(student):
+    """Automatic Stay In fee by level: $300 primary/secondary, $260 A Level."""
+    if student.class_ and student.class_.level:
+        m = re.search(r'Form\s*(\d+)', student.class_.level, re.IGNORECASE)
+        if m and int(m.group(1)) >= 5:
+            return STAY_IN_FEE_A_LEVEL
+    return STAY_IN_FEE_PRIMARY_SECONDARY
+
+
 def get_student_fee_structure(student, term=None, ay=None):
     if not term:
         term = get_current_term()
@@ -1394,8 +1422,20 @@ def generate_student_invoice(student, term=None, academic_year=None):
             if tb_levy > 0: items_data.append(('Textbook Levy (Once-off)', tb_levy))
             student.billed_once_off_levies = True
 
+        # Stay In (boarding) learners are billed the Stay In fee every term.
+        # Amount comes from the fee level/structure, or defaults automatically:
+        # $300 primary & secondary, $260 A Level.
+        if getattr(student, 'entry_mode', 'Day') == 'Stay In':
+            stay_fee = float(getattr(source, 'stay_in_fee', 0.0) or 0.0)
+            if stay_fee <= 0:
+                stay_fee = get_stay_in_fee_default(student)
+            if stay_fee > 0:
+                items_data.append(('Stay In Fee (Boarding)', stay_fee))
+
         # Keep legacy optional fees if explicitly greater than 0
-        if getattr(source, 'boarding', 0.0) and source.boarding > 0: items_data.append(('Boarding Fee', source.boarding))
+        if (getattr(student, 'entry_mode', 'Day') != 'Stay In'
+                and getattr(source, 'boarding', 0.0) and source.boarding > 0):
+            items_data.append(('Boarding Fee', source.boarding))
         if getattr(source, 'transport', 0.0) and source.transport > 0: items_data.append(('Transport Fee', source.transport))
         if getattr(source, 'lunch', 0.0) and source.lunch > 0: items_data.append(('Lunch & Meals', source.lunch))
         if getattr(source, 'library', 0.0) and source.library > 0: items_data.append(('Library Levy', source.library))
@@ -1605,6 +1645,7 @@ def student_add():
             first_name=request.form.get('first_name'),
             last_name=request.form.get('last_name'),
             other_names=_clean_optional_text(request.form.get('other_names')),
+            entry_mode=normalize_entry_mode(request.form.get('entry_mode')),
             date_of_birth=datetime.strptime(request.form.get('date_of_birth'), '%Y-%m-%d').date() if request.form.get('date_of_birth') else None,
             gender=request.form.get('gender'),
             national_id=request.form.get('national_id'),
@@ -1723,7 +1764,120 @@ def student_view(id):
                            student=student,
                            attendances=[],
                            results=results,
-                           payments=payments)
+                           payments=payments,
+                           classes=Class.query.order_by(Class.name).all())
+
+
+@app.route('/students/<int:id>/reassign-class', methods=['POST'])
+@login_required
+@role_required('super_admin', 'bursar')
+def student_reassign_class(id):
+    """Quickly move one student to a different class (from the profile page)."""
+    student = Student.query.get_or_404(id)
+    new_class_id = request.form.get('class_id') or None
+    if not new_class_id:
+        flash('Please select a class to move the student to.', 'warning')
+        return redirect(url_for('student_view', id=id))
+    cls = Class.query.get(new_class_id)
+    if cls is None:
+        flash('The selected class no longer exists.', 'danger')
+        return redirect(url_for('student_view', id=id))
+    old_class_name = student.class_.name if student.class_ else 'No class'
+    student.class_id = cls.id
+    student.updated_at = datetime.utcnow()
+    db.session.commit()
+    log_sync('Student', student.id, 'UPDATE', {
+        'admission_number': student.admission_number,
+        'class_id': student.class_id,
+        'class_name': cls.name,
+    })
+    flash(f'{student.first_name} {student.last_name} moved from '
+          f'{old_class_name} to {cls.name}.', 'success')
+    return redirect(url_for('student_view', id=id))
+
+
+@app.route('/students/bulk-reassign-class', methods=['POST'])
+@login_required
+@role_required('super_admin', 'bursar')
+def students_bulk_reassign_class():
+    """Move several selected students to one class in a single action."""
+    new_class_id = request.form.get('new_class_id') or None
+    student_ids = request.form.getlist('student_ids')
+    if not new_class_id:
+        flash('Please select the destination class.', 'warning')
+        return redirect(url_for('students_list'))
+    cls = Class.query.get(new_class_id)
+    if cls is None:
+        flash('The selected class no longer exists.', 'danger')
+        return redirect(url_for('students_list'))
+    ids = []
+    for value in student_ids:
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        flash('No students were selected.', 'warning')
+        return redirect(url_for('students_list'))
+    moved = 0
+    for student in Student.query.filter(Student.id.in_(ids)).all():
+        if student.class_id != cls.id:
+            student.class_id = cls.id
+            student.updated_at = datetime.utcnow()
+            moved += 1
+    db.session.commit()
+    for student in Student.query.filter(Student.id.in_(ids)).all():
+        log_sync('Student', student.id, 'UPDATE', {
+            'admission_number': student.admission_number,
+            'class_id': student.class_id,
+            'class_name': cls.name,
+        })
+    flash(f'{moved} student(s) moved to {cls.name}.', 'success')
+    back = request.form.get('back') or ''
+    if back.startswith('/'):
+        return redirect(back)
+    return redirect(url_for('students_list'))
+
+
+@app.route('/students/bulk-delete', methods=['POST'])
+@login_required
+@role_required('super_admin', 'bursar')
+def students_bulk_delete():
+    """Permanently remove the selected learners and all of their records."""
+    ids = []
+    for value in request.form.getlist('student_ids'):
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        flash('No students were selected.', 'warning')
+        return redirect(request.form.get('back') or url_for('students_list'))
+    students = Student.query.filter(Student.id.in_(ids)).all()
+    deleted = len(students)
+    # Remove links and child rows before deleting the learners themselves.
+    db.session.execute(
+        student_parent.delete().where(student_parent.c.student_id.in_(ids)))
+    invoice_ids = db.session.query(Invoice.id).filter(Invoice.student_id.in_(ids))
+    InvoiceItem.query.filter(InvoiceItem.invoice_id.in_(invoice_ids)).delete(
+        synchronize_session=False)
+    Invoice.query.filter(Invoice.student_id.in_(ids)).delete(
+        synchronize_session=False)
+    FeePayment.query.filter(FeePayment.student_id.in_(ids)).delete(
+        synchronize_session=False)
+    ExamResult.query.filter(ExamResult.student_id.in_(ids)).delete(
+        synchronize_session=False)
+    RoomAllocation.query.filter(RoomAllocation.student_id.in_(ids)).delete(
+        synchronize_session=False)
+    for student in students:
+        log_sync('Student', student.id, 'DELETE')
+        db.session.delete(student)
+    db.session.commit()
+    flash(f'{deleted} student(s) permanently deleted.', 'success')
+    back = request.form.get('back') or ''
+    if back.startswith('/'):
+        return redirect(back)
+    return redirect(url_for('students_list'))
 
 
 @app.route('/students/<int:id>/edit', methods=['GET', 'POST'])
@@ -1735,6 +1889,7 @@ def student_edit(id):
         student.first_name = request.form.get('first_name', student.first_name)
         student.last_name = request.form.get('last_name', student.last_name)
         student.other_names = _clean_optional_text(request.form.get('other_names'))
+        student.entry_mode = normalize_entry_mode(request.form.get('entry_mode'))
         student.date_of_birth = datetime.strptime(request.form.get('date_of_birth'), '%Y-%m-%d').date() if request.form.get('date_of_birth') else student.date_of_birth
         student.gender = request.form.get('gender', student.gender)
         student.national_id = request.form.get('national_id')
@@ -4079,6 +4234,7 @@ def _seed_dummy_data(actor_user_id=None):
                 fee_classification=fc,
                 scholarship_type=st,
                 scholarship_percentage=sp,
+                entry_mode='Stay In' if cycle in (1, 2, 5) else 'Day',
                 city='Harare',
                 province='Harare',
                 country='Zimbabwe',
@@ -4641,6 +4797,7 @@ def students_bulk_import():
                         scholarship_notes=_clean_optional_text(row_data.get('scholarship_notes')),
                         is_new_learner=not is_first_import,
                         billed_once_off_levies=is_first_import,
+                        entry_mode=normalize_entry_mode(row_data.get('entry_mode')),
                     )
                     if student.fee_classification == 'Staff Scholarship' and row_data.get('staff_employee_number'):
                         staff_member = Staff.query.filter_by(employee_number=row_data.get('staff_employee_number').strip()).first()
@@ -4695,7 +4852,7 @@ def students_excel_template():
 
     headers = [
         'admission_number', 'first_name', 'last_name', 'other_names',
-        'date_of_birth', 'gender', 'national_id', 'class_name',
+        'date_of_birth', 'gender', 'national_id', 'class_name', 'entry_mode',
         'admission_date', 'previous_school', 'address', 'city', 'province',
         'phone', 'email', 'fee_classification', 'scholarship_type',
         'scholarship_percentage', 'scholarship_sponsor', 'staff_employee_number',
@@ -4711,15 +4868,15 @@ def students_excel_template():
     # Example rows
     examples = [
         ['', 'Tendai', 'Moyo', '', '2010-05-15', 'Male', '12-345678A12',
-         'Grade 7A', '2026-01-12', 'Previous School', '12 Herbert Chitepo',
+         'Grade 7A', 'Day', '2026-01-12', 'Previous School', '12 Herbert Chitepo',
          'Harare', 'Harare', '0771234567', 'tendai@example.com',
          'Regular', 'None', 0, '', '', ''],
         ['', 'Chiedza', 'Dube', '', '2011-03-22', 'Female', '', 'Grade 6A',
-         '2026-01-12', '', '', 'Bulawayo', '', '0772987654', '',
+         'Stay In', '2026-01-12', '', '', 'Bulawayo', '', '0772987654', '',
          'Staff Scholarship', 'Full', 100, '', 'EMP001',
          'Child of staff member'],
         ['', 'Kudzai', 'Ncube', '', '2010-08-10', 'Male', '', 'Grade 7A',
-         '', '', '', '', '', '', '',
+         'Day', '', '', '', '', '', '', '',
          'Academic Scholarship', 'Partial', 50, 'School Bursary Fund', '',
          'Top performer'],
     ]
@@ -4741,6 +4898,7 @@ def students_excel_template():
         ["2.", "Leave 'admission_number' blank to auto-generate."],
         ["3.", 'date_of_birth and admission_date must be YYYY-MM-DD format.'],
         ["4.", "'class_name' — if the class does not exist yet it is created automatically; only the teacher allocation is done manually later (Classes page)."],
+        ["4b.", "'entry_mode' — Day or Stay In. Stay In (boarding) learners are billed the Stay In fee automatically every term ($300 primary/secondary, $260 A Level)."],
         ["5.", "gender must be Male or Female."],
         ["", ""],
         ["FEE CLASSIFICATION OPTIONS:", ""],
@@ -5210,6 +5368,7 @@ def fee_level_add():
         reg_fee = float(request.form.get('registration_fee', 10))
         tb_levy = float(request.form.get('textbook_levy', 0))
         boarding = float(request.form.get('boarding', 0))
+        stay_in_fee = float(request.form.get('stay_in_fee', 0) or 0)
         transport = float(request.form.get('transport', 0))
         lunch = float(request.form.get('lunch', 0))
         library = float(request.form.get('library', 0))
@@ -5226,6 +5385,7 @@ def fee_level_add():
             registration_fee=reg_fee,
             textbook_levy=tb_levy,
             boarding=boarding,
+            stay_in_fee=stay_in_fee,
             transport=transport,
             lunch=lunch,
             library=library,
@@ -5255,6 +5415,7 @@ def fee_level_edit(id):
         fl.registration_fee = float(request.form.get('registration_fee', 10))
         fl.textbook_levy = float(request.form.get('textbook_levy', 0))
         fl.boarding = float(request.form.get('boarding', 0))
+        fl.stay_in_fee = float(request.form.get('stay_in_fee', 0) or 0)
         fl.transport = float(request.form.get('transport', 0))
         fl.lunch = float(request.form.get('lunch', 0))
         fl.library = float(request.form.get('library', 0))
@@ -6771,6 +6932,9 @@ def init_db():
             ('fee_structure', 'textbook_levy', 'FLOAT', '0'),
             ('student', 'is_new_learner', 'BOOLEAN', '1'),
             ('student', 'billed_once_off_levies', 'BOOLEAN', '0'),
+            ('student', 'entry_mode', 'VARCHAR(20)', "'Day'"),
+            ('fee_level', 'stay_in_fee', 'FLOAT', '0'),
+            ('fee_structure', 'stay_in_fee', 'FLOAT', '0'),
             ('class', 'sync_id', 'VARCHAR(36)', 'NULL'),
             ('staff_subject', 'sync_id', 'VARCHAR(36)', 'NULL'),
         ]:
@@ -6833,9 +6997,31 @@ def init_db():
                 academic_year_id=ay.id,
                 start_date=start,
                 end_date=end,
-                is_current=(name == 'Term 2'),
+                is_current=(name == 'Term 3'),
             )
             db.session.add(t)
+
+    # Billing starts at Term 3 2026: move existing installations forward to
+    # Term 3 (creating it if the current year has no Term 3 yet). Once the
+    # current term is Term 3 this is a no-op on later startups.
+    billing_ay = AcademicYear.query.filter_by(is_current=True).first() or AcademicYear.query.first()
+    if billing_ay:
+        term3 = Term.query.filter_by(name='Term 3', academic_year_id=billing_ay.id).first()
+        if term3 is None:
+            term3 = Term(
+                name='Term 3',
+                academic_year_id=billing_ay.id,
+                start_date=date(2026, 9, 7),
+                end_date=date(2026, 12, 4),
+                is_current=False,
+            )
+            db.session.add(term3)
+            db.session.flush()
+        current_term = Term.query.filter_by(academic_year_id=billing_ay.id, is_current=True).first()
+        if current_term is None or current_term.name != 'Term 3':
+            Term.query.update({Term.is_current: False})
+            term3.is_current = True
+        db.session.commit()
 
     # Ensure the approved primary subjects and standard secondary subjects
     # exist on both new and upgraded installations. Existing custom subjects
@@ -6883,35 +7069,40 @@ def init_db():
     # Create default fee levels
     if not FeeLevel.query.first():
         fee_levels_data = [
-            ('ECD', 'ECD', 'Early Childhood Development (ECD A & B)', 150.0, 0.0, 10.0, 56.0),
-            ('Junior', 'JNR', 'Junior School (Grade 1 to Grade 7)', 100.0, 0.0, 10.0, 126.0),
-            ('O Level', 'OLV', 'O Level (Form 1 to Form 4)', 100.0, 30.0, 10.0, 56.0),
-            ('A Level', 'ALV', 'A Level (Form 5 to Form 6)', 150.0, 30.0, 10.0, 45.0),
+            # (name, code, desc, tuition, dev_levy, reg_fee, tb_levy, stay_in_fee)
+            ('ECD', 'ECD', 'Early Childhood Development (ECD A & B)', 150.0, 0.0, 10.0, 56.0, 300.0),
+            ('Junior', 'JNR', 'Junior School (Grade 1 to Grade 7)', 100.0, 0.0, 10.0, 126.0, 300.0),
+            ('O Level', 'OLV', 'O Level (Form 1 to Form 4)', 100.0, 30.0, 10.0, 56.0, 300.0),
+            ('A Level', 'ALV', 'A Level (Form 5 to Form 6)', 150.0, 30.0, 10.0, 45.0, 260.0),
         ]
-        for name, code, desc, tuition, dev_levy, reg_fee, tb_levy in fee_levels_data:
+        for name, code, desc, tuition, dev_levy, reg_fee, tb_levy, stay_fee in fee_levels_data:
             total = tuition + dev_levy
             fl = FeeLevel(
                 name=name, code=code, description=desc,
                 tuition=tuition, development_levy=dev_levy,
                 registration_fee=reg_fee, textbook_levy=tb_levy,
-                total=total,
+                stay_in_fee=stay_fee, total=total,
             )
             db.session.add(fl)
 
     # Ensure default fee levels have correct amounts if updating existing db
     defaults_map = {
-        'ECD': (150.0, 0.0, 10.0, 56.0),
-        'Junior': (100.0, 0.0, 10.0, 126.0),
-        'O Level': (100.0, 30.0, 10.0, 56.0),
-        'A Level': (150.0, 30.0, 10.0, 45.0),
+        # name: (tuition, dev_levy, reg_fee, tb_levy, stay_in_fee)
+        'ECD': (150.0, 0.0, 10.0, 56.0, 300.0),
+        'Junior': (100.0, 0.0, 10.0, 126.0, 300.0),
+        'O Level': (100.0, 30.0, 10.0, 56.0, 300.0),
+        'A Level': (150.0, 30.0, 10.0, 45.0, 260.0),
     }
-    for name, (tuition, dev_levy, reg_fee, tb_levy) in defaults_map.items():
+    for name, (tuition, dev_levy, reg_fee, tb_levy, stay_fee) in defaults_map.items():
         fl = FeeLevel.query.filter_by(name=name).first()
-        if fl and (fl.tuition != tuition or fl.development_levy != dev_levy or fl.registration_fee != reg_fee or fl.textbook_levy != tb_levy or fl.total != tuition + dev_levy):
+        if fl and (fl.tuition != tuition or fl.development_levy != dev_levy or fl.registration_fee != reg_fee
+                   or fl.textbook_levy != tb_levy or fl.stay_in_fee != stay_fee
+                   or fl.total != tuition + dev_levy):
             fl.tuition = tuition
             fl.development_levy = dev_levy
             fl.registration_fee = reg_fee
             fl.textbook_levy = tb_levy
+            fl.stay_in_fee = stay_fee
             fl.total = tuition + dev_levy
 
     db.session.commit()

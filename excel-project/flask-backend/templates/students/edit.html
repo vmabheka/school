@@ -82,6 +82,13 @@
                 </select>
             </div>
             <div class="form-group">
+                <label>Entry Mode</label>
+                <select name="entry_mode" class="form-control">
+                    <option value="Day" {% if student.entry_mode != 'Stay In' %}selected{% endif %}>Day</option>
+                    <option value="Stay In" {% if student.entry_mode == 'Stay In' %}selected{% endif %}>Stay In (Boarding) — billed Stay In fee every term</option>
+                </select>
+            </div>
+            <div class="form-group">
                 <label>Status</label>
                 <select name="status" class="form-control">
                     <option value="Active" {% if student.status == 'Active' %}selected{% endif %}>Active</option>

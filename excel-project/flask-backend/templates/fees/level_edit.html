@@ -53,6 +53,16 @@
         </div>
 
         <hr style="margin:20px 0;">
+        <h4 style="margin-bottom:12px; color:#7c3aed;">Stay In (Boarding) Fee — billed every term only to learners whose Entry Mode is Stay In</h4>
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Stay In Fee ($ per term)</label>
+                <input type="number" name="stay_in_fee" class="form-control" step="0.01" value="{{ fee_level.stay_in_fee if fee_level.stay_in_fee is not none else 0 }}">
+                <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Leave 0 to use the automatic default: $300 primary &amp; secondary, $260 A Level.</p>
+            </div>
+        </div>
+
+        <hr style="margin:20px 0;">
         <h4 style="margin-bottom:12px; color:var(--text-light); font-size:14px;">Optional / Additional Fees ($ per term)</h4>
         <div class="form-grid">
             <div class="form-group"><label>Boarding</label><input type="number" name="boarding" class="form-control" step="0.01" value="{{ fee_level.boarding or 0 }}"></div>

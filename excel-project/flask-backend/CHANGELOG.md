@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.4.0] — 2026-08-03
+
+### Added (Flask app)
+
+#### Entry Mode (Day / Stay In) and boarding billing
+- New **Entry Mode** field on every learner: **Day** or **Stay In (Boarding)**.
+  Available in the student add/edit forms, the student profile, and the
+  students list (Mode column with a Stay In badge).
+- **Stay In learners are automatically billed the Stay In fee every term**:
+  $300 for primary and secondary (ECD/Junior/O Level) and $260 for A Level.
+  The amount is configurable per fee level (new **Stay In Fee** column on the
+  Fee Levels page, $300/$260 defaults seeded; 0 = automatic by level).
+- Bulk import accepts an **`entry_mode`** column (`Day` / `Stay In`, with
+  variants like boarding/day scholar normalised automatically). The Excel
+  template, upload page guide and instructions sheet were updated.
+
+#### Term 3 2026 billing
+- The system now bills for **Term 3 2026**: Term 3 is created if missing and
+  set as the current term (existing installations are moved forward once from
+  Term 2; the change is a no-op afterwards).
+- **The first bulk import does NOT bill book/textbook levy or registration
+  fees.** Learners added by later imports are treated as new learners and are
+  billed those once-off levies.
+
+#### Bulk actions on the Students list
+- **Bulk delete**: select learners with checkboxes (select-all included) and
+  permanently remove them together with their invoices, invoice items, fee
+  payments, exam results, hostel allocations and parent links.
+- **Bulk reassign**: select learners and move them all to one class in a
+  single action.
+- **Quick reassign** on the student profile page moves one learner to another
+  class without opening the full edit form.
+- Pagination now preserves the scholarship filter.
+
+---
+
 ## [2.3.2] — 2026-08-03
 
 ### Changed (Flask app — student upload)
