@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.6.1] — 2026-08-12
+
+### Changed (Flask app)
+
+- **Software branding is no longer customisable.** The Software Branding
+  section (name, byline, tagline, version) was removed from the Appearance
+  page. Those keys are now excluded from the appearance save form, the theme
+  sync (push/pull), the theme export/import APIs and the WordPress sync — so
+  site administrators can never change them, even with a crafted request.
+  Any branding rows stored by older versions are wiped on startup, and the
+  default seed no longer writes them. Only the deployment operator can
+  override the fixed branding via environment variables at install time.
+  The **currency symbol** remains a normal, editable site appearance setting
+  (moved into the School Branding section).
+- **Site appearance settings can be changed even when the WordPress sync
+  endpoint is not configured.** Saving school name, motto, contact details,
+  logo, colours and currency works fully offline; the Push / Pull buttons are
+  hidden until an endpoint is configured in Sync Center, and the banner now
+  explains that appearance is managed locally and remains fully changeable
+  (instead of warning that sync buttons will fail).
+
+---
+
 ## [2.6.0] — 2026-08-12
 
 ### Added (Flask app + WordPress portal)

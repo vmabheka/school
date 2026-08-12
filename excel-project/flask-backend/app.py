@@ -125,6 +125,18 @@ SOFTWARE_NAME = 'MobiSchola'
 SOFTWARE_BYLINE = 'By Edutechweb 0772577666'
 SOFTWARE_TAGLINE = 'Manage smarter—even offline.'
 
+# Software branding is fixed and NOT customisable from the UI. These keys are
+# excluded from the Appearance save form, theme sync and theme import, so site
+# administrators can never change them. Only the deployment operator can
+# override them via environment variables (SOFTWARE_NAME, SOFTWARE_BYLINE,
+# SOFTWARE_TAGLINE, SOFTWARE_VERSION).
+SOFTWARE_BRANDING_KEYS = frozenset({
+    'software_name',
+    'software_byline',
+    'software_tagline',
+    'software_version',
+})
+
 # Initial super-admin credentials used only when provisioning a new database.
 DEFAULT_ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'edusync')
 DEFAULT_ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'edusync26')
@@ -5456,8 +5468,16 @@ def staff_excel_template():
 @role_required('super_admin')
 def appearance_settings():
     if request.method == 'POST':
-        # Save all posted theme fields
+        # Save all posted theme fields — EXCEPT the fixed software branding,
+        # which is never customisable from the UI.
         for key in DEFAULT_THEME.keys():
+            if key in SOFTWARE_BRANDING_KEYS:
+                # Wipe any previously stored branding so it always falls back
+                # to the fixed default (or the deployment env override).
+                setting = AppearanceSetting.query.filter_by(key=key).first()
+                if setting:
+                    db.session.delete(setting)
+                continue
             val = request.form.get(key, '').strip()
             if val:
                 set_theme(key, val)
@@ -5489,7 +5509,10 @@ def appearance_reset():
 
 # ─── Theme Sync API (Flask ↔ WordPress) ────────────────────────────────
 
-THEME_SYNC_KEYS = list(DEFAULT_THEME.keys())
+# Theme keys that sync with WordPress — software branding is excluded because
+# it is fixed and must never be overwritten by a remote pull/import.
+THEME_SYNC_KEYS = [k for k in DEFAULT_THEME.keys()
+                   if k not in SOFTWARE_BRANDING_KEYS]
 
 
 @app.route('/api/theme/export', methods=['GET'])
@@ -5503,10 +5526,14 @@ def api_theme_export():
     if app.config.get('SYNC_API_KEY') and api_key != app.config['SYNC_API_KEY']:
         return jsonify({'error': 'Invalid API key'}), 403
     theme = get_theme()
+    # Software branding is fixed — never exposed for remote import.
+    export_theme = {k: v for k, v in theme.items()
+                    if k not in SOFTWARE_BRANDING_KEYS}
     return jsonify({
         'success': True,
-        'theme': theme,
-        'default_theme': DEFAULT_THEME,
+        'theme': export_theme,
+        'default_theme': {k: v for k, v in DEFAULT_THEME.items()
+                          if k not in SOFTWARE_BRANDING_KEYS},
         'version': APP_VERSION,
         'updated_at': datetime.utcnow().isoformat(),
     })
@@ -5551,9 +5578,15 @@ def appearance_sync_to_wordpress():
         return redirect(url_for('appearance_settings'))
     try:
         # Build the theme payload (only keys whose values differ from defaults so we
-        # don't accidentally wipe WordPress-side customisations).
+        # don't accidentally wipe WordPress-side customisations). Software branding
+        # is fixed and excluded.
         current = get_theme()
-        payload = {'theme': current, 'api_key': api_key, 'source': 'flask'}
+        payload = {
+            'theme': {k: v for k, v in current.items()
+                      if k not in SOFTWARE_BRANDING_KEYS},
+            'api_key': api_key,
+            'source': 'flask',
+        }
         resp = requests.post(
             f"{endpoint}/wp-json/excel-schools/v2/theme/import",
             json=payload,
@@ -7469,12 +7502,22 @@ def init_db():
 
     db.session.commit()
 
-    # Seed default appearance settings
+    # Seed default appearance settings (software branding is fixed and is
+    # never stored in the settings table).
     if not AppearanceSetting.query.first():
         for key, val in DEFAULT_THEME.items():
-            if val:
+            if val and key not in SOFTWARE_BRANDING_KEYS:
                 s = AppearanceSetting(key=key, value=val)
                 db.session.add(s)
+        db.session.commit()
+
+    # One-time cleanup: wipe any software branding rows stored by older
+    # versions so branding always comes from the fixed default / env only.
+    stale_branding = AppearanceSetting.query.filter(
+        AppearanceSetting.key.in_(SOFTWARE_BRANDING_KEYS)).all()
+    if stale_branding:
+        for row in stale_branding:
+            db.session.delete(row)
         db.session.commit()
 
     # Restore persisted sync settings into app.config

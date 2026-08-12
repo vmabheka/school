@@ -6,8 +6,8 @@ A comprehensive web-based school management system that works **online or offlin
 
 ## Branding & Deployment Customisation
 
-Every institution can rebrand the system without code changes — set values in
-**Appearance** (under Settings) or via environment variables:
+Every institution can rebrand the **site appearance** without code changes —
+set values in **Appearance** (under Settings):
 
 | Setting | Environment variable |
 |---|---|
@@ -15,12 +15,19 @@ Every institution can rebrand the system without code changes — set values in
 | School motto | `SCHOOL_MOTTO` |
 | School address / phone / email | `SCHOOL_ADDRESS`, `SCHOOL_PHONE`, `SCHOOL_EMAIL` |
 | School logo | uploaded in Appearance (used on all reports) |
-| Software name | `SOFTWARE_NAME` (default MobiSchola) |
-| Software byline | `SOFTWARE_BYLINE` (default By Edutechweb 0772577666) |
-| Software tagline | `SOFTWARE_TAGLINE` (default Manage smarter—even offline.) |
-| Software version | `SOFTWARE_VERSION` (default 2.5.0) |
 | Currency symbol | `CURRENCY_SYMBOL` (default $) |
 | Brand colours | `primary_color` etc. via Appearance |
+
+**Software branding is fixed and cannot be changed from the UI.** The
+"MobiSchola — By Edutechweb 0772577666 — Manage smarter—even offline." branding
+is excluded from the Appearance page, the save form and the WordPress theme
+sync. Only the deployment operator can override it with environment variables
+(`SOFTWARE_NAME`, `SOFTWARE_BYLINE`, `SOFTWARE_TAGLINE`, `SOFTWARE_VERSION`)
+at install time.
+
+Appearance settings can be saved **even when the WordPress sync endpoint is
+not configured** — the Push/Pull buttons simply appear once an endpoint is set
+in Sync Center.
 
 The **school logo is inherited by every report**: PDF receipts, PDF invoices,
 report cards, debtors reports, on-screen receipts/invoices, and the thermal
