@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.6.2] — 2026-08-12
+
+### Fixed (Flask app)
+
+- **Appearance settings now save reliably.** The Appearance page had invalid
+  HTML: a second `<form>` was nested inside the settings form, and per the
+  HTML standard the nested form's closing tag also closed the outer form —
+  so the "Save Appearance Settings" button ended up outside any form and
+  clicking it did nothing in the browser. The page was restructured into one
+  valid settings form (school branding, currency, colours, typography, save
+  button) with the logo upload/remove controls moved into their own standalone
+  card after it. Saving settings can no longer wipe the uploaded logo either —
+  the save handler now only touches keys that are actually posted.
+- **Sync settings save without JavaScript.** The Sync Center previously
+  relied on a JS `fetch` for saving the endpoint / API key / auto-sync
+  options. The cards are now inside a normal form that POSTs to a new
+  `/sync/settings` route (with a no-JS fallback), so "Save Configuration"
+  and "Save Settings" always persist, start/stop the background access-point
+  monitor, and show a confirmation flash. The API endpoint
+  (`/api/sync/auto-sync-settings`) is kept for compatibility.
+
+---
+
 ## [2.6.1] — 2026-08-12
 
 ### Changed (Flask app)

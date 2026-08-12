@@ -90,48 +90,6 @@
     </div>
 </div>
 
-<!-- Logo Upload -->
-<div class="card mb-2">
-    <div class="card-header"><h3><i class="fas fa-image" style="color:var(--primary);margin-right:8px;"></i>School Logo</h3></div>
-    <div class="card-body">
-        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
-            {% if theme.logo_url %}
-            <div style="text-align:center;">
-                <img src="{{ url_for('static', filename=theme.logo_url) }}" alt="Current Logo"
-                     style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid var(--secondary);padding:4px;">
-                <p style="font-size:11px;color:var(--text-light);margin-top:8px;">Current Logo</p>
-            </div>
-            {% else %}
-            <div style="width:100px;height:100px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;color:var(--secondary);font-size:40px;font-weight:bold;border:3px solid var(--secondary);">
-                E
-            </div>
-            <p style="font-size:11px;color:var(--text-light);">No logo uploaded — using default</p>
-            {% endif %}
-            <div style="flex:1;min-width:250px;">
-                <form method="POST" action="{{ url_for('upload_logo') }}" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-                    <div style="flex:1;">
-                        <input type="file" name="logo_file" class="form-control" accept="image/*" required
-                               style="padding:8px;">
-                        <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Accepted: PNG, JPG, GIF, SVG, WEBP. Max 16MB.</p>
-                    </div>
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> Upload Logo</button>
-                </form>
-                {% if theme.logo_url %}
-                <form method="POST" action="{{ url_for('appearance_settings') }}" style="margin-top:10px;">
-                    <input type="hidden" name="logo_url" value="">
-                    <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove the school logo?');"><i class="fas fa-trash"></i> Remove Logo</button>
-                </form>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-</div>
-
-<form method="POST">
-        </div>
-    </div>
-</div>
-
 <!-- Colors -->
 <div class="card mb-2">
     <div class="card-header"><h3><i class="fas fa-palette" style="color:var(--secondary);margin-right:8px;"></i>Color Scheme</h3></div>
@@ -259,4 +217,42 @@
     <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
 </div>
 </form>
+
+<!-- School Logo (standalone — not nested inside the settings form) -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-image" style="color:var(--primary);margin-right:8px;"></i>School Logo</h3></div>
+    <div class="card-body">
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+            {% if theme.logo_url %}
+            <div style="text-align:center;">
+                <img src="{{ url_for('static', filename=theme.logo_url) }}" alt="Current Logo"
+                     style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid var(--secondary);padding:4px;">
+                <p style="font-size:11px;color:var(--text-light);margin-top:8px;">Current Logo</p>
+            </div>
+            {% else %}
+            <div style="width:100px;height:100px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;color:var(--secondary);font-size:40px;font-weight:bold;border:3px solid var(--secondary);">
+                E
+            </div>
+            <p style="font-size:11px;color:var(--text-light);">No logo uploaded — using default</p>
+            {% endif %}
+            <div style="flex:1;min-width:250px;">
+                <form method="POST" action="{{ url_for('upload_logo') }}" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <div style="flex:1;">
+                        <input type="file" name="logo_file" class="form-control" accept="image/*" required
+                               style="padding:8px;">
+                        <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Accepted: PNG, JPG, GIF, SVG, WEBP. Max 16MB.</p>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> Upload Logo</button>
+                </form>
+                {% if theme.logo_url %}
+                <form method="POST" action="{{ url_for('appearance_settings') }}" style="margin-top:10px;">
+                    <input type="hidden" name="logo_url" value="">
+                    <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove the school logo?');"><i class="fas fa-trash"></i> Remove Logo</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        <p style="font-size:12px;color:var(--text-light);margin-top:10px;">The logo appears on the login page and is printed on receipts, invoices and all reports.</p>
+    </div>
+</div>
 {% endblock %}

@@ -5469,7 +5469,10 @@ def staff_excel_template():
 def appearance_settings():
     if request.method == 'POST':
         # Save all posted theme fields — EXCEPT the fixed software branding,
-        # which is never customisable from the UI.
+        # which is never customisable from the UI. Keys that are not part of
+        # this form (logo_url, favicon, login background) are left untouched,
+        # so saving settings can never wipe the uploaded logo.
+        posted = set(request.form.keys())
         for key in DEFAULT_THEME.keys():
             if key in SOFTWARE_BRANDING_KEYS:
                 # Wipe any previously stored branding so it always falls back
@@ -5477,6 +5480,8 @@ def appearance_settings():
                 setting = AppearanceSetting.query.filter_by(key=key).first()
                 if setting:
                     db.session.delete(setting)
+                continue
+            if key not in posted:
                 continue
             val = request.form.get(key, '').strip()
             if val:
@@ -7254,6 +7259,39 @@ def api_auto_sync_settings():
         ap_monitor.stop()
 
     return jsonify({'success': True, 'enabled': enabled, 'interval': interval})
+
+
+@app.route('/sync/settings', methods=['POST'])
+@login_required
+@role_required('super_admin', 'bursar')
+def sync_save_settings():
+    """Save sync configuration from a plain form POST (works without JavaScript)."""
+    endpoint = (request.form.get('endpoint') or '').strip()
+    api_key = (request.form.get('api_key') or '').strip()
+    enabled = request.form.get('auto_sync_enabled') == 'on'
+    interval = 300
+    try:
+        interval = max(30, int(request.form.get('auto_sync_interval') or 300))
+    except (TypeError, ValueError):
+        pass
+
+    SyncSetting.set('sync_endpoint', endpoint, 'WordPress sync endpoint URL')
+    app.config['SYNC_ENDPOINT'] = endpoint
+    SyncSetting.set('sync_api_key', api_key, 'Sync API key')
+    app.config['SYNC_API_KEY'] = api_key
+    SyncSetting.set('auto_sync_enabled', 'true' if enabled else 'false', 'Auto-sync on/off')
+    SyncSetting.set('auto_sync_interval', str(interval), 'Auto-sync check interval (seconds)')
+
+    if enabled and not ap_monitor.status()['running']:
+        ap_monitor.start()
+    elif not enabled and ap_monitor.status()['running']:
+        ap_monitor.stop()
+
+    if endpoint:
+        flash('Sync settings saved successfully. Endpoint: ' + endpoint, 'success')
+    else:
+        flash('Sync settings saved. Configure the WordPress endpoint URL to connect.', 'warning')
+    return redirect(url_for('sync_dashboard'))
 
 
 @app.route('/api/sync/status')
