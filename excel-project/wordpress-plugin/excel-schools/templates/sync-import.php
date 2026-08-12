@@ -6,7 +6,7 @@
 if (!defined('ABSPATH')) exit;
 ?>
 <div class="wrap">
-    <h1>Excel Schools — Import Data (JSON)</h1>
+    <h1>MobiSchola — Import Data (JSON)</h1>
     <p>Upload a JSON file exported from the offline Flask application using the <strong>Export Data (JSON)</strong> feature. This will merge the data into the online WordPress portal.</p>
 
     <?php if (!empty($result_message)) echo $result_message; ?>

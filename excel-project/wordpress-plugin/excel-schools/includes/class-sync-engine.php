@@ -14,7 +14,7 @@
  * truth, unlike the previous build which split them between esm_* and
  * ess_* and silently broke authentication.
  *
- * Author: Valentine T Mabheka | Version: 3.0.0
+ * Author: Edutechweb
  */
 if (!defined('ABSPATH')) exit;
 

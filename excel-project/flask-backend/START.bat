@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 echo.
 echo ============================================================
-echo   Excel Schools - Windows WSGI Startup
+echo   MobiSchola - Windows WSGI Startup
 echo ============================================================
 echo.
 

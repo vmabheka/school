@@ -5,7 +5,7 @@
  * rewrite rules, login/logout, role-based navigation, and dispatches to
  * the per-module templates in templates/.
  *
- * Author: Valentine T Mabheka | Version: 3.0.0
+ * Author: Edutechweb
  */
 if (!defined('ABSPATH')) exit;
 

@@ -1,9 +1,42 @@
-# Excel Group of Schools - School Management System
+# MobiSchola — School Management System
 
-A comprehensive web-based school management system designed for **Excel Group of Schools** that supports both **online** and **offline** deployment with periodic synchronization.
+A comprehensive web-based school management system that works **online or offline (LAN)** with periodic synchronization — and is fully brandable for any institution.
 
-**Author:** Valentine T Mabheka
-**Version:** 2.0.0
+**MobiSchola v2.5.0 — By Edutechweb 0772577666 — Manage smarter—even offline.**
+
+## Branding & Deployment Customisation
+
+Every institution can rebrand the system without code changes — set values in
+**Appearance** (under Settings) or via environment variables:
+
+| Setting | Environment variable |
+|---|---|
+| School name | `SCHOOL_NAME` |
+| School motto | `SCHOOL_MOTTO` |
+| School address / phone / email | `SCHOOL_ADDRESS`, `SCHOOL_PHONE`, `SCHOOL_EMAIL` |
+| School logo | uploaded in Appearance (used on all reports) |
+| Software name | `SOFTWARE_NAME` (default MobiSchola) |
+| Software byline | `SOFTWARE_BYLINE` (default By Edutechweb 0772577666) |
+| Software tagline | `SOFTWARE_TAGLINE` (default Manage smarter—even offline.) |
+| Software version | `SOFTWARE_VERSION` (default 2.5.0) |
+| Currency symbol | `CURRENCY_SYMBOL` (default $) |
+| Brand colours | `primary_color` etc. via Appearance |
+
+The **school logo is inherited by every report**: PDF receipts, PDF invoices,
+report cards, debtors reports, on-screen receipts/invoices, and the thermal
+print view all show the institution's logo and contact details.
+
+## Printing receipts
+
+Every payment receipt can be printed to **any printer, including an 80mm
+thermal printer**:
+
+- After recording a payment you land on the receipt page — click
+  **Print Receipt (Thermal / Any Printer)**.
+- The **Payments** page has a print button on every row.
+- The thermal print view is formatted for 80mm roll paper and opens the
+  standard print dialog, so you can pick the thermal printer, a laser or any
+  other printer. PDF download is also available.
 
 ## Features
 

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Receipt {{ payment.receipt_number }}</title>
+<style>
+    /* 80mm thermal receipt — also prints fine on any regular printer */
+    @page { size: 80mm auto; margin: 0; }
+    * { box-sizing: border-box; }
+    body {
+        font-family: 'Courier New', Courier, monospace;
+        width: 72mm;
+        margin: 0 auto;
+        padding: 3mm 0;
+        font-size: 11px;
+        color: #000;
+        background: #fff;
+    }
+    .center { text-align: center; }
+    .brand-logo { max-width: 38mm; max-height: 16mm; object-fit: contain; margin: 0 auto 2mm; display: block; }
+    .school-name { font-weight: bold; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .motto { font-size: 10px; margin-top: 1mm; }
+    .contact { font-size: 9px; margin-top: 1mm; }
+    .tagline { font-size: 9px; margin-top: 2mm; }
+    hr { border: none; border-top: 1px dashed #000; margin: 2.5mm 0; }
+    .title { font-weight: bold; font-size: 12px; letter-spacing: 1px; }
+    .row { display: flex; justify-content: space-between; padding: 1mm 0; }
+    .row .label { color: #444; }
+    .row .value { font-weight: bold; text-align: right; max-width: 60%; }
+    .amount { font-size: 16px; font-weight: bold; }
+    .signature { margin-top: 3mm; font-size: 9px; }
+    .footer { margin-top: 3mm; font-size: 8px; color: #555; text-align: center; }
+    .no-print { display: block; text-align: center; margin: 4mm auto; }
+    .no-print button {
+        font-family: Arial, sans-serif; font-size: 14px; padding: 8px 18px;
+        border: none; border-radius: 6px; cursor: pointer; margin: 0 2mm;
+    }
+    .btn-print { background: #1F2080; color: #fff; }
+    .btn-close { background: #e5e7eb; color: #111; }
+    @media print {
+        .no-print { display: none !important; }
+        body { padding: 0; }
+    }
+</style>
+</head>
+<body>
+    <div class="center">
+        {% if theme.logo_url %}
+        <img class="brand-logo" src="{{ url_for('static', filename=theme.logo_url) }}" alt="Logo">
+        {% endif %}
+        <div class="school-name">{{ theme.school_name|default('School') }}</div>
+        {% if theme.school_motto %}<div class="motto">{{ theme.school_motto }}</div>{% endif %}
+        {% set contact = [theme.school_address|default(''), theme.school_phone|default(''), theme.school_email|default('')]|select|join(' • ') %}
+        {% if contact %}<div class="contact">{{ contact }}</div>{% endif %}
+    </div>
+
+    <hr>
+    <div class="center title">OFFICIAL FEE RECEIPT</div>
+    <hr>
+
+    <div class="row"><span class="label">Receipt No:</span><span class="value">{{ payment.receipt_number }}</span></div>
+    <div class="row"><span class="label">Date:</span><span class="value">{{ payment.payment_date.strftime('%d %B %Y') if payment.payment_date else '—' }}</span></div>
+    <div class="row"><span class="label">Student:</span><span class="value">{{ payment.student.first_name }} {{ payment.student.last_name }}</span></div>
+    <div class="row"><span class="label">Adm No:</span><span class="value">{{ payment.student.admission_number }}</span></div>
+    <div class="row"><span class="label">Class:</span><span class="value">{{ payment.student.class_.name if payment.student.class_ else '—' }}</span></div>
+    <div class="row"><span class="label">Method:</span><span class="value">{{ payment.payment_method or 'Cash' }}</span></div>
+
+    <hr>
+
+    <div class="center">
+        <div class="label">Amount Paid</div>
+        <div class="amount">{{ currency_symbol }}{{ "%.2f"|format(payment.amount) }}</div>
+    </div>
+
+    <hr>
+
+    {% if payment.description %}
+    <div class="row"><span class="label">Description:</span><span class="value">{{ payment.description }}</span></div>
+    {% endif %}
+    {% if recorder %}
+    <div class="row"><span class="label">Received by:</span><span class="value">{{ recorder.role_label }} @{{ recorder.username }}</span></div>
+    {% endif %}
+    <div class="row"><span class="label">Recorded:</span><span class="value">{{ payment.created_at.strftime('%d %b %Y %H:%M UTC') if payment.created_at else '—' }}</span></div>
+    <div class="row"><span class="label">Signature ID:</span><span class="value">{{ signature_id }}</span></div>
+
+    <div class="center signature">Thank you for your payment!</div>
+
+    <hr>
+
+    <div class="footer">
+        {{ software_name }} v{{ software_version }} — {{ software_byline }}<br>
+        {{ software_tagline }}
+    </div>
+
+    <div class="no-print">
+        <button class="btn-print" onclick="window.print()">🖨 Print</button>
+        <button class="btn-close" onclick="window.close()">Close</button>
+        <p style="font-size:10px;color:#666;font-family:Arial,sans-serif;">Choose your receipt printer (thermal 80mm or any printer) in the print dialog.</p>
+    </div>
+
+    <script>
+        window.onload = function () {
+            setTimeout(function () { window.print(); }, 500);
+        };
+    </script>
+</body>
+</html>

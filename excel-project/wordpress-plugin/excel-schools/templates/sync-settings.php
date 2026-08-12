@@ -7,7 +7,7 @@
 if (!defined('ABSPATH')) exit;
 ?>
 <div class="wrap">
-    <h1>Excel Schools — Sync Settings</h1>
+    <h1>MobiSchola — Sync Settings</h1>
     <form method="POST">
         <?php wp_nonce_field('esm_sync_settings', 'esm_sync_nonce'); ?>
         <table class="form-table">

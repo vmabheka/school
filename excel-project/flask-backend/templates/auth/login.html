@@ -9,10 +9,11 @@
             <img src="{{ url_for('static', filename=theme.logo_url) }}" alt="Logo"
                  style="width:90px;height:90px;border-radius:50%;margin:0 auto 16px;display:block;background:#fff;padding:6px;box-shadow:0 4px 12px rgba(0,0,0,0.25);object-fit:cover;">
             {% else %}
-            <div style="width:70px;height:70px;background:var(--secondary);border-radius:50%;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:bold;color:var(--primary-dark);">E</div>
+            <div style="width:70px;height:70px;background:var(--secondary);border-radius:50%;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:bold;color:var(--primary-dark);">{{ (theme.school_name|default('S'))[0] }}</div>
             {% endif %}
-            <h1 style="color:white;font-size:20px;">{{ theme.school_name|default('Excel Group of Schools') }}</h1>
-            <p style="color:rgba(255,255,255,0.7);font-size:13px;margin-top:4px;">{{ theme.school_motto|default('Excellence in Education') }}</p>
+            <h1 style="color:white;font-size:20px;">{{ theme.school_name|default('School') }}</h1>
+            <p style="color:rgba(255,255,255,0.7);font-size:13px;margin-top:4px;">{{ theme.school_motto|default('') }}</p>
+            <p style="color:rgba(255,255,255,0.55);font-size:11px;margin-top:2px;">{{ software_name|default('MobiSchola') }} v{{ software_version|default('2.5.0') }} — {{ software_byline|default('By Edutechweb 0772577666') }}</p>
         </div>
         <div class="card-body" style="padding:32px;">
             <h2 style="text-align:center;margin-bottom:24px;font-size:18px;">Sign In</h2>
@@ -41,7 +42,7 @@
                     <span style="background:#c8a951;color:#fff;padding:2px 6px;border-radius:8px;font-size:9px;">Parent</span>
                     <span style="background:#e85d26;color:#fff;padding:2px 6px;border-radius:8px;font-size:9px;">Student</span>
                 </div>
-                <p style="font-size:10px;color:var(--text-light);margin-top:4px;">v2.0.0 — Developed by Valentine T Mabheka</p>
+                <p style="font-size:10px;color:var(--text-light);margin-top:4px;">{{ software_tagline|default('Manage smarter—even offline.') }}</p>
             </div>
         </div>
     </div>

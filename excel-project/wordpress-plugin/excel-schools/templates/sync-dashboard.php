@@ -7,7 +7,7 @@
 if (!defined('ABSPATH')) exit;
 ?>
 <div class="wrap">
-    <h1>Excel Schools — Sync Center</h1>
+    <h1>MobiSchola — Sync Center</h1>
     <p>Bidirectional sync between this WordPress site and the offline Flask app at <code><?php echo esc_html($flask_endpoint ?: 'not configured'); ?></code>.</p>
 
     <div style="display:flex;gap:16px;margin:20px 0;flex-wrap:wrap;">

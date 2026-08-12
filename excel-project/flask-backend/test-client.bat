@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title Excel Schools - Client Connection Test
+title MobiSchola - Client Connection Test
 
 :: ============================================================
-::  Excel Schools - Client Connection Test
+::  MobiSchola - Client Connection Test
 :: ============================================================
 ::  Run this ON A CLIENT DEVICE that cannot reach the server.
 ::
@@ -44,13 +44,13 @@ if %PING_OK% equ 0 (
 echo.
 
 :: --- 2. TCP port test ------------------------------------------
-echo [2/3] TCP port test - is the Excel Schools port open on the server?
+echo [2/3] TCP port test - is the MobiSchola port open on the server?
 powershell -NoProfile -Command "$r = Test-NetConnection -ComputerName '%SERVER_IP%' -Port %EXCEL_SCHOOLS_PORT% -InformationLevel Quiet -WarningAction SilentlyContinue; if ($r) { Write-Host '        SUCCESS: port %EXCEL_SCHOOLS_PORT% is OPEN on the server.' } else { Write-Host '        FAILED: port %EXCEL_SCHOOLS_PORT% is BLOCKED or unreachable.' }"
 set "TCP_OK=%errorlevel%"
 echo.
 
 :: --- 3. Web test ------------------------------------------------
-echo [3/3] Web test - does the Excel Schools app answer on the server?
+echo [3/3] Web test - does the MobiSchola app answer on the server?
 where curl >nul 2>&1
 if %errorlevel% equ 0 (
     curl -s -o nul -w "        HTTP status: %%{http_code}\n" http://%SERVER_IP%:%EXCEL_SCHOOLS_PORT%/healthz

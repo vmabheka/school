@@ -1,5 +1,5 @@
 #!/bin/sh
-# Excel Schools launcher for Linux/macOS.
+# MobiSchola launcher for Linux/macOS.
 # Installs Gunicorn in .venv, initializes the database, then serves wsgi:app.
 set -eu
 
@@ -7,7 +7,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$ROOT"
 
 printf '%s\n' '=================================================='
-printf '%s\n' '  Excel Schools - WSGI Startup'
+printf '%s\n' '  MobiSchola - WSGI Startup'
 printf '%s\n' '=================================================='
 
 printf '\n[1/3] Installing/updating the Gunicorn WSGI server...\n'

@@ -5,7 +5,7 @@
  * student/staff/fee-payment record changes in WordPress, instead of
  * waiting for the next scheduled sync cycle.
  *
- * Author: Valentine T Mabheka | Version: 3.0.0
+ * Author: Edutechweb
  */
 if (!defined('ABSPATH')) exit;
 

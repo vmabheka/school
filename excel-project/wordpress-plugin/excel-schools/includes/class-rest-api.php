@@ -8,7 +8,7 @@
  * option — the same option the Sync Engine reads/writes — so there is
  * no key-name mismatch between authentication and configuration.
  *
- * Author: Valentine T Mabheka | Version: 3.0.0
+ * Author: Edutechweb
  */
 if (!defined('ABSPATH')) exit;
 

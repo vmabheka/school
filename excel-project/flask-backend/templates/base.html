@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Dashboard{% endblock %} | Excel Group of Schools</title>
+    <title>{% block title %}Dashboard{% endblock %} | {{ software_name|default('MobiSchola') }}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
@@ -806,6 +806,10 @@
             </a>
             {% endif %}
         </nav>
+        <div class="sidebar-footer" style="padding:12px 16px;font-size:10px;color:var(--text-light);border-top:1px solid var(--border);text-align:center;line-height:1.5;">
+            {{ software_name|default('MobiSchola') }} v{{ software_version|default('2.5.0') }}<br>
+            {{ software_byline|default('By Edutechweb 0772577666') }}
+        </div>
     </aside>
 
     <!-- Header -->

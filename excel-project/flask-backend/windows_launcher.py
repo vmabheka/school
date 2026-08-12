@@ -1,4 +1,4 @@
-"""Windows executable entry point for the offline Excel Schools app.
+"""Windows executable entry point for the offline MobiSchola app.
 
 This launcher runs the central LAN server: it listens on 0.0.0.0 so every
 device on the same network can open the app and feed data into the one
@@ -32,7 +32,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
-FIREWALL_RULE_NAME = 'Excel Schools LAN Server'
+FIREWALL_RULE_NAME = 'MobiSchola LAN Server'
 DEFAULT_PORT = 5000
 
 
@@ -232,7 +232,7 @@ def open_browser_when_ready(url: str) -> None:
 
 def run_diagnostics(port: int) -> None:
     print('=' * 62)
-    print(' Excel Schools - LAN Diagnostics')
+    print(' MobiSchola - LAN Diagnostics')
     print('=' * 62)
 
     print('\n[1/4] Addresses for client devices:')
@@ -272,7 +272,7 @@ def run_diagnostics(port: int) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description='Excel Schools Offline Windows server')
+    parser = argparse.ArgumentParser(description='MobiSchola offline Windows server')
     parser.add_argument('--verify-production-server', action='store_true')
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--diagnose', action='store_true',
@@ -341,7 +341,7 @@ def main() -> int:
 
     url = f'http://127.0.0.1:{port}'
     print('=' * 62)
-    print(' Excel Schools Offline - Waitress Production WSGI Server')
+    print(' MobiSchola - Waitress Production WSGI Server')
     print(f' This computer: {url}')
     if lan_mode:
         addresses = lan_addresses()
@@ -368,7 +368,7 @@ def main() -> int:
     try:
         serve(app, host=host, port=port, threads=threads, channel_timeout=120)
     except KeyboardInterrupt:
-        print('\nExcel Schools stopped.')
+        print('\nMobiSchola stopped.')
     return 0
 
 

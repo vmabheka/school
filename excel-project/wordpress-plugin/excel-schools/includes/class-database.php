@@ -8,7 +8,7 @@
  * definitions — nothing here was invented independently of the
  * offline app, and nothing the offline app has is missing here.
  *
- * Author: Valentine T Mabheka | Version: 3.0.0
+ * Author: Edutechweb
  */
 if (!defined('ABSPATH')) exit;
 

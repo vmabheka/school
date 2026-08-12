@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.0] — 2026-08-12
+
+### Added (Flask app)
+
+- **Fully customisable branding for any institution**: software name, byline,
+  tagline, version, currency symbol and school contact details are now
+  configurable on the **Appearance** page and via environment variables
+  (`SOFTWARE_NAME`, `SOFTWARE_BYLINE`, `SOFTWARE_TAGLINE`,
+  `SOFTWARE_VERSION`, `CURRENCY_SYMBOL`, `SCHOOL_ADDRESS`, `SCHOOL_PHONE`,
+  `SCHOOL_EMAIL`, …). They appear on the login page, sidebar, receipts,
+  invoices, reports, emails and Excel templates.
+- **School logo inherited by all reports**: the uploaded logo is now embedded
+  in the PDF receipt, PDF invoice, combined invoices, report card and debtors
+  PDF (via a shared PDF header), and shown on the on-screen receipt, invoice
+  and report-card pages — together with the school name, motto and contact
+  line.
+- **Thermal / any-printer receipt printing**: new print view
+  (`/fees/receipt/<id>/print`) formatted for 80mm thermal roll paper with an
+  auto print dialog; the receipt page and the Payments list link to it, and
+  after recording a payment you land on the receipt with a one-click print
+  button. Works with thermal printers and any regular printer.
+- **Rebranded to MobiSchola**: software name/version updated from
+  "Excel Group of Schools v2.0.0 — Valentine T Mabheka" to
+  **MobiSchola v2.5.0 — By Edutechweb 0772577666 — Manage smarter—even
+  offline.** across the Flask app, PDFs, Excel templates, launchers, and the
+  WordPress portal (plugin 3.2.0).
+- Fixed a pre-existing crash in the report-card PDF when an exam has no type.
+
+---
+
 ## [2.4.2] — 2026-08-03
 
 ### Fixed (Flask app)

@@ -3,7 +3,7 @@
 if (!defined('ABSPATH')) exit;
 ?>
 <div class="wrap">
-    <h1>Excel Schools — Sync Logs</h1>
+    <h1>MobiSchola — Sync Logs</h1>
     <form method="POST" style="margin-bottom:16px;">
         <?php wp_nonce_field('esm_clear_logs', 'esm_logs_nonce'); ?>
         <button type="submit" name="esm_clear_logs" class="button button-secondary" onclick="return confirm('Clear all sync logs?');">Clear Logs</button>

@@ -1,12 +1,12 @@
 <?php
 /**
- * Plugin Name: Excel Schools
+ * Plugin Name: MobiSchola
  * Plugin URI: https://crm.egs.ac.zw
- * Description: Excel Schools management portal for WordPress — a direct mirror of the
+ * Description: MobiSchola management portal for WordPress — a direct mirror of the
  *              offline Flask school-management app, exposed at /sms/ on this site, kept
  *              in sync with the offline app via the bundled sync engine and REST API.
- * Version: 3.1.5
- * Author: Valentine T Mabheka
+ * Version: 3.2.0
+ * Author: Edutechweb
  * Author URI: https://excelgroup.edu.zw
  * License: GPL v2 or later
  * Text Domain: excel-schools
@@ -18,11 +18,11 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ESM_VERSION', '3.1.5');
+define('ESM_VERSION', '3.2.0');
 define('ESM_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('ESM_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('ESM_PLUGIN_FILE', __FILE__);
-define('ESM_AUTHOR', 'Valentine T Mabheka');
+define('ESM_AUTHOR', 'By Edutechweb 0772577666');
 
 // ─── Roles mirrored 1:1 from the offline app's ROLE_LABELS (app.py) ────
 // The offline Flask app recognises exactly these 6 roles. This plugin

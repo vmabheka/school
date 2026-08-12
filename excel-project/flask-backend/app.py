@@ -1,11 +1,12 @@
 """
-Excel Group of Schools - School Management System
-===================================================
+MobiSchola — School Management System
+======================================
 A comprehensive web-based school management system that can be deployed
-both online and offline with periodic synchronization.
+online or offline (LAN) and is fully brandable for any institution:
+school name, motto, logo, contact details, colours, currency symbol and
+software branding are configurable per deployment.
 
-Author: Valentine T Mabheka
-Version: 2.1.0
+MobiSchola v2.5.0 — By Edutechweb 0772577666 — Manage smarter—even offline.
 """
 
 import os
@@ -15,6 +16,7 @@ import re
 import uuid
 from datetime import datetime, date, timedelta
 from functools import wraps
+from pathlib import Path
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, jsonify, session, send_file, make_response)
@@ -112,8 +114,16 @@ def add_security_headers(response):
 db = SQLAlchemy(app)
 
 # App version (synced with WordPress plugin)
-APP_VERSION = '2.1.0'
-APP_VERSION_DATE = '2026-07-06'
+APP_VERSION = '2.5.0'
+APP_VERSION_DATE = '2026-08-12'
+
+# Software branding — shown in the UI, reports, receipts, invoices, PDFs and
+# exported files. Every institution can override these on the Appearance
+# settings page (or with SOFTWARE_NAME / SOFTWARE_BYLINE / SOFTWARE_TAGLINE /
+# SOFTWARE_VERSION / CURRENCY_SYMBOL environment variables).
+SOFTWARE_NAME = 'MobiSchola'
+SOFTWARE_BYLINE = 'By Edutechweb 0772577666'
+SOFTWARE_TAGLINE = 'Manage smarter—even offline.'
 
 # Initial super-admin credentials used only when provisioning a new database.
 DEFAULT_ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'edusync')
@@ -134,6 +144,11 @@ def inject_theme():
     return dict(
         theme=theme,
         school_name=theme.get('school_name', 'Excel Group of Schools'),
+        software_name=theme.get('software_name', SOFTWARE_NAME),
+        software_byline=theme.get('software_byline', SOFTWARE_BYLINE),
+        software_tagline=theme.get('software_tagline', SOFTWARE_TAGLINE),
+        software_version=theme.get('software_version', APP_VERSION),
+        currency_symbol=theme.get('currency_symbol', '$'),
         user_role=role,
         role_label=ROLE_LABELS.get(role, role.title() if role else 'Guest'),
         role_nav_sections=ROLE_NAV_SECTIONS.get(role, []),
@@ -885,6 +900,12 @@ DEFAULT_THEME = {
     'school_address': '',
     'school_phone': '',
     'school_email': '',
+    # Software branding (deployment customisation)
+    'software_name': SOFTWARE_NAME,
+    'software_byline': SOFTWARE_BYLINE,
+    'software_tagline': SOFTWARE_TAGLINE,
+    'software_version': APP_VERSION,
+    'currency_symbol': '$',
     # Deep navy blue — matches the EGS crest outer ring & shield
     'primary_color': '#1F2080',
     'primary_dark': '#13145A',
@@ -915,7 +936,122 @@ def get_theme():
     # Merge with defaults
     theme = dict(DEFAULT_THEME)
     theme.update(settings)
+    # Environment variables override everything so each deployment can brand
+    # the system for its own institution without touching the database.
+    env_overrides = {
+        'school_name': 'SCHOOL_NAME',
+        'school_motto': 'SCHOOL_MOTTO',
+        'school_address': 'SCHOOL_ADDRESS',
+        'school_phone': 'SCHOOL_PHONE',
+        'school_email': 'SCHOOL_EMAIL',
+        'software_name': 'SOFTWARE_NAME',
+        'software_byline': 'SOFTWARE_BYLINE',
+        'software_tagline': 'SOFTWARE_TAGLINE',
+        'software_version': 'SOFTWARE_VERSION',
+        'currency_symbol': 'CURRENCY_SYMBOL',
+    }
+    for key, env_name in env_overrides.items():
+        value = os.environ.get(env_name)
+        if value:
+            theme[key] = value
     return theme
+
+
+def software_branding():
+    """Return the current software branding block (name, byline, tagline, version)."""
+    theme = get_theme()
+    return {
+        'name': theme.get('software_name', SOFTWARE_NAME),
+        'byline': theme.get('software_byline', SOFTWARE_BYLINE),
+        'tagline': theme.get('software_tagline', SOFTWARE_TAGLINE),
+        'version': theme.get('software_version', APP_VERSION),
+        'currency': theme.get('currency_symbol', '$'),
+    }
+
+
+def theme_logo_path():
+    """Absolute filesystem path of the current school logo, or None."""
+    theme = get_theme()
+    logo_url = theme.get('logo_url', '')
+    if not logo_url:
+        return None
+    candidate = Path(app.static_folder) / logo_url
+    return str(candidate) if candidate.exists() else None
+
+
+def _pdf_logo_image(max_height_mm=16):
+    """Return a reportlab Image flowable of the school logo (or None)."""
+    from reportlab.platypus import Image
+    from reportlab.lib.utils import ImageReader
+    from reportlab.lib.units import mm
+    path = theme_logo_path()
+    if not path:
+        return None
+    try:
+        reader = ImageReader(path)
+        width, height = reader.getSize()
+        if not width or not height:
+            return None
+        max_height = max_height_mm * mm
+        scale = max_height / height
+        img = Image(path, width=width * scale, height=max_height)
+        img.hAlign = 'CENTER'
+        return img
+    except Exception:
+        return None
+
+
+def _software_footer(theme=None):
+    """Footer line used on every PDF: 'MobiSchola v2.5.0 — By Edutechweb 0772577666'."""
+    theme = theme or get_theme()
+    return (f"{theme.get('software_name', SOFTWARE_NAME)} "
+            f"v{theme.get('software_version', APP_VERSION)} — "
+            f"{theme.get('software_byline', SOFTWARE_BYLINE)}")
+
+
+def _brand_header_story(story, theme, title_size=14, show_contact=True):
+    """Append the school logo, school name, motto and contact line to a PDF story.
+
+    Used by every generated report (receipts, invoices, report cards, debtors)
+    so the institution's identity and logo appear on all output.
+    """
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.colors import HexColor
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Spacer, HRFlowable, Paragraph
+
+    base = getSampleStyleSheet()['Normal']
+    primary = HexColor(theme.get('primary_color', '#1F2080'))
+    logo = _pdf_logo_image()
+    if logo:
+        story.append(logo)
+        story.append(Spacer(1, 3 * mm))
+    story.append(Paragraph(
+        theme.get('school_name', SOFTWARE_NAME),
+        ParagraphStyle('BrandTitle', parent=base, fontSize=title_size,
+                       alignment=TA_CENTER, fontName='Helvetica-Bold',
+                       textColor=primary)))
+    motto = (theme.get('school_motto') or '').strip()
+    if motto:
+        story.append(Paragraph(
+            motto,
+            ParagraphStyle('BrandMotto', parent=base, fontSize=9,
+                           alignment=TA_CENTER, textColor=HexColor('#6b7280'))))
+    if show_contact:
+        contact_parts = [theme.get(k, '').strip() for k in
+                         ('school_address', 'school_phone', 'school_email')]
+        contact = ' • '.join(p for p in contact_parts if p)
+        if contact:
+            story.append(Paragraph(
+                contact,
+                ParagraphStyle('BrandContact', parent=base, fontSize=8,
+                               alignment=TA_CENTER,
+                               textColor=HexColor('#9ca3af'))))
+    story.append(Spacer(1, 3 * mm))
+    story.append(HRFlowable(width='100%', thickness=1, color=primary))
+    story.append(Spacer(1, 4 * mm))
+    return story
 
 
 def set_theme(key, value):
@@ -3268,15 +3404,15 @@ def debtors_export():
                                        textColor=amber)
 
         story = []
-        school_name = theme.get('school_name', 'Excel Group of Schools')
-        story.append(Paragraph(school_name, title_style))
+        _brand_header_story(story, theme, title_size=16)
         story.append(Paragraph("Debtors Report", ParagraphStyle('DH', parent=styles['Normal'],
                                                                 fontSize=12, alignment=TA_CENTER,
                                                                 fontName='Helvetica-Bold',
                                                                 textColor=primary)))
         meta = (f"Term: {term.name if term else 'N/A'} ({ay.name if ay else 'N/A'}) | "
                 f"Generated: {datetime.utcnow().strftime('%d %b %Y %H:%M')} UTC | "
-                f"Total Debtors: {len(debtors)} | Total Owed: ${total_owed:,.2f}")
+                f"Total Debtors: {len(debtors)} | "
+                f"Total Owed: {theme.get('currency_symbol', '$')}{total_owed:,.2f}")
         story.append(Paragraph(meta, sub_style))
         story.append(HRFlowable(width='100%', thickness=1, color=primary))
         story.append(Spacer(1, 4 * mm))
@@ -3346,7 +3482,7 @@ def debtors_export():
         story.append(Spacer(1, 4 * mm))
         story.append(HRFlowable(width='100%', thickness=0.5, color=HexColor('#d1d5db')))
         story.append(Paragraph(
-            "Excel Group of Schools v2.0.0 — Debtors Report — Valentine T Mabheka",
+            _software_footer(theme) + " — Debtors Report",
             ParagraphStyle('FooterD', parent=styles['Normal'], fontSize=7,
                            textColor=grey, alignment=TA_CENTER),
         ))
@@ -4890,8 +5026,8 @@ def students_excel_template():
     # Instruction sheet
     ws2 = wb.create_sheet("Instructions")
     instructions = [
-        ["EXCEL GROUP OF SCHOOLS — Student Bulk Import Template", ""],
-        ["Author: Valentine T Mabheka | Version 2.0.0", ""],
+        [f"{software_branding()['name'].upper()} — Student Bulk Import Template", ""],
+        [f"{software_branding()['name']} v{software_branding()['version']} | {software_branding()['byline']}", ""],
         ["", ""],
         ["INSTRUCTIONS:", ""],
         ["1.", "Fill in the 'Students Import' sheet with your student data."],
@@ -5114,8 +5250,8 @@ def staff_excel_template():
     # Instruction sheet
     ws2 = wb.create_sheet("Instructions")
     instructions = [
-        ["EXCEL GROUP OF SCHOOLS — Staff Bulk Import Template", ""],
-        ["Author: Valentine T Mabheka | Version 2.0.0", ""],
+        [f"{software_branding()['name'].upper()} — Staff Bulk Import Template", ""],
+        [f"{software_branding()['name']} v{software_branding()['version']} | {software_branding()['byline']}", ""],
         ["", ""],
         ["INSTRUCTIONS:", ""],
         ["1.", "Fill in the 'Staff Import' sheet with staff data."],
@@ -5216,7 +5352,7 @@ def api_theme_export():
         'success': True,
         'theme': theme,
         'default_theme': DEFAULT_THEME,
-        'version': '2.0.0',
+        'version': APP_VERSION,
         'updated_at': datetime.utcnow().isoformat(),
     })
 
@@ -5570,14 +5706,10 @@ def _generate_receipt_pdf(payment):
     value_style = ParagraphStyle('Value2', parent=styles['Normal'], fontSize=10, fontName='Helvetica-Bold')
 
     story = []
-    school_name = theme.get('school_name', 'Excel Group of Schools')
-    story.append(Paragraph(school_name, title_style))
-    story.append(Paragraph(theme.get('school_motto', ''), subtitle_style))
-    story.append(Spacer(1, 4*mm))
-    story.append(HRFlowable(width="100%", thickness=1, color=HexColor(theme.get('primary_color', '#1F2080'))))
-    story.append(Spacer(1, 4*mm))
+    _brand_header_story(story, theme, title_size=14)
     story.append(Paragraph("OFFICIAL RECEIPT", ParagraphStyle('Center', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Helvetica-Bold', textColor=HexColor(theme.get('primary_color', '#1F2080')))))
     story.append(Spacer(1, 4*mm))
+    currency = theme.get('currency_symbol', '$')
 
     student = payment.student
     receipt_data = [
@@ -5597,7 +5729,7 @@ def _generate_receipt_pdf(payment):
     # Amount section
     amount_data = [
         [Paragraph('Amount Paid:', ParagraphStyle('AmtLabel', parent=styles['Normal'], fontSize=12, fontName='Helvetica-Bold')),
-         Paragraph(f"${payment.amount:,.2f}", ParagraphStyle('AmtValue', parent=styles['Normal'], fontSize=14, fontName='Helvetica-Bold', alignment=TA_RIGHT, textColor=HexColor(theme.get('primary_color', '#1F2080'))))],
+         Paragraph(f"{currency}{payment.amount:,.2f}", ParagraphStyle('AmtValue', parent=styles['Normal'], fontSize=14, fontName='Helvetica-Bold', alignment=TA_RIGHT, textColor=HexColor(theme.get('primary_color', '#1F2080'))))],
     ]
     amt_table = Table(amount_data, colWidths=[50*mm, 40*mm])
     amt_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('BOTTOMPADDING', (0, 0), (-1, -1), 6)]))
@@ -5646,7 +5778,7 @@ def _generate_receipt_pdf(payment):
     story.append(Spacer(1, 4*mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=HexColor('#d1d5db')))
     story.append(Paragraph("Thank you for your payment!", ParagraphStyle('Thanks', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER, textColor=HexColor('#6b7280'))))
-    story.append(Paragraph("Excel Group of Schools v2.0.0 — Valentine T Mabheka", ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
+    story.append(Paragraph(_software_footer(theme), ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
 
     doc.build(story)
     buf.seek(0)
@@ -5669,14 +5801,10 @@ def _build_invoice_story(invoice, styles, theme):
     item_amt_style = ParagraphStyle('ItemAmtInv', parent=styles['Normal'], fontSize=10, alignment=TA_RIGHT)
 
     story = []
-    school_name = theme.get('school_name', 'Excel Group of Schools')
-    story.append(Paragraph(school_name, title_style))
-    story.append(Paragraph(theme.get('school_motto', ''), subtitle_style))
-    story.append(Spacer(1, 5*mm))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=HexColor(theme.get('primary_color', '#1F2080'))))
-    story.append(Spacer(1, 5*mm))
+    _brand_header_story(story, theme, title_size=16)
     story.append(Paragraph("OFFICIAL STUDENT FEE INVOICE", ParagraphStyle('CenterInv', parent=styles['Normal'], fontSize=13, alignment=TA_CENTER, fontName='Helvetica-Bold', textColor=HexColor(theme.get('primary_color', '#1F2080')))))
     story.append(Spacer(1, 6*mm))
+    currency = theme.get('currency_symbol', '$')
 
     student = invoice.student
     meta_data = [
@@ -5697,15 +5825,15 @@ def _build_invoice_story(invoice, styles, theme):
     story.append(meta_table)
     story.append(Spacer(1, 6*mm))
 
-    items_header = [Paragraph('<b>Description</b>', header_style), Paragraph('<b>Amount ($)</b>', ParagraphStyle('RHead', parent=header_style, alignment=TA_RIGHT))]
+    items_header = [Paragraph('<b>Description</b>', header_style), Paragraph(f'<b>Amount ({currency})</b>', ParagraphStyle('RHead', parent=header_style, alignment=TA_RIGHT))]
     items_rows = [items_header]
     for item in invoice.items:
         items_rows.append([
             Paragraph(item.description, item_desc_style),
-            Paragraph(f"${item.amount:,.2f}", item_amt_style)
+            Paragraph(f"{currency}{item.amount:,.2f}", item_amt_style)
         ])
     if len(items_rows) == 1:
-        items_rows.append([Paragraph('General Term Fees', item_desc_style), Paragraph(f"${invoice.subtotal:,.2f}", item_amt_style)])
+        items_rows.append([Paragraph('General Term Fees', item_desc_style), Paragraph(f"{currency}{invoice.subtotal:,.2f}", item_amt_style)])
 
     items_table = Table(items_rows, colWidths=[120*mm, 48*mm])
     items_table.setStyle(TableStyle([
@@ -5727,16 +5855,16 @@ def _build_invoice_story(invoice, styles, theme):
     balance = max(0.0, invoice.total_amount - total_paid)
 
     summary_data = [
-        [Paragraph('Subtotal:', label_style), Paragraph(f"${invoice.subtotal:,.2f}", value_style)],
+        [Paragraph('Subtotal:', label_style), Paragraph(f"{currency}{invoice.subtotal:,.2f}", value_style)],
     ]
     if invoice.discount_amount > 0:
-        summary_data.append([Paragraph(f'Scholarship Discount ({student.fee_classification}):', label_style), Paragraph(f"-${invoice.discount_amount:,.2f}", ParagraphStyle('DiscVal', parent=value_style, textColor=HexColor('#dc2626')))])
+        summary_data.append([Paragraph(f'Scholarship Discount ({student.fee_classification}):', label_style), Paragraph(f"-{currency}{invoice.discount_amount:,.2f}", ParagraphStyle('DiscVal', parent=value_style, textColor=HexColor('#dc2626')))])
     summary_data.extend([
         [Paragraph('<b>Net Invoice Total:</b>', ParagraphStyle('BLabel', parent=label_style, fontName='Helvetica-Bold', fontSize=11)),
-         Paragraph(f"<b>${invoice.total_amount:,.2f}</b>", ParagraphStyle('BVal', parent=value_style, fontSize=12, alignment=TA_RIGHT, textColor=HexColor(theme.get('primary_color', '#1F2080'))))],
-        [Paragraph('Amount Paid to Date:', label_style), Paragraph(f"${total_paid:,.2f}", value_style)],
+         Paragraph(f"<b>{currency}{invoice.total_amount:,.2f}</b>", ParagraphStyle('BVal', parent=value_style, fontSize=12, alignment=TA_RIGHT, textColor=HexColor(theme.get('primary_color', '#1F2080'))))],
+        [Paragraph('Amount Paid to Date:', label_style), Paragraph(f"{currency}{total_paid:,.2f}", value_style)],
         [Paragraph('<b>Current Balance Due:</b>', ParagraphStyle('BalLabel', parent=label_style, fontName='Helvetica-Bold', fontSize=11)),
-         Paragraph(f"<b>${balance:,.2f}</b>", ParagraphStyle('BalVal', parent=value_style, fontSize=12, alignment=TA_RIGHT, textColor=HexColor('#b91c1c' if balance > 0 else '#15803d')))]
+         Paragraph(f"<b>{currency}{balance:,.2f}</b>", ParagraphStyle('BalVal', parent=value_style, fontSize=12, alignment=TA_RIGHT, textColor=HexColor('#b91c1c' if balance > 0 else '#15803d')))]
     ])
     summary_table = Table(summary_data, colWidths=[120*mm, 48*mm])
     summary_table.setStyle(TableStyle([
@@ -5752,7 +5880,7 @@ def _build_invoice_story(invoice, styles, theme):
     story.append(Spacer(1, 3*mm))
     story.append(Paragraph("Please ensure payments are completed on or before the due date. Thank you!", ParagraphStyle('ThanksInv', parent=styles['Normal'], fontSize=9, alignment=TA_CENTER, textColor=HexColor('#6b7280'))))
     story.append(Spacer(1, 2*mm))
-    story.append(Paragraph("Excel Group of Schools v2.0.0 — Valentine T Mabheka", ParagraphStyle('FooterInv', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
+    story.append(Paragraph(_software_footer(theme), ParagraphStyle('FooterInv', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
     return story
 
 
@@ -5816,11 +5944,7 @@ def _generate_report_card_pdf(student, exam, results):
     header_style = ParagraphStyle('Header3', parent=styles['Normal'], fontSize=9, fontName='Helvetica-Bold', textColor=primary)
 
     story = []
-    story.append(Paragraph(theme.get('school_name', 'Excel Group of Schools'), title_style))
-    story.append(Paragraph(theme.get('school_motto', ''), subtitle_style))
-    story.append(Spacer(1, 3*mm))
-    story.append(HRFlowable(width="100%", thickness=2, color=primary))
-    story.append(Spacer(1, 3*mm))
+    _brand_header_story(story, theme, title_size=16)
     story.append(Paragraph("STUDENT REPORT CARD", ParagraphStyle('Center2', parent=styles['Normal'], fontSize=13, alignment=TA_CENTER, fontName='Helvetica-Bold', textColor=primary)))
     story.append(Spacer(1, 5*mm))
 
@@ -5833,8 +5957,8 @@ def _generate_report_card_pdf(student, exam, results):
          Paragraph('Adm No:', header_style), Paragraph(student.admission_number, styles['Normal'])],
         [Paragraph('Class:', header_style), Paragraph(class_name, styles['Normal']),
          Paragraph('Level:', header_style), Paragraph(fl_name or 'N/A', styles['Normal'])],
-        [Paragraph('Exam:', header_style), Paragraph(exam.name if exam else 'N/A', styles['Normal']),
-         Paragraph('Type:', header_style), Paragraph(exam.exam_type if exam else 'N/A', styles['Normal'])],
+        [Paragraph('Exam:', header_style), Paragraph((exam.name if exam else None) or 'N/A', styles['Normal']),
+         Paragraph('Type:', header_style), Paragraph((exam.exam_type if exam else None) or 'N/A', styles['Normal'])],
         [Paragraph('Gender:', header_style), Paragraph(student.gender or 'N/A', styles['Normal']),
          Paragraph('DOB:', header_style), Paragraph(student.date_of_birth.strftime('%d/%m/%Y') if student.date_of_birth else 'N/A', styles['Normal'])],
     ]
@@ -5922,7 +6046,7 @@ def _generate_report_card_pdf(student, exam, results):
     story.append(sig_table)
     story.append(Spacer(1, 5*mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=HexColor('#d1d5db')))
-    story.append(Paragraph("Excel Group of Schools v2.0.0 — Valentine T Mabheka", ParagraphStyle('Footer2', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
+    story.append(Paragraph(_software_footer(theme), ParagraphStyle('Footer2', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
 
     doc.build(story)
     buf.seek(0)
@@ -5936,6 +6060,19 @@ def fee_receipt_pdf(id):
     payment = FeePayment.query.get_or_404(id)
     buf = _generate_receipt_pdf(payment)
     return send_file(buf, as_attachment=True, download_name=f"receipt_{payment.receipt_number}.pdf", mimetype='application/pdf')
+
+
+@app.route('/fees/receipt/<int:id>/print')
+@login_required
+def fee_receipt_print(id):
+    """Print view of a receipt — 80mm thermal-printer friendly, works with
+    any printer via the browser print dialog."""
+    payment = FeePayment.query.get_or_404(id)
+    recorder = _resolve_recorder(payment.received_by)
+    signature_id = _generate_signature_id(payment)
+    return render_template('fees/receipt_print.html', payment=payment,
+                           recorder=recorder, signature_id=signature_id,
+                           theme=get_theme())
 
 
 @app.route('/exams/<int:exam_id>/student/<int:student_id>/report-card/pdf')
@@ -6111,18 +6248,19 @@ def email_send():
 
         # Deduplicate
         emails = list(set(emails))
+        _email_theme = get_theme()
         sent = send_email_notification(
             to_emails=emails,
             subject=subject,
             body=message,
             html_body=f"<div style='font-family:Segoe UI,sans-serif;max-width:600px;margin:0 auto;'>"
                       f"<div style='background:#1F2080;color:#fff;padding:20px;text-align:center;border-radius:12px 12px 0 0'>"
-                      f"<h2 style='margin:0'>Excel Group of Schools</h2>"
-                      f"<p style='margin:4px 0 0;opacity:.8'>Excellence in Education</p></div>"
+                      f"<h2 style='margin:0'>{_email_theme.get('school_name', 'School')}</h2>"
+                      f"<p style='margin:4px 0 0;opacity:.8'>{_email_theme.get('school_motto', '')}</p></div>"
                       f"<div style='padding:20px;background:#fff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px'>"
                       f"<h3>{subject}</h3><p style='line-height:1.6'>{message}</p></div>"
                       f"<p style='text-align:center;font-size:11px;color:#9ca3af;margin-top:12px'>"
-                      f"Excel Group of Schools v2.0.0 — Valentine T Mabheka</p></div>"
+                      f"{_software_footer(_email_theme)} — {_email_theme.get('software_tagline', '')}</p></div>"
         )
 
         flash(f'Email: {sent} of {len(emails)} recipient(s) reached.', 'success' if sent > 0 else 'warning')
@@ -7135,9 +7273,10 @@ if __name__ == '__main__':
     with app.app_context():
         init_db()
     mode = app.config['DEPLOYMENT_MODE']
+    _brand = software_branding()
     print(f"\n{'='*60}")
-    print(f"  Excel Group of Schools - Management System")
-    print(f"  Version 2.0.0 | Author: Valentine T Mabheka")
+    print(f"  {_brand['name']} — {_brand['tagline']}")
+    print(f"  {_brand['name']} v{_brand['version']} | {_brand['byline']}")
     print(f"  Deployment Mode: {mode.upper()}")
     print(f"  Server: http://localhost:5000")
     print(f"  Admin Username: {DEFAULT_ADMIN_USERNAME}")
@@ -7154,6 +7293,10 @@ def api_sync_handshake():
         'message': 'Flask offline sync endpoint is live',
         'version': APP_VERSION,
         'school_name': app.config.get('SCHOOL_NAME', 'Excel Group of Schools'),
+        'software_name': get_theme().get('software_name', SOFTWARE_NAME),
+        'software_version': get_theme().get('software_version', APP_VERSION),
+        'software_byline': get_theme().get('software_byline', SOFTWARE_BYLINE),
+        'software_tagline': get_theme().get('software_tagline', SOFTWARE_TAGLINE),
         'school_motto': app.config.get('SCHOOL_MOTTO', ''),
         'timestamp': datetime.utcnow().isoformat()
     })

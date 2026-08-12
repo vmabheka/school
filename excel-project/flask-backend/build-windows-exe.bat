@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 echo ============================================================
-echo   Building Excel Schools Offline for Windows
+echo   Building MobiSchola for Windows
  echo ============================================================
 
 where py >nul 2>nul

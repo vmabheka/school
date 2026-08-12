@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 :: ============================================================
-::  Excel Schools - Central LAN Server Setup (run on the SERVER)
+::  MobiSchola - Central LAN Server Setup (run on the SERVER)
 :: ============================================================
 ::  Opens the Windows Firewall for the server port and starts the
 ::  offline server so every device on the same network can feed
@@ -35,7 +35,7 @@ if %errorlevel% neq 0 (
 )
 
 echo ============================================================
-echo  Excel Schools - Central LAN Server Setup
+echo  MobiSchola - Central LAN Server Setup
 echo ============================================================
 echo.
 
@@ -49,14 +49,14 @@ set "PROFILES=private,domain"
 if /i "%EXCEL_SCHOOLS_ALLOW_PUBLIC_PROFILE%"=="1" set "PROFILES=private,domain,public"
 
 echo [1/4] Opening Windows Firewall for TCP port %EXCEL_SCHOOLS_PORT%  (%PROFILES%)...
-netsh advfirewall firewall delete rule name="Excel Schools LAN Server" >nul 2>&1
-netsh advfirewall firewall add rule name="Excel Schools LAN Server" dir=in action=allow protocol=TCP localport=%EXCEL_SCHOOLS_PORT% profile=%PROFILES% enable=yes
+netsh advfirewall firewall delete rule name="MobiSchola LAN Server" >nul 2>&1
+netsh advfirewall firewall add rule name="MobiSchola LAN Server" dir=in action=allow protocol=TCP localport=%EXCEL_SCHOOLS_PORT% profile=%PROFILES% enable=yes
 if %errorlevel% neq 0 (
     echo ERROR: Could not create the firewall rule. Run this script as administrator.
     pause
     exit /b 1
 )
-echo        OK: Firewall rule "Excel Schools LAN Server" - TCP %EXCEL_SCHOOLS_PORT% IN (allow).
+echo        OK: Firewall rule "MobiSchola LAN Server" - TCP %EXCEL_SCHOOLS_PORT% IN (allow).
 
 :: --- 2. Network profile check ----------------------------------
 echo.
@@ -86,8 +86,8 @@ if defined ADDRESSES (
 
 :: --- 4. Start the server and self-check --------------------------
 echo.
-echo [4/4] Starting the central Excel Schools server...
-start "Excel Schools LAN Server" "%APP_EXE%" --lan --host 0.0.0.0 --port %EXCEL_SCHOOLS_PORT%
+echo [4/4] Starting the central MobiSchola server...
+start "MobiSchola LAN Server" "%APP_EXE%" --lan --host 0.0.0.0 --port %EXCEL_SCHOOLS_PORT%
 echo        Waiting for the server to start...
 powershell -NoProfile -Command "Start-Sleep -Seconds 6; $ok = Test-NetConnection -ComputerName 127.0.0.1 -Port %EXCEL_SCHOOLS_PORT% -InformationLevel Quiet -WarningAction SilentlyContinue; if ($ok) { Write-Host '   SUCCESS: the server is listening on port %EXCEL_SCHOOLS_PORT%.' } else { Write-Host '   WARNING: the server did not answer - check the server window for errors.' }"
 

@@ -4,7 +4,7 @@
  * Flask app's helper functions (app.py: is_primary_level, get_fee_level_name,
  * PRIMARY_LEARNING_AREAS, DEFAULT_THEME, effective_fee_multiplier, etc.)
  *
- * Author: Valentine T Mabheka | Version: 3.0.0
+ * Author: Edutechweb
  */
 if (!defined('ABSPATH')) exit;
 

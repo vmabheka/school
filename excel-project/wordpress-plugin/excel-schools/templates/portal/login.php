@@ -72,7 +72,7 @@ if (!defined('ABSPATH')) exit;
                     <span class="role-chip" style="background:#c8a951;">Parent</span>
                     <span class="role-chip" style="background:#e85d26;">Student</span>
                 </div>
-                <p style="margin-top:8px;">Excel Schools v3.0.0 — Valentine T Mabheka</p>
+                <p style="margin-top:8px;">MobiSchola v2.5.0 — By Edutechweb 0772577666 — Manage smarter—even offline.</p>
             </div>
         </div>
     </div>
