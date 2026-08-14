@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.7.0] — 2026-08-14
+
+### Added (Flask app)
+
+#### Clean Database (password-protected)
+- New **Danger Zone → Clean Database** on the Settings page. The wipe only
+  runs after the super admin enters their account password and ticks the
+  confirmation box — wrong password cancels the operation. Deletes all school
+  data (students, parents, staff, classes, payments, invoices, exams,
+  timetables, communication) while keeping user accounts, academic years,
+  terms, subjects, fee levels, cost centres and settings.
+
+#### Bursar payment edits require Super Admin approval
+- Bursars/accountants can no longer be locked out of fixing a recorded
+  payment — they submit a **change request** (new amount, date, method,
+  description + reason) from the Payments list. The payment is untouched
+  until a Super Admin approves it on the new **Payment Approvals** page
+  (Finance → Payment Approvals). Approve applies the changes and recalculates
+  the invoice; reject closes the request with a note. Full audit trail of
+  decisions is kept.
+
+#### Configurable communication systems
+- New **Settings → Communication** page (super admin) to configure
+  **WhatsApp (Meta Cloud API)** — base URL, access token, phone number ID,
+  webhook verify token, enable toggle — and **Email (SMTP)** — host, port,
+  user, password, from, TLS, enable toggle — plus automatic-receipt toggles
+  for both channels, with **Test** buttons that send a real test message.
+  Settings persist in the database (fall back to the existing environment
+  variables). The page shows the WhatsApp webhook URL to paste into Meta.
+
+#### WhatsApp parent records bot
+- New public webhook `/api/whatsapp/webhook` (GET verification + POST
+  message handling) that lets parents query their children's school records
+  straight from WhatsApp. A parent's registered number is matched to their
+  profile; commands: **BALANCE** (fee balance per child), **RESULTS** (latest
+  exam results), **RECEIPTS** (recent payments), **RECORD** (school record
+  summary), **HELP** (menu). Unknown numbers get a polite registration notice.
+
+#### Automatic fee receipts on payment
+- When a payment is recorded, the receipt is **automatically sent to the
+  parent(s)** via WhatsApp and/or email according to the communication
+  settings. A **Send to Parent** button on the receipt page re-sends a
+  receipt manually at any time.
+
+---
+
 ## [2.6.3] — 2026-08-12
 
 ### Fixed (Flask app)

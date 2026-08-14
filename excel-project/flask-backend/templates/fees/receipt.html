@@ -8,6 +8,11 @@
     <div class="actions no-print">
         <a href="{{ url_for('fee_receipt_pdf', id=payment.id) }}" class="btn btn-primary"><i class="fas fa-file-pdf"></i> Download PDF</a>
         <a href="{{ url_for('fee_receipt_print', id=payment.id) }}" class="btn btn-success" target="_blank"><i class="fas fa-receipt"></i> Print Receipt (Thermal / Any Printer)</a>
+        {% if session.get('user_role') in ['super_admin', 'accountant', 'bursar'] %}
+        <form method="POST" action="{{ url_for('fee_receipt_send', id=payment.id) }}" style="display:inline;">
+            <button type="submit" class="btn btn-info"><i class="fab fa-whatsapp"></i> Send to Parent</button>
+        </form>
+        {% endif %}
         <button onclick="window.print()" class="btn btn-secondary"><i class="fas fa-print"></i> Print Page</button>
         <a href="{{ url_for('fees_dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
     </div>

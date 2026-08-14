@@ -740,6 +740,11 @@
             <a href="{{ url_for('debtors_list') }}" class="nav-item {% if 'debtor' in request.endpoint %}active{% endif %}">
                 <i class="fas fa-exclamation-triangle"></i> Debtors
             </a>
+            {% if user_role == 'super_admin' %}
+            <a href="{{ url_for('payment_approvals') }}" class="nav-item {% if request.endpoint == 'payment_approvals' or request.endpoint == 'payment_approval_review' %}active{% endif %}">
+                <i class="fas fa-clipboard-check"></i> Payment Approvals
+            </a>
+            {% endif %}
             {% if user_role in ('super_admin', 'accountant') %}
             <a href="{{ url_for('fee_levels_list') }}" class="nav-item {% if request.endpoint == 'fee_levels_list' or request.endpoint == 'fee_level_add' or request.endpoint == 'fee_level_edit' %}active{% endif %}">
                 <i class="fas fa-layer-group"></i> Fee Levels
@@ -769,6 +774,11 @@
             </a>
             <a href="{{ url_for('whatsapp_send') }}" class="nav-item {% if request.endpoint == 'whatsapp_send' %}active{% endif %}">
                 <i class="fab fa-whatsapp"></i> WhatsApp/SMS
+            </a>
+            {% endif %}
+            {% if user_role == 'super_admin' %}
+            <a href="{{ url_for('communication_settings') }}" class="nav-item {% if request.endpoint == 'communication_settings' or request.endpoint == 'communication_test' %}active{% endif %}">
+                <i class="fas fa-cogs"></i> Communication Settings
             </a>
             {% endif %}
 

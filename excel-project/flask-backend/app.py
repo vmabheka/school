@@ -460,6 +460,30 @@ class FeePayment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class PaymentEditRequest(db.Model):
+    """An approval workflow for editing a committed fee payment.
+
+    Bursars/accountants cannot change a recorded payment directly. They
+    submit an edit request; a super admin reviews it and either approves
+    (the changes are applied to the payment) or rejects it.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    payment_id = db.Column(db.Integer, db.ForeignKey('fee_payment.id'))
+    requested_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    request_date = db.Column(db.DateTime, default=datetime.utcnow)
+    changes = db.Column(db.Text)  # JSON: {amount, payment_date, payment_method, description}
+    reason = db.Column(db.String(300))
+    status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    reviewed_at = db.Column(db.DateTime)
+    review_note = db.Column(db.String(300))
+    payment = db.relationship('FeePayment', backref='edit_requests')
+    requestor = db.relationship('User', foreign_keys=[requested_by])
+    reviewer = db.relationship('User', foreign_keys=[reviewed_by])
+    sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class Invoice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_number = db.Column(db.String(30), unique=True, nullable=False)
@@ -2638,6 +2662,17 @@ def fee_pay():
         db.session.commit()
         log_sync('FeePayment', payment.id, 'CREATE', {'receipt': receipt})
         flash(f'Payment recorded successfully. Receipt: {receipt}', 'success')
+
+        # Automatically send the receipt to the parent(s) via the configured
+        # communication systems (WhatsApp and/or email).
+        try:
+            sent = send_payment_receipt(payment)
+            if sent['whatsapp'] or sent['email']:
+                flash(f'Receipt sent to parent(s): {sent["whatsapp"]} WhatsApp, '
+                      f'{sent["email"]} email.', 'info')
+        except Exception:
+            app.logger.exception('Auto receipt send failed')
+
         return redirect(url_for('fee_receipt', id=payment.id))
 
     students = Student.query.filter_by(status='Active').order_by(Student.last_name).all()
@@ -2650,6 +2685,149 @@ def fee_pay():
                            academic_years=academic_years,
                            prefill_student_id=prefill_student_id,
                            today=date.today().isoformat())
+
+
+@app.route('/fees/payments/<int:id>/edit-request', methods=['GET', 'POST'])
+@login_required
+@role_required('accountant', 'bursar')
+def payment_edit_request(id):
+    """Bursar/accountant requests a change to a recorded payment.
+
+    The change is NOT applied immediately — it waits for super admin
+    approval on the Payment Approvals page.
+    """
+    payment = FeePayment.query.get_or_404(id)
+    if request.method == 'POST':
+        changes = {}
+        new_amount = (request.form.get('amount') or '').strip()
+        if new_amount:
+            try:
+                changes['amount'] = float(new_amount)
+            except (TypeError, ValueError):
+                flash('Please enter a valid amount.', 'danger')
+                return redirect(url_for('payment_edit_request', id=id))
+        new_date = (request.form.get('payment_date') or '').strip()
+        if new_date:
+            try:
+                changes['payment_date'] = datetime.strptime(new_date, '%Y-%m-%d').date().isoformat()
+            except ValueError:
+                flash('Please enter a valid date (YYYY-MM-DD).', 'danger')
+                return redirect(url_for('payment_edit_request', id=id))
+        new_method = (request.form.get('payment_method') or '').strip()
+        if new_method:
+            changes['payment_method'] = new_method
+        new_desc = (request.form.get('description') or '').strip()
+        if new_desc:
+            changes['description'] = new_desc
+        reason = (request.form.get('reason') or '').strip()
+
+        if not changes:
+            flash('Nothing to change — fill in at least one field.', 'warning')
+            return redirect(url_for('payment_edit_request', id=id))
+        if not reason:
+            flash('Please explain why this payment needs to be changed.', 'warning')
+            return redirect(url_for('payment_edit_request', id=id))
+
+        req = PaymentEditRequest(
+            payment_id=payment.id,
+            requested_by=session.get('user_id'),
+            changes=json.dumps(changes),
+            reason=reason,
+        )
+        db.session.add(req)
+        db.session.commit()
+        log_sync('PaymentEditRequest', req.id, 'CREATE', {'payment_id': payment.id})
+        flash('Change request submitted. It will be applied once a Super Admin approves it.', 'success')
+        return redirect(url_for('fee_payments'))
+
+    return render_template('fees/payment_edit_request.html', payment=payment)
+
+
+@app.route('/fees/payment-approvals')
+@login_required
+@role_required('super_admin')
+def payment_approvals():
+    """Super admin reviews pending payment-edit requests."""
+    pending = PaymentEditRequest.query.filter_by(status='pending').order_by(
+        PaymentEditRequest.request_date.asc()).all()
+    history = PaymentEditRequest.query.filter(PaymentEditRequest.status != 'pending').order_by(
+        PaymentEditRequest.reviewed_at.desc()).limit(20).all()
+
+    def _changes_dict(req):
+        try:
+            return json.loads(req.changes or '{}')
+        except (TypeError, ValueError):
+            return {}
+
+    return render_template('fees/payment_approvals.html',
+                           pending=pending, history=history,
+                           changes_map={r.id: _changes_dict(r) for r in pending + history})
+
+
+@app.route('/fees/payment-approvals/<int:request_id>/review', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def payment_approval_review(request_id):
+    """Approve or reject a payment-edit request."""
+    req = PaymentEditRequest.query.get_or_404(request_id)
+    decision = request.form.get('decision', '')
+    note = (request.form.get('review_note') or '').strip()
+
+    if req.status != 'pending':
+        flash('This request has already been reviewed.', 'warning')
+        return redirect(url_for('payment_approvals'))
+
+    if decision == 'approve':
+        payment = FeePayment.query.get(req.payment_id)
+        if not payment:
+            req.status = 'rejected'
+            req.reviewed_by = session.get('user_id')
+            req.reviewed_at = datetime.utcnow()
+            req.review_note = 'Original payment no longer exists.'
+            db.session.commit()
+            flash('The payment no longer exists — request closed.', 'danger')
+            return redirect(url_for('payment_approvals'))
+
+        try:
+            changes = json.loads(req.changes or '{}')
+        except (TypeError, ValueError):
+            changes = {}
+        applied = []
+        if 'amount' in changes:
+            payment.amount = float(changes['amount'])
+            applied.append(f"amount ${payment.amount:,.2f}")
+        if 'payment_date' in changes:
+            payment.payment_date = datetime.strptime(changes['payment_date'], '%Y-%m-%d').date()
+            applied.append(f"date {payment.payment_date}")
+        if 'payment_method' in changes:
+            payment.payment_method = changes['payment_method']
+            applied.append(f"method {payment.payment_method}")
+        if 'description' in changes:
+            payment.description = changes['description']
+            applied.append('description updated')
+
+        db.session.flush()
+        update_invoice_statuses_for_student(payment.student_id, payment.term_id, payment.academic_year_id)
+        req.status = 'approved'
+        req.reviewed_by = session.get('user_id')
+        req.reviewed_at = datetime.utcnow()
+        req.review_note = note or 'Approved'
+        db.session.commit()
+        log_sync('FeePayment', payment.id, 'UPDATE', {
+            'receipt': payment.receipt_number,
+            'changes': applied,
+        })
+        flash(f'Payment {payment.receipt_number} updated: ' + ', '.join(applied) + '.', 'success')
+    elif decision == 'reject':
+        req.status = 'rejected'
+        req.reviewed_by = session.get('user_id')
+        req.reviewed_at = datetime.utcnow()
+        req.review_note = note or 'Rejected'
+        db.session.commit()
+        flash('Change request rejected.', 'warning')
+    else:
+        flash('No decision was made.', 'warning')
+    return redirect(url_for('payment_approvals'))
 
 
 @app.route('/fees/receipt/<int:id>')
@@ -4418,6 +4596,75 @@ def settings():
                            demo_levels=[(lvl[0], lvl[3]) for lvl in DEMO_LEVELS],
                            demo_teacher_password=DEMO_TEACHER_PASSWORD,
                            demo_student_prefix=DEMO_STUDENT_PREFIX)
+
+
+@app.route('/settings/database/clean', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def database_clean():
+    """Wipe ALL school data (students, staff, classes, finance, exams,
+    communication) — guarded by the logged-in user's password.
+
+    System configuration is kept: user accounts, academic years, terms,
+    subjects, fee levels/structures, cost centres, appearance and sync
+    settings. This is irreversible.
+    """
+    password = request.form.get('password', '')
+    confirm = request.form.get('confirm_clean') == 'on'
+    user = db.session.get(User, session.get('user_id'))
+
+    if not user or not user.check_password(password):
+        flash('Incorrect password — database cleaning was NOT performed.', 'danger')
+        return redirect(url_for('settings'))
+    if not confirm:
+        flash('Please tick the confirmation box to clean the database.', 'warning')
+        return redirect(url_for('settings'))
+
+    counts = {
+        'students': Student.query.count(),
+        'parents': Parent.query.count(),
+        'staff': Staff.query.count(),
+        'classes': Class.query.count(),
+        'payments': FeePayment.query.count(),
+        'invoices': Invoice.query.count(),
+        'exams': Exam.query.count(),
+    }
+
+    try:
+        # Delete in dependency order (children before parents).
+        db.session.execute(student_parent.delete())
+        InvoiceItem.query.delete(synchronize_session=False)
+        Invoice.query.delete(synchronize_session=False)
+        FeePayment.query.delete(synchronize_session=False)
+        PaymentEditRequest.query.delete(synchronize_session=False)
+        ExamResult.query.delete(synchronize_session=False)
+        Exam.query.delete(synchronize_session=False)
+        RoomAllocation.query.delete(synchronize_session=False)
+        TimetableSlot.query.delete(synchronize_session=False)
+        StaffSubject.query.delete(synchronize_session=False)
+        Message.query.delete(synchronize_session=False)
+        Notice.query.delete(synchronize_session=False)
+        Parent.query.delete(synchronize_session=False)
+        Student.query.delete(synchronize_session=False)
+        Staff.query.delete(synchronize_session=False)
+        Class.query.delete(synchronize_session=False)
+        SyncLog.query.delete(synchronize_session=False)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('database_clean failed')
+        flash(f'Database cleaning failed: {exc}', 'danger')
+        return redirect(url_for('settings'))
+
+    flash(
+        'Database cleaned. Removed: '
+        f'{counts["students"]} students, {counts["parents"]} parents, '
+        f'{counts["staff"]} staff, {counts["classes"]} classes, '
+        f'{counts["payments"]} payments, {counts["invoices"]} invoices, '
+        f'{counts["exams"]} exams. Users and system settings were kept.',
+        'success',
+    )
+    return redirect(url_for('settings'))
 
 
 # ─── Dummy Data Seeder (Yellow / Blue / Red / Purple / Green / Orange / Sciences / Arts / Commercials) ─
@@ -6376,6 +6623,23 @@ def fee_receipt_pdf(id):
     return send_file(buf, as_attachment=True, download_name=f"receipt_{payment.receipt_number}.pdf", mimetype='application/pdf')
 
 
+@app.route('/fees/receipt/<int:id>/send', methods=['POST'])
+@login_required
+@role_required('super_admin', 'accountant', 'bursar')
+def fee_receipt_send(id):
+    """Manually send a receipt to the student's parent(s) via WhatsApp/email."""
+    payment = FeePayment.query.get_or_404(id)
+    sent = send_payment_receipt(payment)
+    if sent['whatsapp'] or sent['email']:
+        flash(f'Receipt sent to parent(s): {sent["whatsapp"]} WhatsApp, '
+              f'{sent["email"]} email.', 'success')
+    else:
+        flash('Nothing sent. Check that WhatsApp/email are enabled and configured '
+              'under Settings → Communication, and that the parent has a phone/email.',
+              'warning')
+    return redirect(url_for('fee_receipt', id=id))
+
+
 @app.route('/fees/receipt/<int:id>/print')
 @login_required
 def fee_receipt_print(id):
@@ -6414,13 +6678,76 @@ def report_card_pdf(exam_id, student_id):
 
 # ─── WhatsApp/SMS Notifications ───────────────────────────────────────
 
-def send_whatsapp_message(phone, message):
-    """Send a WhatsApp message via the Business API. Returns True on success."""
-    api_url = os.environ.get('WHATSAPP_API_URL', '')
-    api_token = os.environ.get('WHATSAPP_API_TOKEN', '')
-    phone_id = os.environ.get('WHATSAPP_PHONE_ID', '')
+# ─── Communication Settings (persisted, configurable per deployment) ───
 
-    if not api_url or not api_token:
+COMM_SETTING_KEYS = {
+    # WhatsApp / Meta Cloud API
+    'comm_whatsapp_api_url': 'WhatsApp API base URL (e.g. https://graph.facebook.com/v19.0)',
+    'comm_whatsapp_api_token': 'WhatsApp access token',
+    'comm_whatsapp_phone_id': 'WhatsApp Business phone number ID',
+    'comm_whatsapp_verify_token': 'WhatsApp webhook verify token',
+    'comm_whatsapp_enabled': 'WhatsApp sending enabled',
+    'comm_auto_receipt_whatsapp': 'Automatically send fee receipts by WhatsApp',
+    # Email / SMTP
+    'comm_smtp_host': 'SMTP server host',
+    'comm_smtp_port': 'SMTP server port',
+    'comm_smtp_user': 'SMTP username',
+    'comm_smtp_pass': 'SMTP password',
+    'comm_smtp_from': 'From email address',
+    'comm_smtp_tls': 'Use TLS (STARTTLS)',
+    'comm_smtp_enabled': 'Email sending enabled',
+    'comm_auto_receipt_email': 'Automatically send fee receipts by email',
+}
+
+
+def comm_setting(key, default=''):
+    """Read a communication setting (DB first, then environment variable)."""
+    env_map = {
+        'comm_whatsapp_api_url': 'WHATSAPP_API_URL',
+        'comm_whatsapp_api_token': 'WHATSAPP_API_TOKEN',
+        'comm_whatsapp_phone_id': 'WHATSAPP_PHONE_ID',
+        'comm_whatsapp_verify_token': 'WHATSAPP_VERIFY_TOKEN',
+        'comm_smtp_host': 'SMTP_HOST',
+        'comm_smtp_port': 'SMTP_PORT',
+        'comm_smtp_user': 'SMTP_USER',
+        'comm_smtp_pass': 'SMTP_PASS',
+        'comm_smtp_from': 'SMTP_FROM',
+        'comm_smtp_tls': 'SMTP_USE_TLS',
+    }
+    stored = SyncSetting.get(key, '')
+    if stored:
+        return stored
+    env_name = env_map.get(key)
+    if env_name and os.environ.get(env_name):
+        return os.environ[env_name]
+    return default
+
+
+def comm_setting_bool(key, default=False):
+    return comm_setting(key, 'true' if default else 'false').strip().lower() in ('true', '1', 'yes', 'on')
+
+
+def set_comm_setting(key, value, description=''):
+    SyncSetting.set(key, value, description or COMM_SETTING_KEYS.get(key, ''))
+
+
+def whatsapp_configured():
+    return bool(comm_setting('comm_whatsapp_api_url') and comm_setting('comm_whatsapp_api_token')
+                and comm_setting('comm_whatsapp_phone_id'))
+
+
+def smtp_configured():
+    return bool(comm_setting('comm_smtp_host') and comm_setting('comm_smtp_user')
+                and comm_setting('comm_smtp_pass'))
+
+
+def send_whatsapp_message(phone, message):
+    """Send a WhatsApp message via the Business (Meta) API. Returns True on success."""
+    api_url = comm_setting('comm_whatsapp_api_url')
+    api_token = comm_setting('comm_whatsapp_api_token')
+    phone_id = comm_setting('comm_whatsapp_phone_id')
+
+    if not api_url or not api_token or not phone_id:
         # Log for manual processing
         log_sync('WhatsApp', 0, 'SEND', {'phone': phone, 'message': message[:200]})
         return False
@@ -6447,7 +6774,7 @@ def send_whatsapp_to_parents(student_ids, message):
     """Send WhatsApp message to parents of given students."""
     sent = 0
     for sid in student_ids:
-        student = Student.query.get(sid)
+        student = db.session.get(Student, sid)
         if student and student.parents:
             for parent in student.parents:
                 if parent.phone:
@@ -6456,6 +6783,93 @@ def send_whatsapp_to_parents(student_ids, message):
                         if send_whatsapp_message(phone, message):
                             sent += 1
     return sent
+
+
+# ─── Payment receipts (automatic + manual) ─────────────────────────────
+
+def build_receipt_text(payment):
+    """Plain-text receipt body used by WhatsApp / SMS / email."""
+    theme = get_theme()
+    student = payment.student
+    currency = theme.get('currency_symbol', '$')
+    inv = Invoice.query.filter_by(
+        student_id=student.id,
+        term_id=payment.term_id,
+        academic_year_id=payment.academic_year_id,
+    ).first()
+    paid_total = db.session.query(db.func.sum(FeePayment.amount)).filter(
+        FeePayment.student_id == student.id,
+        FeePayment.term_id == payment.term_id,
+        FeePayment.academic_year_id == payment.academic_year_id,
+    ).scalar() or 0.0
+    balance = max(0.0, (inv.total_amount if inv else 0.0) - paid_total)
+    term = db.session.get(Term, payment.term_id) if payment.term_id else None
+    term_name = term.name if term else ''
+    lines = [
+        f"*{theme.get('school_name', 'School')}*",
+        f"{theme.get('school_motto', '')}".strip(),
+        '=' * 34,
+        'OFFICIAL FEE RECEIPT',
+        '=' * 34,
+        f"Receipt No: {payment.receipt_number}",
+        f"Date: {payment.payment_date.strftime('%d %B %Y') if payment.payment_date else ''}",
+        f"Student: {student.first_name} {student.last_name}",
+        f"Adm No: {student.admission_number}",
+        f"Class: {student.class_.name if student.class_ else '-'}",
+        f"Term: {term_name}",
+        f"Method: {payment.payment_method or 'Cash'}",
+        '-' * 34,
+        f"AMOUNT PAID: {currency}{payment.amount:,.2f}",
+        '-' * 34,
+        f"Balance for {term_name}: {currency}{balance:,.2f}",
+        '',
+        "Thank you for your payment!",
+        f"{theme.get('software_name', 'MobiSchola')} v{theme.get('software_version', APP_VERSION)} - {theme.get('software_byline', SOFTWARE_BYLINE)}",
+    ]
+    if payment.description:
+        lines.insert(-4, f"Note: {payment.description}")
+    return '\n'.join(lines)
+
+
+def parent_phones_for_student(student):
+    """Unique normalized phone numbers of a student's parents."""
+    phones = []
+    seen = set()
+    for parent in (student.parents if student else []):
+        phone = re.sub(r'[^0-9+]', '', parent.phone or '')
+        key = phone[-9:] if len(phone) >= 9 else phone
+        if len(phone) >= 10 and key not in seen:
+            seen.add(key)
+            phones.append(phone)
+    return phones
+
+
+def send_payment_receipt(payment):
+    """Automatically send the receipt for a payment via WhatsApp and/or email.
+
+    Respects the communication settings toggles. Returns dict with counts.
+    """
+    result = {'whatsapp': 0, 'email': 0}
+    if not payment or not payment.student:
+        return result
+    text = build_receipt_text(payment)
+    student = payment.student
+
+    if comm_setting_bool('comm_whatsapp_enabled') and comm_setting_bool('comm_auto_receipt_whatsapp'):
+        for phone in parent_phones_for_student(student):
+            if send_whatsapp_message(phone, text):
+                result['whatsapp'] += 1
+
+    if comm_setting_bool('comm_smtp_enabled') and comm_setting_bool('comm_auto_receipt_email'):
+        emails = [p.email for p in (student.parents or []) if p.email and '@' in p.email]
+        if emails:
+            result['email'] = send_email_notification(
+                to_emails=emails,
+                subject=f'Fee Receipt {payment.receipt_number}',
+                body=text,
+                html_body=f'<pre style="font-family:monospace;font-size:12px;">{text}</pre>',
+            )
+    return result
 
 
 # ─── Email/SMTP Notifications ─────────────────────────────────────────
@@ -6471,12 +6885,12 @@ def send_email_notification(to_emails, subject, body, html_body=None):
       SMTP_FROM: From email address (default: SMTP_USER)
       SMTP_USE_TLS: Use TLS (default True)
     """
-    smtp_host = os.environ.get('SMTP_HOST', '')
-    smtp_port = int(os.environ.get('SMTP_PORT', '587'))
-    smtp_user = os.environ.get('SMTP_USER', '')
-    smtp_pass = os.environ.get('SMTP_PASS', '')
-    smtp_from = os.environ.get('SMTP_FROM', smtp_user)
-    smtp_tls = os.environ.get('SMTP_USE_TLS', 'true').lower() in ('true', '1', 'yes')
+    smtp_host = comm_setting('comm_smtp_host')
+    smtp_port = int(comm_setting('comm_smtp_port', '587') or 587)
+    smtp_user = comm_setting('comm_smtp_user')
+    smtp_pass = comm_setting('comm_smtp_pass')
+    smtp_from = comm_setting('comm_smtp_from', smtp_user) or smtp_user
+    smtp_tls = comm_setting_bool('comm_smtp_tls', True)
 
     if not smtp_host or not smtp_user or not smtp_pass:
         # SMTP not configured — log for manual processing
@@ -6630,8 +7044,279 @@ def whatsapp_send():
         return redirect(url_for('whatsapp_send'))
 
     classes = Class.query.order_by(Class.name).all()
-    whatsapp_configured = bool(os.environ.get('WHATSAPP_API_URL') and os.environ.get('WHATSAPP_API_TOKEN'))
+    whatsapp_configured = whatsapp_configured()
     return render_template('communication/whatsapp.html', classes=classes, whatsapp_configured=whatsapp_configured)
+
+
+# ─── Communication Settings ────────────────────────────────────────────
+
+@app.route('/settings/communication', methods=['GET', 'POST'])
+@login_required
+@role_required('super_admin')
+def communication_settings():
+    """Configure WhatsApp and email communication systems."""
+    if request.method == 'POST':
+        # WhatsApp fields
+        for key in ('comm_whatsapp_api_url', 'comm_whatsapp_api_token',
+                    'comm_whatsapp_phone_id', 'comm_whatsapp_verify_token'):
+            set_comm_setting(key, (request.form.get(key) or '').strip())
+        set_comm_setting('comm_whatsapp_enabled',
+                         'true' if request.form.get('comm_whatsapp_enabled') == 'on' else 'false')
+        set_comm_setting('comm_auto_receipt_whatsapp',
+                         'true' if request.form.get('comm_auto_receipt_whatsapp') == 'on' else 'false')
+        # Email fields
+        for key in ('comm_smtp_host', 'comm_smtp_user', 'comm_smtp_pass',
+                    'comm_smtp_from'):
+            set_comm_setting(key, (request.form.get(key) or '').strip())
+        try:
+            set_comm_setting('comm_smtp_port', str(int(request.form.get('comm_smtp_port') or 587)))
+        except (TypeError, ValueError):
+            set_comm_setting('comm_smtp_port', '587')
+        set_comm_setting('comm_smtp_tls',
+                         'true' if request.form.get('comm_smtp_tls') == 'on' else 'false')
+        set_comm_setting('comm_smtp_enabled',
+                         'true' if request.form.get('comm_smtp_enabled') == 'on' else 'false')
+        set_comm_setting('comm_auto_receipt_email',
+                         'true' if request.form.get('comm_auto_receipt_email') == 'on' else 'false')
+        flash('Communication settings saved.', 'success')
+        return redirect(url_for('communication_settings'))
+
+    vals = {key: comm_setting(key) for key in COMM_SETTING_KEYS}
+    vals['comm_whatsapp_enabled'] = comm_setting_bool('comm_whatsapp_enabled')
+    vals['comm_auto_receipt_whatsapp'] = comm_setting_bool('comm_auto_receipt_whatsapp')
+    vals['comm_smtp_tls'] = comm_setting_bool('comm_smtp_tls', True)
+    vals['comm_smtp_enabled'] = comm_setting_bool('comm_smtp_enabled')
+    vals['comm_auto_receipt_email'] = comm_setting_bool('comm_auto_receipt_email')
+    webhook_url = request.host_url.rstrip('/') + '/api/whatsapp/webhook'
+    return render_template('communication/settings.html', vals=vals,
+                           webhook_url=webhook_url,
+                           whatsapp_ready=whatsapp_configured(),
+                           smtp_ready=smtp_configured())
+
+
+@app.route('/settings/communication/test', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def communication_test():
+    """Send a test WhatsApp message / email to verify the configuration."""
+    channel = request.form.get('channel', '')
+    recipient = (request.form.get('recipient') or '').strip()
+
+    if channel == 'whatsapp':
+        if not recipient:
+            flash('Enter a WhatsApp number to send the test to.', 'warning')
+            return redirect(url_for('communication_settings'))
+        phone = re.sub(r'[^0-9+]', '', recipient)
+        if send_whatsapp_message(phone, 'Hello! This is a test message from your school system. If you receive this, WhatsApp is configured correctly.'):
+            flash(f'Test WhatsApp message sent to {phone}.', 'success')
+        else:
+            flash('Test message failed. Check the WhatsApp API URL, token and phone ID.', 'danger')
+    elif channel == 'email':
+        if not recipient or '@' not in recipient:
+            flash('Enter a valid email address to send the test to.', 'warning')
+            return redirect(url_for('communication_settings'))
+        sent = send_email_notification(
+            to_emails=[recipient],
+            subject='Test email from school system',
+            body='Hello! This is a test email from your school system. If you receive this, SMTP is configured correctly.',
+        )
+        flash('Test email sent.' if sent else 'Test email failed. Check the SMTP settings.', 'success' if sent else 'danger')
+    else:
+        flash('Unknown test channel.', 'warning')
+    return redirect(url_for('communication_settings'))
+
+
+# ─── WhatsApp Parent Records Bot ───────────────────────────────────────
+
+def _normalize_phone_key(phone):
+    """Return the last 9 digits of a phone number for matching."""
+    digits = re.sub(r'[^0-9]', '', phone or '')
+    return digits[-9:] if len(digits) >= 9 else digits
+
+
+def find_parent_by_whatsapp_number(phone):
+    """Match an incoming WhatsApp number to a Parent record."""
+    key = _normalize_phone_key(phone)
+    if not key:
+        return None
+    for parent in Parent.query.filter(Parent.phone.isnot(None), Parent.phone != '').all():
+        if _normalize_phone_key(parent.phone) == key:
+            return parent
+    return None
+
+
+def _whatsapp_student_balance(student):
+    term = get_current_term()
+    ay = get_current_academic_year()
+    currency = get_theme().get('currency_symbol', '$')
+    if not term or not ay:
+        return 'No current term configured.'
+    inv = Invoice.query.filter_by(student_id=student.id, term_id=term.id,
+                                  academic_year_id=ay.id).first()
+    if not inv:
+        return (f"{student.first_name} ({student.admission_number}): "
+                f"no invoice for {term.name} {ay.name}.")
+    paid = db.session.query(db.func.sum(FeePayment.amount)).filter(
+        FeePayment.student_id == student.id,
+        FeePayment.term_id == term.id,
+        FeePayment.academic_year_id == ay.id,
+    ).scalar() or 0.0
+    balance = max(0.0, float(inv.total_amount or 0.0) - float(paid))
+    return (f"{student.first_name} {student.last_name} ({student.admission_number})\n"
+            f"Class: {student.class_.name if student.class_ else '-'}\n"
+            f"Term: {term.name} ({ay.name})\n"
+            f"Invoice total: {currency}{inv.total_amount:,.2f}\n"
+            f"Paid to date: {currency}{float(paid):,.2f}\n"
+            f"Balance due: {currency}{balance:,.2f}")
+
+
+def _whatsapp_student_results(student):
+    results = ExamResult.query.filter_by(student_id=student.id).order_by(
+        ExamResult.id.desc()).limit(10).all()
+    if not results:
+        return (f"{student.first_name} ({student.admission_number}): "
+                f"no exam results recorded yet.")
+    lines = [f"{student.first_name} {student.last_name} - Latest Results:"]
+    for r in reversed(results):
+        subject = db.session.get(Subject, r.subject_id) if r.subject_id else None
+        subject_name = subject.name if subject else 'Subject'
+        lines.append(f"  {subject_name}: {r.marks_obtained}/{r.marks_total} "
+                     f"({r.grade or '-'})")
+    return '\n'.join(lines)
+
+
+def _whatsapp_student_receipts(student):
+    payments = FeePayment.query.filter_by(student_id=student.id).order_by(
+        FeePayment.payment_date.desc()).limit(5).all()
+    if not payments:
+        return (f"{student.first_name} ({student.admission_number}): "
+                f"no payments recorded yet.")
+    currency = get_theme().get('currency_symbol', '$')
+    lines = [f"{student.first_name} {student.last_name} - Recent Payments:"]
+    for p in payments:
+        lines.append(f"  {p.payment_date.strftime('%d %b %Y') if p.payment_date else ''} "
+                     f"{currency}{p.amount:,.2f} ({p.payment_method or 'Cash'}) "
+                     f"- {p.receipt_number}")
+    return '\n'.join(lines)
+
+
+def _whatsapp_student_summary(student):
+    currency = get_theme().get('currency_symbol', '$')
+    term = get_current_term()
+    inv = None
+    if term:
+        inv = Invoice.query.filter_by(student_id=student.id, term_id=term.id).first()
+    lines = [
+        f"*{student.first_name} {student.last_name}*",
+        f"Adm No: {student.admission_number}",
+        f"Class: {student.class_.name if student.class_ else '-'}",
+        f"Entry Mode: {student.entry_mode or 'Day'}",
+        f"Status: {student.status}",
+    ]
+    if inv:
+        lines.append(f"Current invoice ({term.name if term else ''}): "
+                     f"{currency}{inv.total_amount:,.2f}")
+    parents = student.parents
+    if parents:
+        lines.append(f"Parent: {parents[0].first_name} {parents[0].last_name}")
+    return '\n'.join(lines)
+
+
+WHATSAPP_HELP_TEXT = (
+    "Welcome to the school records WhatsApp service!\n"
+    "Reply with one of the following:\n"
+    "*BALANCE* - fee balance for your child(ren)\n"
+    "*RESULTS* - latest exam results\n"
+    "*RECEIPTS* - recent fee payments\n"
+    "*RECORD* - child's school record summary\n"
+    "*HELP* - show this menu"
+)
+
+
+def process_whatsapp_message(phone, text):
+    """Handle an inbound WhatsApp message from a parent and return a reply."""
+    parent = find_parent_by_whatsapp_number(phone)
+    if not parent:
+        return ("Sorry, we could not find a parent record linked to this number. "
+                "Please contact the school office to register your number.")
+    students = parent.students
+    if not students:
+        return ("Your number is linked to the school records, but no children "
+                "are linked to your profile yet. Contact the school office.")
+
+    cmd = (text or '').strip().lower()
+    if any(k in cmd for k in ('help', 'menu', 'start', 'hi', 'hello', 'how')):
+        return WHATSAPP_HELP_TEXT
+
+    if any(k in cmd for k in ('balance', 'fees', 'fee', 'owing', 'debt')):
+        parts = ['*Fee Balance*']
+        for student in students:
+            parts.append(_whatsapp_student_balance(student))
+            parts.append('')
+        return '\n'.join(parts).strip()
+
+    if any(k in cmd for k in ('result', 'marks', 'grade', 'exam')):
+        parts = ['*Exam Results*']
+        for student in students:
+            parts.append(_whatsapp_student_results(student))
+            parts.append('')
+        return '\n'.join(parts).strip()
+
+    if any(k in cmd for k in ('receipt', 'payment', 'paid')):
+        parts = ['*Recent Payments*']
+        for student in students:
+            parts.append(_whatsapp_student_receipts(student))
+            parts.append('')
+        return '\n'.join(parts).strip()
+
+    if any(k in cmd for k in ('record', 'summary', 'profile', 'info', 'class')):
+        parts = ['*School Record*']
+        for student in students:
+            parts.append(_whatsapp_student_summary(student))
+            parts.append('')
+        return '\n'.join(parts).strip()
+
+    return WHATSAPP_HELP_TEXT
+
+
+@app.route('/api/whatsapp/webhook', methods=['GET', 'POST'])
+def whatsapp_webhook():
+    """Inbound WhatsApp webhook (Meta Cloud API / Twilio-compatible).
+
+    GET  - webhook verification (hub.mode / hub.verify_token / hub.challenge)
+    POST - receive messages; the bot replies to the parent's number.
+    """
+    if request.method == 'GET':
+        mode = request.args.get('hub.mode', '')
+        token = request.args.get('hub.verify_token', '')
+        challenge = request.args.get('hub.challenge', '')
+        expected = comm_setting('comm_whatsapp_verify_token')
+        if mode == 'subscribe' and expected and token == expected:
+            return challenge, 200
+        return 'Verification failed', 403
+
+    # POST: Meta Cloud API envelope
+    try:
+        body = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        body = {}
+    replied = 0
+    for entry in body.get('entry', []):
+        for change in entry.get('changes', []):
+            value = change.get('value', {})
+            for msg in value.get('messages', []):
+                phone = str(msg.get('from', ''))
+                text = ''
+                if msg.get('type') == 'text':
+                    text = msg.get('text', {}).get('body', '')
+                elif msg.get('type') == 'interactive':
+                    text = msg.get('interactive', {}).get('button_reply', {}).get('title', '')
+                if not text:
+                    continue
+                reply = process_whatsapp_message(phone, text)
+                if send_whatsapp_message(phone, reply):
+                    replied += 1
+    return jsonify({'status': 'ok', 'replied': replied})
 
 
 # ─── Parent Portal ────────────────────────────────────────────────────

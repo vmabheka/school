@@ -6,6 +6,31 @@
     <div><h1>Settings</h1><p>Configure system settings, academic years, terms, classes, and subjects</p></div>
 </div>
 
+<!-- Danger Zone: Clean Database -->
+<div class="card mb-2" style="border:1px solid #fecaca;">
+    <div class="card-header" style="background:#fef2f2;">
+        <h3 style="color:#b91c1c;"><i class="fas fa-exclamation-triangle" style="margin-right:8px;"></i>Danger Zone — Clean Database</h3>
+    </div>
+    <div class="card-body">
+        <p style="color:var(--text-light);font-size:13px;margin-bottom:12px;">
+            <strong>Permanently deletes ALL school data</strong> — students, parents, staff, classes,
+            fee payments, invoices, exams, timetables and communication records.
+            User accounts, academic years, terms, subjects, fee levels and settings are kept.
+            <strong>This cannot be undone.</strong>
+        </p>
+        <form method="POST" action="{{ url_for('database_clean') }}" onsubmit="return confirm('WARNING: This will permanently delete ALL school data. Are you absolutely sure?');">
+            <div class="form-group" style="max-width:360px;">
+                <label>Enter your password to confirm <span class="required">*</span></label>
+                <input type="password" name="password" class="form-control" required placeholder="Your account password">
+            </div>
+            <div class="form-check" style="margin-bottom:12px;">
+                <label><input type="checkbox" name="confirm_clean" required> I understand this deletes all school data permanently</label>
+            </div>
+            <button type="submit" class="btn btn-danger"><i class="fas fa-trash"></i> Clean Database</button>
+        </form>
+    </div>
+</div>
+
 <!-- Dummy Data (Demo / Reset) -->
 <div class="card mb-2">
     <div class="card-header">

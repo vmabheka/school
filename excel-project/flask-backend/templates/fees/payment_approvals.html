@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Payment Approvals{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1><i class="fas fa-clipboard-check" style="color:var(--success);margin-right:8px;"></i>Payment Approvals</h1>
+        <p>Review change requests submitted by bursars / accountants for recorded fee payments</p>
+    </div>
+    <div class="actions">
+        <a href="{{ url_for('fee_payments') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Payments</a>
+    </div>
+</div>
+
+<!-- Pending -->
+<div class="card">
+    <div class="card-header"><h3><i class="fas fa-hourglass-half" style="color:var(--warning);margin-right:8px;"></i>Pending Requests ({{ pending|length }})</h3></div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Receipt</th>
+                    <th>Student</th>
+                    <th>Requested By</th>
+                    <th>Date</th>
+                    <th>Proposed Changes</th>
+                    <th>Reason</th>
+                    <th>Decision</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for req in pending %}
+                <tr>
+                    <td><strong>{{ req.payment.receipt_number if req.payment else '—' }}</strong></td>
+                    <td>{{ req.payment.student.first_name ~ ' ' ~ req.payment.student.last_name if req.payment and req.payment.student else '—' }}</td>
+                    <td>{{ req.requestor.username if req.requestor else '—' }}</td>
+                    <td>{{ req.request_date.strftime('%d %b %Y %H:%M') if req.request_date else '—' }}</td>
+                    <td>
+                        {% set ch = changes_map.get(req.id, {}) %}
+                        {% if ch %}
+                        <div style="font-size:12px;line-height:1.7;">
+                            {% if 'amount' in ch %}→ Amount: <strong>{{ currency_symbol }}{{ "%.2f"|format(ch['amount']) }}</strong><br>{% endif %}
+                            {% if 'payment_date' in ch %}→ Date: <strong>{{ ch['payment_date'] }}</strong><br>{% endif %}
+                            {% if 'payment_method' in ch %}→ Method: <strong>{{ ch['payment_method'] }}</strong><br>{% endif %}
+                            {% if 'description' in ch %}→ Description: <strong>{{ ch['description'] }}</strong>{% endif %}
+                        </div>
+                        {% else %}<span style="color:var(--text-light);">—</span>{% endif %}
+                    </td>
+                    <td style="max-width:180px;">{{ req.reason or '—' }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('payment_approval_review', request_id=req.id) }}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                            <input type="text" name="review_note" class="form-control" placeholder="Note (optional)" style="max-width:130px;font-size:12px;padding:6px 8px;">
+                            <button type="submit" name="decision" value="approve" class="btn btn-sm btn-success" onclick="return confirm('Apply these changes to the payment?');"><i class="fas fa-check"></i> Approve</button>
+                            <button type="submit" name="decision" value="reject" class="btn btn-sm btn-danger"><i class="fas fa-times"></i> Reject</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-center" style="padding:30px;color:var(--text-light);">
+                    <i class="fas fa-check-circle" style="font-size:28px;color:var(--success);display:block;margin-bottom:8px;"></i>
+                    No pending payment change requests.
+                </td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- History -->
+<div class="card mt-2">
+    <div class="card-header"><h3><i class="fas fa-history" style="color:var(--text-light);margin-right:8px;"></i>Recent Decisions</h3></div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr><th>Receipt</th><th>Requested By</th><th>Status</th><th>Reviewed By</th><th>Reviewed At</th><th>Note</th></tr>
+            </thead>
+            <tbody>
+                {% for req in history %}
+                <tr>
+                    <td><strong>{{ req.payment.receipt_number if req.payment else '—' }}</strong></td>
+                    <td>{{ req.requestor.username if req.requestor else '—' }}</td>
+                    <td>
+                        {% if req.status == 'approved' %}<span class="badge badge-success">Approved</span>
+                        {% else %}<span class="badge badge-danger">Rejected</span>{% endif %}
+                    </td>
+                    <td>{{ req.reviewer.username if req.reviewer else '—' }}</td>
+                    <td>{{ req.reviewed_at.strftime('%d %b %Y %H:%M') if req.reviewed_at else '—' }}</td>
+                    <td>{{ req.review_note or '—' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center" style="padding:20px;color:var(--text-light);">No decisions yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
