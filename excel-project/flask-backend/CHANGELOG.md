@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.7.1] — 2026-08-14
+
+### Added (Flask app — WhatsApp parent registration)
+
+- **Parents can now register via WhatsApp.** Text `REGISTER <child full name> <level>`
+  (e.g. `REGISTER Tanaka Moyo Grade 6`) and the bot finds the learner by name
+  and level. If several learners match, it lists them and asks the parent to
+  pick the number.
+- **Step-by-step collection of the parent's own details** — exactly the fields
+  on the student registration form: first name, last name, relationship
+  (Father/Mother/Guardian…), email, occupation, national ID and address, with
+  input validation (valid email, valid relationship) and `SKIP` for optional
+  fields. The phone number is taken automatically from the WhatsApp number.
+- On completion the parent record is created and linked to the child; the
+  session is cleared. An already-registered number registering another child
+  simply links that child to the existing profile. `CANCEL` aborts a session,
+  and stale sessions (24h) expire automatically.
+- The HELP text and Communication Settings page document the new REGISTER
+  command.
+
+---
+
 ## [2.7.0] — 2026-08-14
 
 ### Added (Flask app)

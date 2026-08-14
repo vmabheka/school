@@ -484,6 +484,21 @@ class PaymentEditRequest(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class WhatsAppSession(db.Model):
+    """Stateful conversation session for the WhatsApp parent bot.
+
+    Stores the current registration step and collected data so a parent
+    can register step-by-step from their phone.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    phone = db.Column(db.String(30), unique=True, nullable=False)
+    step = db.Column(db.String(40))
+    data = db.Column(db.Text)  # JSON payload (child id, collected fields...)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+
 class Invoice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_number = db.Column(db.String(30), unique=True, nullable=False)
@@ -7229,12 +7244,288 @@ WHATSAPP_HELP_TEXT = (
     "*RESULTS* - latest exam results\n"
     "*RECEIPTS* - recent fee payments\n"
     "*RECORD* - child's school record summary\n"
+    "*REGISTER* - register your number as a parent\n"
     "*HELP* - show this menu"
 )
 
 
+# ─── Parent registration via WhatsApp ──────────────────────────────────
+
+WHATSAPP_SESSION_TTL = 24 * 60 * 60  # seconds
+
+
+def _wa_session_get(phone):
+    return WhatsAppSession.query.filter_by(phone=phone).first()
+
+
+def _wa_session_set(phone, step, data):
+    session = _wa_session_get(phone)
+    if session is None:
+        session = WhatsAppSession(phone=phone, step=step, data=json.dumps(data or {}))
+        db.session.add(session)
+    else:
+        session.step = step
+        session.data = json.dumps(data or {})
+        session.updated_at = datetime.utcnow()
+    db.session.commit()
+    return session
+
+
+def _wa_session_clear(phone):
+    session = _wa_session_get(phone)
+    if session:
+        db.session.delete(session)
+        db.session.commit()
+
+
+def _wa_session_stale(session):
+    if not session or not session.updated_at:
+        return False
+    return (datetime.utcnow() - session.updated_at).total_seconds() > WHATSAPP_SESSION_TTL
+
+
+_WHATSAPP_LEVEL_RE = re.compile(
+    r'\b(ecd\s*[ab]?|grade\s*\d{1,2}|gr\s*\d{1,2}|form\s*\d{1,2})\b', re.IGNORECASE)
+
+
+def _parse_child_query(text):
+    """Split 'Tanaka Moyo Grade 6' into (name, level)."""
+    cleaned = re.sub(r'^(register|reg)\b', '', (text or '').strip(), flags=re.IGNORECASE).strip()
+    m = _WHATSAPP_LEVEL_RE.search(cleaned)
+    level = ''
+    name = cleaned
+    if m:
+        level = re.sub(r'\s+', ' ', m.group(1).strip())
+        name = (cleaned[:m.start()] + ' ' + cleaned[m.end():]).strip()
+    return name, level
+
+
+def _find_students_by_name_level(name, level):
+    """Match active learners by name parts and (optional) class level."""
+    name = re.sub(r'\s+', ' ', (name or '').strip())
+    if not name:
+        return []
+    query = Student.query.filter(Student.status == 'Active')
+    parts = name.split()
+    for part in parts:
+        like = f'%{part}%'
+        query = query.filter(db.or_(
+            Student.first_name.ilike(like),
+            Student.last_name.ilike(like),
+            Student.other_names.ilike(like),
+        ))
+    students = query.limit(30).all()
+    if level:
+        lvl = level.lower()
+        filtered = []
+        for s in students:
+            if s.class_ and s.class_.level and s.class_.level.strip().lower().startswith(lvl):
+                filtered.append(s)
+        students = filtered
+    return students
+
+
+def _student_line(student, index=None):
+    prefix = f'{index}. ' if index else ''
+    return (f"{prefix}{student.first_name} {student.last_name}"
+            f" - {student.class_.name if student.class_ else 'No class'}"
+            f" (Adm {student.admission_number})")
+
+
+def handle_parent_registration(phone, text):
+    """Step-by-step WhatsApp registration for a parent.
+
+    Flow: REGISTER <child name> <level> -> confirm child -> collect the
+    parent's own details (name, relationship, phone, email, occupation,
+    national ID, address — matching the student registration form).
+    """
+    cmd = (text or '').strip()
+    lower = cmd.lower()
+    session = _wa_session_get(phone)
+
+    if _wa_session_stale(session):
+        _wa_session_clear(phone)
+        session = None
+
+    if lower in ('cancel', 'stop', 'quit'):
+        _wa_session_clear(phone)
+        return 'Registration cancelled. Text REGISTER to start again.'
+
+    # ── No active session: only start when the message says REGISTER ──
+    if session is None:
+        if not lower.startswith('register'):
+            return ('To register as a parent, text:\n'
+                    '*REGISTER <child full name> <level>*\n'
+                    'Example: REGISTER Tanaka Moyo Grade 6')
+        child_query = cmd[len('register'):].strip()
+        if not child_query:
+            return ('Please provide your child\'s FULL NAME and LEVEL.\n'
+                    'Example: REGISTER Tanaka Moyo Grade 6')
+        name, level = _parse_child_query(child_query)
+        students = _find_students_by_name_level(name, level)
+        if not students:
+            return (f'No learner found matching "{child_query}".\n'
+                    'Check the spelling and the LEVEL (e.g. Grade 6, Form 3) '
+                    'and try again.\nText REGISTER to restart.')
+        if len(students) > 1:
+            lines = ['Multiple learners found. Reply with the NUMBER of your child:']
+            for i, s in enumerate(students[:5], 1):
+                lines.append(_student_line(s, i))
+            if len(students) > 5:
+                lines.append(f'... and {len(students) - 5} more')
+            _wa_session_set(phone, 'select', {'candidates': [s.id for s in students[:5]]})
+            return '\n'.join(lines)
+        _wa_session_set(phone, 'confirm', {'student_id': students[0].id})
+        return (f'Found: {_student_line(students[0])}.\n'
+                'Reply *YES* to register, or *NO* to cancel.')
+
+    # ── Session in progress: consume the reply as the current step answer ──
+    step = session.step
+    try:
+        data = json.loads(session.data or '{}')
+    except (TypeError, ValueError):
+        data = {}
+
+    if step == 'select':
+        try:
+            choice = int(lower.strip())
+        except ValueError:
+            return ('Please reply with the NUMBER of your child '
+                    '(e.g. 1, 2). Text CANCEL to stop.')
+        candidates = data.get('candidates') or []
+        if choice < 1 or choice > len(candidates):
+            return f'Please reply with a number between 1 and {len(candidates)}.'
+        _wa_session_set(phone, 'confirm', {'student_id': candidates[choice - 1]})
+        student = db.session.get(Student, candidates[choice - 1])
+        return (f'You selected: {_student_line(student)}.\n'
+                'Reply *YES* to register, or *NO* to cancel.')
+
+    if step == 'confirm':
+        if lower in ('yes', 'y', 'yeah', 'ok', 'correct', 'confirm'):
+            student = db.session.get(Student, data.get('student_id'))
+            if not student:
+                _wa_session_clear(phone)
+                return 'The learner was not found. Text REGISTER to start again.'
+            existing = find_parent_by_whatsapp_number(phone)
+            if existing:
+                if student not in existing.students:
+                    existing.students.append(student)
+                    db.session.commit()
+                _wa_session_clear(phone)
+                return (f'Your number is already registered, {existing.first_name}. '
+                        f'{student.first_name} {student.last_name} has been linked to '
+                        'your profile.\nYou can now text BALANCE, RESULTS, RECEIPTS or RECORD.')
+            _wa_session_set(phone, 'parent_first_name', {'student_id': student.id})
+            return ('Almost done! Now add your details (as on the student registration form).\n\n'
+                    '*Step 1 of 7*: Enter your FIRST NAME.')
+        _wa_session_clear(phone)
+        return 'Registration cancelled. Text REGISTER to start again.'
+
+    # ── Collecting the parent's own details ──
+    value = cmd.strip()
+    if step == 'parent_first_name':
+        if len(value) < 2:
+            return 'Please enter a valid first name (at least 2 letters).'
+        data['first_name'] = value
+        next_step, prompt = 'parent_last_name', '*Step 2 of 7*: Enter your LAST NAME.'
+    elif step == 'parent_last_name':
+        if len(value) < 2:
+            return 'Please enter a valid last name (at least 2 letters).'
+        data['last_name'] = value
+        next_step = 'parent_relationship'
+        prompt = ('*Step 3 of 7*: Enter your RELATIONSHIP to the child '
+                  '(Father, Mother, Guardian).')
+    elif step == 'parent_relationship':
+        rel = value.lower()
+        if rel not in ('father', 'mother', 'guardian', 'aunt', 'uncle',
+                       'grandfather', 'grandmother', 'sibling', 'other'):
+            return 'Please enter a valid relationship (e.g. Father, Mother, Guardian).'
+        data['relationship'] = value.title()
+        next_step, prompt = 'parent_email', '*Step 4 of 7*: Enter your EMAIL address (or type SKIP).'
+    elif step == 'parent_email':
+        v = value.lower()
+        if v in ('skip', 'none', 'n/a', '-'):
+            data['email'] = ''
+        elif '@' not in v or '.' not in v:
+            return 'That does not look like a valid email. Try again or type SKIP.'
+        else:
+            data['email'] = v
+        next_step, prompt = 'parent_occupation', '*Step 5 of 7*: Enter your OCCUPATION (or type SKIP).'
+    elif step == 'parent_occupation':
+        v = value.lower()
+        if v in ('skip', 'none', 'n/a', '-'):
+            data['occupation'] = ''
+        else:
+            data['occupation'] = value
+        next_step = 'parent_national_id'
+        prompt = '*Step 6 of 7*: Enter your NATIONAL ID number (or type SKIP).'
+    elif step == 'parent_national_id':
+        v = value.lower()
+        if v in ('skip', 'none', 'n/a', '-'):
+            data['national_id'] = ''
+        else:
+            data['national_id'] = value
+        next_step, prompt = 'parent_address', '*Step 7 of 7*: Enter your HOME ADDRESS (or type SKIP).'
+    elif step == 'parent_address':
+        v = value.lower()
+        if v in ('skip', 'none', 'n/a', '-'):
+            data['address'] = ''
+        else:
+            data['address'] = value
+        # ── Create the parent record and link to the child ──
+        student = db.session.get(Student, data.get('student_id'))
+        parent = Parent(
+            first_name=data.get('first_name', ''),
+            last_name=data.get('last_name', ''),
+            relationship=data.get('relationship', ''),
+            phone=phone,
+            email=data.get('email') or None,
+            occupation=data.get('occupation') or None,
+            national_id=data.get('national_id') or None,
+            address=data.get('address') or None,
+        )
+        db.session.add(parent)
+        db.session.flush()
+        if student:
+            student.parents.append(parent)
+        db.session.commit()
+        log_sync('Parent', parent.id, 'CREATE', {
+            'first_name': parent.first_name,
+            'last_name': parent.last_name,
+            'relationship': parent.relationship,
+            'phone': parent.phone,
+            'email': parent.email,
+            'occupation': parent.occupation,
+            'national_id': parent.national_id,
+            'address': parent.address,
+            'sync_id': parent.sync_id,
+        })
+        _wa_session_clear(phone)
+        child_line = _student_line(student) if student else ''
+        return (f'🎉 Registration complete, {parent.first_name}!\n'
+                f'Child: {child_line}\n'
+                'Your details are now linked to the school records.\n'
+                'You can text BALANCE, RESULTS, RECEIPTS or RECORD anytime.')
+    else:
+        _wa_session_clear(phone)
+        return 'Your registration session expired. Text REGISTER to start again.'
+
+    _wa_session_set(phone, next_step, data)
+    return prompt
+
+
 def process_whatsapp_message(phone, text):
     """Handle an inbound WhatsApp message from a parent and return a reply."""
+    cmd = (text or '').strip().lower()
+    session = _wa_session_get(phone)
+    if _wa_session_stale(session):
+        _wa_session_clear(phone)
+        session = None
+    # Route registration: an active registration conversation, the REGISTER
+    # command, or CANCEL/STOP always go to the registration handler.
+    if session is not None or cmd.startswith('register') or cmd in ('cancel', 'stop', 'quit'):
+        return handle_parent_registration(phone, text)
+
     parent = find_parent_by_whatsapp_number(phone)
     if not parent:
         return ("Sorry, we could not find a parent record linked to this number. "

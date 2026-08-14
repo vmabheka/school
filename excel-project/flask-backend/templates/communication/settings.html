@@ -55,9 +55,10 @@
                 <code style="display:block;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;word-break:break-all;">{{ webhook_url }}</code>
                 <p style="font-size:11px;color:var(--text-light);margin-top:6px;">
                     Use this URL in your Meta WhatsApp app's webhook settings with the verify token above.
-                    Parents can then text <strong>BALANCE</strong>, <strong>RESULTS</strong>,
-                    <strong>RECEIPTS</strong>, <strong>RECORD</strong> or <strong>HELP</strong> from their
-                    registered number.
+                    Parents can then text <strong>REGISTER</strong> (with their child's name
+                    and level) to register, and <strong>BALANCE</strong>, <strong>RESULTS</strong>,
+                    <strong>RECEIPTS</strong>, <strong>RECORD</strong> or <strong>HELP</strong> to
+                    view records from their registered number.
                 </p>
                 <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save WhatsApp</button>
             </form>
@@ -119,7 +120,8 @@
     <div class="card-body" style="font-size:13px;line-height:1.8;">
         <ul style="margin:0;padding-left:20px;">
             <li>When a payment is recorded, the receipt is sent automatically to the student's parent(s) on the channels you enabled above.</li>
-            <li>Parents can also request their records any time by WhatsApp: <strong>BALANCE</strong>, <strong>RESULTS</strong>, <strong>RECEIPTS</strong>, <strong>RECORD</strong>, <strong>HELP</strong>.</li>
+            <li>Parents can register by WhatsApp: text <strong>REGISTER &lt;child name&gt; &lt;level&gt;</strong> (e.g. <em>REGISTER Tanaka Moyo Grade 6</em>) and follow the prompts to add their own details.</li>
+            <li>Registered parents can request their records any time: <strong>BALANCE</strong>, <strong>RESULTS</strong>, <strong>RECEIPTS</strong>, <strong>RECORD</strong>, <strong>HELP</strong>.</li>
             <li>Receipts can be re-sent manually from the receipt page.</li>
             <li>If a channel is not configured, the message is logged in the sync log instead.</li>
         </ul>
