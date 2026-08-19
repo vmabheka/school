@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.8.1] — 2026-08-19
+
+### Changed (Flask app — payslip template)
+
+- **Payslip redesigned to the standard professional template layout**
+  (all sections from before retained):
+  - A4 bordered card with a **two-column header** — left: school logo, name,
+    motto and contact details; right: **PAYSLIP** title with pay period and
+    employee number.
+  - **EMPLOYEE INFORMATION** table (name, position, department, employment
+    date).
+  - **EARNINGS** table (Basic Salary) and **DEDUCTIONS** table (Pay As You
+    Earn, AIDS Levy, other) with a **Total Deductions** row.
+  - Highlighted **NET PAY** bar.
+  - **Bank deposit line** (ZB Bank — Account 451200282033405).
+  - **Prepared by / Employee Signature** block and the MobiSchola footer.
+- Both the PDF generator and the on-screen payslip page now use this layout.
+  Verified: one-page A4 output with all sections present and Makumbe Albert's
+  figures (gross $500, PAYE $60, AIDS levy $15, net $425).
+
+---
+
 ## [2.8.0] — 2026-08-19
 
 ### Added (Flask app)

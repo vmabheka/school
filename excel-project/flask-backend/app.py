@@ -1205,11 +1205,24 @@ def build_payslip_data(staff, period=None):
 
 
 def _generate_payslip_pdf(payslip):
-    """Generate a PDF payslip using the shared branded header/footer."""
+    """Generate a PDF payslip in the standard professional layout.
+
+    Template structure (all sections retained):
+      • bordered card on A4
+      • two-column header: left = school logo + name + motto + contact,
+        right = PAYSLIP title + pay period + employee no
+      • employee information table
+      • EARNINGS table  (Basic Salary)
+      • DEDUCTIONS table (PAYE, AIDS Levy, other)
+      • NET PAY summary bar
+      • bank deposit line
+      • signatures (Prepared by / Employee) + software footer
+    """
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.lib.colors import HexColor
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
+                                    TableStyle, HRFlowable, Image)
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 
@@ -1217,113 +1230,199 @@ def _generate_payslip_pdf(payslip):
     currency = theme.get('currency_symbol', '$')
     staff = payslip['staff']
     primary = HexColor(theme.get('primary_color', '#1F2080'))
+    grey = HexColor('#6b7280')
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm,
-                            topMargin=15 * mm, bottomMargin=15 * mm)
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14 * mm, rightMargin=14 * mm,
+                            topMargin=12 * mm, bottomMargin=12 * mm)
     styles = getSampleStyleSheet()
-    label = ParagraphStyle('PSLabel', parent=styles['Normal'], fontSize=9, textColor=HexColor('#6b7280'))
+    label = ParagraphStyle('PSLabel', parent=styles['Normal'], fontSize=9, textColor=grey)
     value = ParagraphStyle('PSValue', parent=styles['Normal'], fontSize=10, fontName='Helvetica-Bold')
-    hdr = ParagraphStyle('PSHdr', parent=styles['Normal'], fontSize=8,
+    hdr = ParagraphStyle('PSHdr', parent=styles['Normal'], fontSize=9,
                          fontName='Helvetica-Bold', textColor=HexColor('#ffffff'))
+    hdr_right = ParagraphStyle('PSHdrR', parent=hdr, alignment=TA_RIGHT)
+    cell = ParagraphStyle('PSCell', parent=styles['Normal'], fontSize=9.5)
+    cell_right = ParagraphStyle('PSCellR', parent=cell, alignment=TA_RIGHT)
+    cell_bold = ParagraphStyle('PSCellB', parent=cell, fontName='Helvetica-Bold')
+    cell_right_bold = ParagraphStyle('PSCellRB', parent=cell_right, fontName='Helvetica-Bold')
+    small_center = ParagraphStyle('PSSmall', parent=styles['Normal'], fontSize=8,
+                                  alignment=TA_CENTER, textColor=grey)
 
     story = []
-    _brand_header_story(story, theme, title_size=15)
-    story.append(Paragraph('EMPLOYEE PAYSLIP',
-                           ParagraphStyle('PSTitle', parent=styles['Normal'], fontSize=13,
-                                          alignment=TA_CENTER, fontName='Helvetica-Bold',
-                                          textColor=primary)))
-    story.append(Paragraph(f'Pay Period: {payslip["period"]}',
-                           ParagraphStyle('PSPeriod', parent=styles['Normal'], fontSize=9,
-                                          alignment=TA_CENTER, textColor=HexColor('#6b7280'))))
-    story.append(Spacer(1, 5 * mm))
 
-    # Employee details
-    info = [
-        [Paragraph('Employee:', label), Paragraph(f"{staff.first_name} {staff.last_name}", value)],
-        [Paragraph('Employee No:', label), Paragraph(staff.employee_number or '-', value)],
-        [Paragraph('Position:', label), Paragraph(staff.position or '-', value)],
-        [Paragraph('Department:', label), Paragraph(staff.department or '-', value)],
+    # ── Two-column header: school (left) + payslip meta (right) ──
+    school_cell = []
+    logo = _pdf_logo_image(max_height_mm=14)
+    if logo:
+        logo.hAlign = 'LEFT'
+        school_cell.append(logo)
+        school_cell.append(Spacer(1, 2 * mm))
+    school_cell.append(Paragraph(
+        theme.get('school_name', 'School'),
+        ParagraphStyle('PSHeaderName', parent=styles['Normal'], fontSize=15,
+                       fontName='Helvetica-Bold', textColor=primary)))
+    motto = (theme.get('school_motto') or '').strip()
+    if motto:
+        school_cell.append(Paragraph(motto, ParagraphStyle('PSHeaderMotto',
+                                   parent=styles['Normal'], fontSize=8.5, textColor=grey)))
+    contact_parts = [theme.get(k, '').strip() for k in
+                     ('school_address', 'school_phone', 'school_email')]
+    contact = ' • '.join(p for p in contact_parts if p)
+    if contact:
+        school_cell.append(Paragraph(contact, ParagraphStyle('PSHeaderContact',
+                                    parent=styles['Normal'], fontSize=7.5, textColor=grey)))
+
+    meta_cell = [
+        Paragraph('PAYSLIP', ParagraphStyle('PSMetaTitle', parent=styles['Normal'],
+                                            fontSize=16, fontName='Helvetica-Bold',
+                                            alignment=TA_RIGHT, textColor=primary)),
+        Paragraph(f"Pay Period: <b>{payslip['period']}</b>",
+                  ParagraphStyle('PSMetaPeriod', parent=styles['Normal'], fontSize=9.5,
+                                 alignment=TA_RIGHT)),
+        Paragraph(f"Employee No: <b>{staff.employee_number or '-'}</b>",
+                  ParagraphStyle('PSMetaEmp', parent=styles['Normal'], fontSize=9.5,
+                                 alignment=TA_RIGHT)),
     ]
-    t = Table(info, colWidths=[40 * mm, 65 * mm, 40 * mm, 65 * mm])
-    t.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                           ('BOTTOMPADDING', (0, 0), (-1, -1), 3)]))
-    story.append(t)
+    header_table = Table([[school_cell, meta_cell]], colWidths=[95 * mm, 83 * mm])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 3 * mm))
+    story.append(HRFlowable(width='100%', thickness=1.2, color=primary))
     story.append(Spacer(1, 5 * mm))
 
-    # Earnings & deductions
-    rows = [[Paragraph('<b>Description</b>', hdr), Paragraph('<b>Amount</b>',
-             ParagraphStyle('PSHdrR', parent=hdr, alignment=TA_RIGHT))]]
-    rows.append([Paragraph('Basic Salary (Gross)', styles['Normal']),
-                 Paragraph(f"{currency}{payslip['gross']:,.2f}",
-                           ParagraphStyle('PR', parent=styles['Normal'], alignment=TA_RIGHT))])
-    story.append(Spacer(1, 3 * mm))
-    story.append(Paragraph('EARNINGS', ParagraphStyle('PSEarn', parent=styles['Normal'],
-                          fontSize=9, fontName='Helvetica-Bold', textColor=primary)))
-    earn_t = Table(rows, colWidths=[140 * mm, 40 * mm])
+    # ── Employee information ──
+    emp_header = [[Paragraph('<b>EMPLOYEE INFORMATION</b>', hdr)]]
+    emp_header_t = Table(emp_header, colWidths=[178 * mm])
+    emp_header_t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), primary),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    story.append(emp_header_t)
+    emp_rows = [
+        [Paragraph('<b>Employee Name</b>', label),
+         Paragraph(f"{staff.first_name} {staff.last_name}", value),
+         Paragraph('<b>Position</b>', label),
+         Paragraph(staff.position or '-', value)],
+        [Paragraph('<b>Department</b>', label),
+         Paragraph(staff.department or '-', value),
+         Paragraph('<b>Employment Date</b>', label),
+         Paragraph(staff.employment_date.strftime('%d %b %Y') if staff.employment_date else '-', value)],
+    ]
+    emp_t = Table(emp_rows, colWidths=[42 * mm, 47 * mm, 42 * mm, 47 * mm])
+    emp_t.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('GRID', (0, 0), (-1, -1), 0.4, HexColor('#d1d5db')),
+        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#f9fafb')),
+    ]))
+    story.append(emp_t)
+    story.append(Spacer(1, 5 * mm))
+
+    # ── Earnings ──
+    earn_header = [[Paragraph('<b>EARNINGS</b>', hdr), Paragraph('<b>Amount</b>', hdr_right)]]
+    earn_t = Table(earn_header, colWidths=[138 * mm, 40 * mm])
     earn_t.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), primary),
-        ('TEXTCOLOR', (0, 0), (-1, 0), HexColor('#ffffff')),
-        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#e5e7eb')),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 5),
+        ('TOPPADDING', (0, 0), (-1, 0), 5),
     ]))
     story.append(earn_t)
-    story.append(Spacer(1, 4 * mm))
-
-    deduct_rows = [[Paragraph('<b>Description</b>', hdr),
-                    Paragraph('<b>Amount</b>', ParagraphStyle('PSHdrR2', parent=hdr, alignment=TA_RIGHT))]]
-    deduct_rows.append([Paragraph('Pay As You Earn (PAYE)', styles['Normal']),
-                        Paragraph(f"{currency}{payslip['paye']:,.2f}",
-                                  ParagraphStyle('PR2', parent=styles['Normal'], alignment=TA_RIGHT))])
-    deduct_rows.append([Paragraph('AIDS Levy', styles['Normal']),
-                        Paragraph(f"{currency}{payslip['aids']:,.2f}",
-                                  ParagraphStyle('PR3', parent=styles['Normal'], alignment=TA_RIGHT))])
-    if payslip['other'] > 0:
-        deduct_rows.append([Paragraph('Other Deductions', styles['Normal']),
-                            Paragraph(f"{currency}{payslip['other']:,.2f}",
-                                      ParagraphStyle('PR4', parent=styles['Normal'], alignment=TA_RIGHT))])
-    story.append(Paragraph('DEDUCTIONS', ParagraphStyle('PSDed', parent=styles['Normal'],
-                          fontSize=9, fontName='Helvetica-Bold', textColor=HexColor('#b91c1c'))))
-    ded_t = Table(deduct_rows, colWidths=[140 * mm, 40 * mm])
-    ded_t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), HexColor('#6b7280')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), HexColor('#ffffff')),
-        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#e5e7eb')),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
+    earn_rows = [
+        [Paragraph('Basic Salary (Gross)', cell), Paragraph(f"{currency}{payslip['gross']:,.2f}", cell_right)],
+    ]
+    earn_body = Table(earn_rows, colWidths=[138 * mm, 40 * mm])
+    earn_body.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 0.4, HexColor('#d1d5db')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
     ]))
-    story.append(ded_t)
+    story.append(earn_body)
     story.append(Spacer(1, 5 * mm))
 
-    # Net pay
-    net_row = [[Paragraph('<b>NET PAY</b>', ParagraphStyle('PSNetL', parent=styles['Normal'],
-                            fontSize=11, fontName='Helvetica-Bold')),
-                Paragraph(f"<b>{currency}{payslip['net']:,.2f}</b>",
-                          ParagraphStyle('PSNetR', parent=styles['Normal'], fontSize=13,
-                                         alignment=TA_RIGHT, fontName='Helvetica-Bold',
-                                         textColor=primary))]]
-    net_t = Table(net_row, colWidths=[140 * mm, 40 * mm])
+    # ── Deductions ──
+    ded_header = [[Paragraph('<b>DEDUCTIONS</b>', hdr), Paragraph('<b>Amount</b>', hdr_right)]]
+    ded_t = Table(ded_header, colWidths=[138 * mm, 40 * mm])
+    ded_t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), HexColor('#6b7280')),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 5),
+        ('TOPPADDING', (0, 0), (-1, 0), 5),
+    ]))
+    story.append(ded_t)
+    ded_rows = [
+        [Paragraph('Pay As You Earn (PAYE)', cell), Paragraph(f"{currency}{payslip['paye']:,.2f}", cell_right)],
+        [Paragraph('AIDS Levy', cell), Paragraph(f"{currency}{payslip['aids']:,.2f}", cell_right)],
+    ]
+    if payslip['other'] > 0:
+        ded_rows.append([Paragraph('Other Deductions', cell),
+                         Paragraph(f"{currency}{payslip['other']:,.2f}", cell_right)])
+    ded_rows.append([Paragraph('<b>Total Deductions</b>', cell_bold),
+                     Paragraph(f"<b>{currency}{payslip['total_deductions']:,.2f}</b>", cell_right_bold)])
+    ded_body = Table(ded_rows, colWidths=[138 * mm, 40 * mm])
+    ded_body.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 0.4, HexColor('#d1d5db')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BACKGROUND', (0, -1), (-1, -1), HexColor('#f3f4f6')),
+    ]))
+    story.append(ded_body)
+    story.append(Spacer(1, 5 * mm))
+
+    # ── Net pay summary bar ──
+    net_t = Table([[Paragraph('<b>NET PAY</b>', ParagraphStyle('PSNetL', parent=styles['Normal'],
+                               fontSize=12, fontName='Helvetica-Bold', textColor=HexColor('#ffffff'))),
+                    Paragraph(f"<b>{currency}{payslip['net']:,.2f}</b>",
+                              ParagraphStyle('PSNetR', parent=styles['Normal'], fontSize=15,
+                                             alignment=TA_RIGHT, fontName='Helvetica-Bold',
+                                             textColor=HexColor('#ffffff'))) ]],
+                  colWidths=[138 * mm, 40 * mm])
     net_t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#f0fdf4')),
-        ('LINEABOVE', (0, 0), (-1, 0), 1, primary),
-        ('LINEBELOW', (0, 0), (-1, -1), 1, primary),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BACKGROUND', (0, 0), (-1, -1), primary),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 9),
+        ('TOPPADDING', (0, 0), (-1, -1), 9),
     ]))
     story.append(net_t)
-    story.append(Spacer(1, 6 * mm))
+    story.append(Spacer(1, 5 * mm))
 
-    # Bank deposit
+    # ── Bank deposit ──
     if payslip['bank_name'] or payslip['bank_account']:
-        story.append(HRFlowable(width='100%', thickness=0.5, color=HexColor('#d1d5db')))
-        story.append(Spacer(1, 2 * mm))
-        bank_line = (f"Salary deposited into: <b>{payslip['bank_name']}</b> "
-                     f"Account <b>{payslip['bank_account']}</b>")
-        story.append(Paragraph(bank_line, ParagraphStyle('PSBank', parent=styles['Normal'],
-                               fontSize=9, alignment=TA_CENTER)))
-        story.append(Spacer(1, 4 * mm))
+        bank_t = Table([[Paragraph('<b>Salary deposited into:</b>', label),
+                         Paragraph(f"{payslip['bank_name'] or '-'}", value),
+                         Paragraph('<b>Account:</b>', label),
+                         Paragraph(payslip['bank_account'] or '-', value)]],
+                       colWidths=[40 * mm, 50 * mm, 28 * mm, 60 * mm])
+        bank_t.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BOX', (0, 0), (-1, -1), 0.5, HexColor('#d1d5db')),
+            ('BACKGROUND', (0, 0), (-1, -1), HexColor('#f8fafc')),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(bank_t)
+        story.append(Spacer(1, 7 * mm))
 
+    # ── Signatures ──
+    sig_t = Table([
+        [Paragraph('<b>Prepared by</b>', label), Paragraph('<b>Employee Signature</b>', label)],
+        [Paragraph('______________________', small_center), Paragraph('______________________', small_center)],
+        [Paragraph('Name / Date', small_center), Paragraph('Name / Date', small_center)],
+    ], colWidths=[89 * mm, 89 * mm])
+    sig_t.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('TOPPADDING', (0, 1), (-1, 1), 22),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 2),
+    ]))
+    story.append(sig_t)
+    story.append(Spacer(1, 5 * mm))
+
+    story.append(HRFlowable(width='100%', thickness=0.5, color=HexColor('#d1d5db')))
+    story.append(Spacer(1, 2 * mm))
     story.append(Paragraph(_software_footer(theme),
                            ParagraphStyle('PSFoot', parent=styles['Normal'], fontSize=7,
                                           alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
