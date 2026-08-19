@@ -42,7 +42,7 @@
                     <td>{{ currency_symbol }}{{ "{:,.2f}".format(r.aids) }}</td>
                     <td><strong style="color:var(--success);">{{ currency_symbol }}{{ "{:,.2f}".format(r.net) }}</strong></td>
                     <td>{{ r.bank_name or '-' }}</td>
-                    <td style="font-family:monospace;">{{ r.bank_account or '-' }}</td>
+                    <td style="font-family:monospace;">{{ r.bank_account_display or r.bank_account or '-' }}</td>
                     <td>
                         <a href="{{ url_for('staff_payslip', id=r.staff.id) }}" class="btn btn-sm btn-success" title="View Payslip"><i class="fas fa-money-bill-wave"></i> Payslip</a>
                         <a href="{{ url_for('staff_payslip_pdf', id=r.staff.id) }}" class="btn btn-sm btn-secondary" title="Download Payslip PDF"><i class="fas fa-file-pdf"></i></a>

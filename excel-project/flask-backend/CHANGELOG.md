@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.8.2] — 2026-08-19
+
+### Changed (Flask app — payslip now matches the official template)
+
+- The payslip (PDF and on-screen page) now reproduces
+  **Makumbe_Albert_Payslip_July_2026.pdf** exactly:
+  - school header (name/address/cell/email) → **PAYSLIP — JULY 2026** →
+    "Currency: United States Dollars (US$) • Strictly Confidential"
+  - employee details (Employee Name, Position, Pay Period, Pay Date,
+    Payslip No., Bank, **Account Number 4512 0028 2033 405** — grouped in 4s)
+  - **EARNINGS (US$)** | **DEDUCTIONS (US$)** side by side with totals
+    (Basic Salary 523.84 / TOTAL EARNINGS 523.84 · PAYE 95.96,
+    AIDS Levy (3% of PAYE) 2.88, TOTAL DEDUCTIONS 98.84)
+  - **NET PAY box US$425.00** + **amount in words**
+    ("Four Hundred and Twenty-Five United States Dollars Only")
+  - **For office use** YTD box, **Authorised by (Head of School)** and
+    **Employee's Acknowledgement** signature blocks with **SCHOOL STAMP** box
+  - **HOW THE DEDUCTIONS WERE CALCULATED** (the exact template formulas)
+  - confidentiality footer
+- Makumbe's seeded figures updated to the template values (gross **523.84**,
+  PAYE **95.96**, AIDS Levy **2.88** → net **425.00**); older placeholder
+  figures (500/60/15) are migrated automatically on startup. Amount-in-words
+  and bank-account formatting helpers added; net pay rounded to 2 decimals.
+
+---
+
 ## [2.8.1] — 2026-08-19
 
 ### Changed (Flask app — payslip template)

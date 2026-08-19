@@ -1172,27 +1172,96 @@ def _brand_header_story(story, theme, title_size=14, show_contact=True):
 
 # ─── Payroll / Payslips ────────────────────────────────────────────────
 
+# Payslip template configuration (matches the official July 2026 payslip).
+PAYSLIP_CURRENCY_CODE = 'US$'
+PAYSLIP_CURRENCY_LABEL = 'United States Dollars'
+PAYSLIP_PAYE_RATE_PCT = 25       # PAYE = (rate% x gross) - exemption
+PAYSLIP_PAYE_EXEMPTION = 35.00
+PAYSLIP_AIDS_RATE_PCT = 3        # AIDS Levy = rate% of PAYE
+
+_ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
+         'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen',
+         'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
+_TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy',
+         'Eighty', 'Ninety']
+
+
+def _words_two(n):
+    if n < 20:
+        return _ONES[n]
+    return _TENS[n // 10] + ('-' + _ONES[n % 10] if n % 10 else '')
+
+
+def _words_three(n):
+    h, r = n // 100, n % 100
+    parts = []
+    if h:
+        parts.append(_ONES[h] + ' Hundred')
+    if r:
+        word = _words_two(r)
+        parts.append(('and ' if h else '') + word)
+    return ' '.join(parts) if parts else 'Zero'
+
+
+def _amount_in_words(amount):
+    """425.00 -> ('Four Hundred and Twenty-Five', 0) ; 425.50 -> (..., 50)."""
+    amt = round(float(amount or 0.0), 2)
+    dollars = int(amt)
+    cents = int(round((amt - dollars) * 100))
+    millions = dollars // 1000000
+    thousands = (dollars // 1000) % 1000
+    rest = dollars % 1000
+    parts = []
+    if millions:
+        parts.append(_words_three(millions) + ' Million')
+    if thousands:
+        parts.append(_words_three(thousands) + ' Thousand')
+    if rest or not parts:
+        parts.append(_words_three(rest))
+    return ' '.join(parts), cents
+
+
+def _format_bank_account(account):
+    """'451200282033405' -> '4512 0028 2033 405' (as on the template)."""
+    digits = re.sub(r'\D', '', account or '')
+    return ' '.join(digits[i:i + 4] for i in range(0, len(digits), 4))
+
+
+def _payslip_amount_words(net):
+    """425.00 -> 'Four Hundred and Twenty-Five United States Dollars Only'."""
+    words, cents = _amount_in_words(net)
+    if cents:
+        return (f"{words} {PAYSLIP_CURRENCY_LABEL} and "
+                f"{_words_two(cents)} Cents")
+    return f"{words} {PAYSLIP_CURRENCY_LABEL} Only"
+
+
 def staff_net_pay(staff):
     """Net monthly pay = gross salary - PAYE - AIDS levy - other deductions."""
     gross = float(staff.salary or 0.0)
     paye = float(staff.paye_deduction or 0.0)
     aids = float(staff.aids_levy_deduction or 0.0)
     other = float(staff.other_deductions or 0.0)
-    return gross - paye - aids - other
+    return round(gross - paye - aids - other, 2)
 
 
 def build_payslip_data(staff, period=None):
-    """Return a dict describing a staff member's payslip for a period."""
+    """Return a dict describing a staff member's payslip for a period.
+
+    Mirrors the official payslip template: gross, PAYE, AIDS levy, net pay,
+    amount in words, formatted bank account, and the deduction formulas.
+    """
     if period is None:
         period = datetime.utcnow().strftime('%B %Y')
     gross = float(staff.salary or 0.0)
     paye = float(staff.paye_deduction or 0.0)
     aids = float(staff.aids_levy_deduction or 0.0)
     other = float(staff.other_deductions or 0.0)
-    net = gross - paye - aids - other
+    net = round(gross - paye - aids - other, 2)
     return {
         'staff': staff,
         'period': period,
+        'period_upper': period.upper(),
         'gross': gross,
         'paye': paye,
         'aids': aids,
@@ -1201,231 +1270,300 @@ def build_payslip_data(staff, period=None):
         'net': net,
         'bank_name': staff.bank_name or '',
         'bank_account': staff.bank_account or '',
+        'bank_account_display': _format_bank_account(staff.bank_account),
+        'currency_code': PAYSLIP_CURRENCY_CODE,
+        'currency_label': PAYSLIP_CURRENCY_LABEL,
+        'amount_words': _payslip_amount_words(net),
+        # Deduction formulas as displayed on the template.
+        'paye_rate_pct': PAYSLIP_PAYE_RATE_PCT,
+        'paye_exemption': PAYSLIP_PAYE_EXEMPTION,
+        'aids_rate_pct': PAYSLIP_AIDS_RATE_PCT,
+        'pay_date': '',
+        'payslip_no': '',
     }
 
 
 def _generate_payslip_pdf(payslip):
-    """Generate a PDF payslip in the standard professional layout.
+    """Generate the payslip PDF exactly matching the official template
+    (Makumbe_Albert_Payslip_July_2026.pdf):
 
-    Template structure (all sections retained):
-      • bordered card on A4
-      • two-column header: left = school logo + name + motto + contact,
-        right = PAYSLIP title + pay period + employee no
-      • employee information table
-      • EARNINGS table  (Basic Salary)
-      • DEDUCTIONS table (PAYE, AIDS Levy, other)
-      • NET PAY summary bar
-      • bank deposit line
-      • signatures (Prepared by / Employee) + software footer
+      school header (name/address/cell/email)
+      PAYSLIP — <PERIOD>  /  Currency: United States Dollars (US$) • Strictly Confidential
+      employee details (name, position, pay period, pay date, payslip no,
+                        bank, account number)
+      EARNINGS (US$) | DEDUCTIONS (US$) side-by-side with totals
+      NET PAY box + amount in words
+      For-office-use YTD box
+      Authorised by / Employee's Acknowledgement signatures + SCHOOL STAMP
+      HOW THE DEDUCTIONS WERE CALCULATED (formulas)
+      confidentiality footer
     """
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.lib.colors import HexColor
     from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                    TableStyle, HRFlowable, Image)
+                                    TableStyle, HRFlowable)
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 
     theme = get_theme()
-    currency = theme.get('currency_symbol', '$')
     staff = payslip['staff']
     primary = HexColor(theme.get('primary_color', '#1F2080'))
     grey = HexColor('#6b7280')
+    black = HexColor('#111827')
+    cc = payslip['currency_code']
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14 * mm, rightMargin=14 * mm,
-                            topMargin=12 * mm, bottomMargin=12 * mm)
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm,
+                            topMargin=14 * mm, bottomMargin=14 * mm)
     styles = getSampleStyleSheet()
-    label = ParagraphStyle('PSLabel', parent=styles['Normal'], fontSize=9, textColor=grey)
-    value = ParagraphStyle('PSValue', parent=styles['Normal'], fontSize=10, fontName='Helvetica-Bold')
-    hdr = ParagraphStyle('PSHdr', parent=styles['Normal'], fontSize=9,
-                         fontName='Helvetica-Bold', textColor=HexColor('#ffffff'))
-    hdr_right = ParagraphStyle('PSHdrR', parent=hdr, alignment=TA_RIGHT)
+    label = ParagraphStyle('PSLabel', parent=styles['Normal'], fontSize=9.5, textColor=black)
+    value = ParagraphStyle('PSValue', parent=styles['Normal'], fontSize=9.5, fontName='Helvetica-Bold')
     cell = ParagraphStyle('PSCell', parent=styles['Normal'], fontSize=9.5)
     cell_right = ParagraphStyle('PSCellR', parent=cell, alignment=TA_RIGHT)
     cell_bold = ParagraphStyle('PSCellB', parent=cell, fontName='Helvetica-Bold')
     cell_right_bold = ParagraphStyle('PSCellRB', parent=cell_right, fontName='Helvetica-Bold')
-    small_center = ParagraphStyle('PSSmall', parent=styles['Normal'], fontSize=8,
-                                  alignment=TA_CENTER, textColor=grey)
+    small = ParagraphStyle('PSSmall', parent=styles['Normal'], fontSize=8, textColor=grey)
+    small_center = ParagraphStyle('PSSmallC', parent=small, alignment=TA_CENTER)
 
     story = []
 
-    # ── Two-column header: school (left) + payslip meta (right) ──
-    school_cell = []
-    logo = _pdf_logo_image(max_height_mm=14)
-    if logo:
-        logo.hAlign = 'LEFT'
-        school_cell.append(logo)
-        school_cell.append(Spacer(1, 2 * mm))
-    school_cell.append(Paragraph(
-        theme.get('school_name', 'School'),
-        ParagraphStyle('PSHeaderName', parent=styles['Normal'], fontSize=15,
-                       fontName='Helvetica-Bold', textColor=primary)))
-    motto = (theme.get('school_motto') or '').strip()
-    if motto:
-        school_cell.append(Paragraph(motto, ParagraphStyle('PSHeaderMotto',
-                                   parent=styles['Normal'], fontSize=8.5, textColor=grey)))
-    contact_parts = [theme.get(k, '').strip() for k in
-                     ('school_address', 'school_phone', 'school_email')]
-    contact = ' • '.join(p for p in contact_parts if p)
-    if contact:
-        school_cell.append(Paragraph(contact, ParagraphStyle('PSHeaderContact',
-                                    parent=styles['Normal'], fontSize=7.5, textColor=grey)))
-
-    meta_cell = [
-        Paragraph('PAYSLIP', ParagraphStyle('PSMetaTitle', parent=styles['Normal'],
-                                            fontSize=16, fontName='Helvetica-Bold',
-                                            alignment=TA_RIGHT, textColor=primary)),
-        Paragraph(f"Pay Period: <b>{payslip['period']}</b>",
-                  ParagraphStyle('PSMetaPeriod', parent=styles['Normal'], fontSize=9.5,
-                                 alignment=TA_RIGHT)),
-        Paragraph(f"Employee No: <b>{staff.employee_number or '-'}</b>",
-                  ParagraphStyle('PSMetaEmp', parent=styles['Normal'], fontSize=9.5,
-                                 alignment=TA_RIGHT)),
-    ]
-    header_table = Table([[school_cell, meta_cell]], colWidths=[95 * mm, 83 * mm])
-    header_table.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+    # ── School header ──
+    school_name = theme.get('school_name', 'School')
+    address = theme.get('school_address', '').strip()
+    phone = theme.get('school_phone', '').strip()
+    email = theme.get('school_email', '').strip()
+    header_lines = [Paragraph(school_name.upper(),
+                              ParagraphStyle('PSHeadName', parent=styles['Normal'],
+                                             fontSize=15, fontName='Helvetica-Bold',
+                                             textColor=primary))]
+    if address:
+        header_lines.append(Paragraph(address, ParagraphStyle('PSHeadAddr',
+                                       parent=styles['Normal'], fontSize=9.5)))
+    contact_bits = []
+    if phone:
+        contact_bits.append(f"Cell: {phone}")
+    if email:
+        contact_bits.append(f"Email: {email}")
+    if contact_bits:
+        header_lines.append(Paragraph('      '.join(contact_bits),
+                                      ParagraphStyle('PSHeadContact', parent=styles['Normal'],
+                                                     fontSize=9.5, textColor=grey)))
+    header_t = Table([[header_lines]], colWidths=[178 * mm])
+    header_t.setStyle(TableStyle([
         ('LEFTPADDING', (0, 0), (-1, -1), 0),
         ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
     ]))
-    story.append(header_table)
+    story.append(header_t)
+    story.append(Spacer(1, 2 * mm))
+    story.append(HRFlowable(width='100%', thickness=1, color=primary))
     story.append(Spacer(1, 3 * mm))
-    story.append(HRFlowable(width='100%', thickness=1.2, color=primary))
-    story.append(Spacer(1, 5 * mm))
 
-    # ── Employee information ──
-    emp_header = [[Paragraph('<b>EMPLOYEE INFORMATION</b>', hdr)]]
-    emp_header_t = Table(emp_header, colWidths=[178 * mm])
-    emp_header_t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), primary),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-    ]))
-    story.append(emp_header_t)
-    emp_rows = [
-        [Paragraph('<b>Employee Name</b>', label),
-         Paragraph(f"{staff.first_name} {staff.last_name}", value),
-         Paragraph('<b>Position</b>', label),
-         Paragraph(staff.position or '-', value)],
-        [Paragraph('<b>Department</b>', label),
-         Paragraph(staff.department or '-', value),
-         Paragraph('<b>Employment Date</b>', label),
-         Paragraph(staff.employment_date.strftime('%d %b %Y') if staff.employment_date else '-', value)],
+    # ── Title + currency line ──
+    story.append(Paragraph(f"PAYSLIP — {payslip['period_upper']}",
+                           ParagraphStyle('PSTitle', parent=styles['Normal'], fontSize=15,
+                                          alignment=TA_CENTER, fontName='Helvetica-Bold',
+                                          textColor=black)))
+    story.append(Paragraph(
+        f"Currency: {payslip['currency_label']} ({cc})  •  Strictly Confidential",
+        ParagraphStyle('PSCurr', parent=styles['Normal'], fontSize=9,
+                       alignment=TA_CENTER, textColor=grey)))
+    story.append(Spacer(1, 4 * mm))
+
+    # ── Employee details ──
+    emp_items = [
+        ('Employee Name', f"{staff.first_name} {staff.last_name}"),
+        ('Position', staff.position or '-'),
+        ('Pay Period', payslip['period']),
+        ('Pay Date', payslip['pay_date'] or ''),
+        ('Payslip No.', payslip['payslip_no'] or ''),
+        ('Bank', payslip['bank_name'] or '-'),
+        ('Account Number', payslip['bank_account_display'] or '-'),
     ]
-    emp_t = Table(emp_rows, colWidths=[42 * mm, 47 * mm, 42 * mm, 47 * mm])
+    emp_rows = []
+    for i in range(0, len(emp_items), 2):
+        left = emp_items[i]
+        right = emp_items[i + 1] if i + 1 < len(emp_items) else ('', '')
+        emp_rows.append([
+            Paragraph(f"{left[0]}:", label), Paragraph(left[1], value),
+            Paragraph(f"{right[0]}:", label) if right[0] else Paragraph('', label),
+            Paragraph(right[1], value) if right[0] else Paragraph('', value),
+        ])
+    emp_t = Table(emp_rows, colWidths=[44 * mm, 46 * mm, 44 * mm, 44 * mm])
     emp_t.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-        ('GRID', (0, 0), (-1, -1), 0.4, HexColor('#d1d5db')),
-        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#f9fafb')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('LINEBELOW', (0, 0), (-1, -2), 0.3, HexColor('#e5e7eb')),
     ]))
     story.append(emp_t)
     story.append(Spacer(1, 5 * mm))
 
-    # ── Earnings ──
-    earn_header = [[Paragraph('<b>EARNINGS</b>', hdr), Paragraph('<b>Amount</b>', hdr_right)]]
-    earn_t = Table(earn_header, colWidths=[138 * mm, 40 * mm])
-    earn_t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), primary),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 5),
-        ('TOPPADDING', (0, 0), (-1, 0), 5),
-    ]))
-    story.append(earn_t)
+    # ── EARNINGS | DEDUCTIONS side by side ──
+    def money_table(rows, header_text):
+        header = [[Paragraph(f'<b>{header_text}</b>', cell_bold),
+                   Paragraph('<b>Amount</b>', cell_right_bold)]]
+        data = header + rows
+        t = Table(data, colWidths=[58 * mm, 28 * mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), HexColor('#f3f4f6')),
+            ('GRID', (0, 0), (-1, -1), 0.4, HexColor('#d1d5db')),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        return t
+
     earn_rows = [
-        [Paragraph('Basic Salary (Gross)', cell), Paragraph(f"{currency}{payslip['gross']:,.2f}", cell_right)],
+        [Paragraph('Basic Salary', cell), Paragraph(f"{payslip['gross']:.2f}", cell_right)],
+        [Paragraph('<b>TOTAL EARNINGS</b>', cell_bold),
+         Paragraph(f"<b>{payslip['gross']:.2f}</b>", cell_right_bold)],
     ]
-    earn_body = Table(earn_rows, colWidths=[138 * mm, 40 * mm])
-    earn_body.setStyle(TableStyle([
-        ('GRID', (0, 0), (-1, -1), 0.4, HexColor('#d1d5db')),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-    ]))
-    story.append(earn_body)
-    story.append(Spacer(1, 5 * mm))
-
-    # ── Deductions ──
-    ded_header = [[Paragraph('<b>DEDUCTIONS</b>', hdr), Paragraph('<b>Amount</b>', hdr_right)]]
-    ded_t = Table(ded_header, colWidths=[138 * mm, 40 * mm])
-    ded_t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), HexColor('#6b7280')),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 5),
-        ('TOPPADDING', (0, 0), (-1, 0), 5),
-    ]))
-    story.append(ded_t)
     ded_rows = [
-        [Paragraph('Pay As You Earn (PAYE)', cell), Paragraph(f"{currency}{payslip['paye']:,.2f}", cell_right)],
-        [Paragraph('AIDS Levy', cell), Paragraph(f"{currency}{payslip['aids']:,.2f}", cell_right)],
+        [Paragraph('PAYE (Pay As You Earn)', cell), Paragraph(f"{payslip['paye']:.2f}", cell_right)],
+        [Paragraph('AIDS Levy (3% of PAYE)', cell), Paragraph(f"{payslip['aids']:.2f}", cell_right)],
+        [Paragraph('<b>TOTAL DEDUCTIONS</b>', cell_bold),
+         Paragraph(f"<b>{payslip['total_deductions']:.2f}</b>", cell_right_bold)],
     ]
-    if payslip['other'] > 0:
-        ded_rows.append([Paragraph('Other Deductions', cell),
-                         Paragraph(f"{currency}{payslip['other']:,.2f}", cell_right)])
-    ded_rows.append([Paragraph('<b>Total Deductions</b>', cell_bold),
-                     Paragraph(f"<b>{currency}{payslip['total_deductions']:,.2f}</b>", cell_right_bold)])
-    ded_body = Table(ded_rows, colWidths=[138 * mm, 40 * mm])
-    ded_body.setStyle(TableStyle([
-        ('GRID', (0, 0), (-1, -1), 0.4, HexColor('#d1d5db')),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-        ('BACKGROUND', (0, -1), (-1, -1), HexColor('#f3f4f6')),
+    earn_t = money_table(earn_rows, 'EARNINGS  (US$)')
+    ded_t = money_table(ded_rows, 'DEDUCTIONS  (US$)')
+    pair_t = Table([[earn_t, ded_t]], colWidths=[89 * mm, 89 * mm])
+    pair_t.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (0, 0), 0),
+        ('RIGHTPADDING', (0, 0), (0, 0), 4),
+        ('LEFTPADDING', (1, 0), (1, 0), 4),
+        ('RIGHTPADDING', (1, 0), (1, 0), 0),
     ]))
-    story.append(ded_body)
+    story.append(pair_t)
     story.append(Spacer(1, 5 * mm))
 
-    # ── Net pay summary bar ──
+    # ── NET PAY box ──
     net_t = Table([[Paragraph('<b>NET PAY</b>', ParagraphStyle('PSNetL', parent=styles['Normal'],
-                               fontSize=12, fontName='Helvetica-Bold', textColor=HexColor('#ffffff'))),
-                    Paragraph(f"<b>{currency}{payslip['net']:,.2f}</b>",
-                              ParagraphStyle('PSNetR', parent=styles['Normal'], fontSize=15,
+                               fontSize=13, fontName='Helvetica-Bold')),
+                    Paragraph(f"<b>{cc}{payslip['net']:.2f}</b>",
+                              ParagraphStyle('PSNetR', parent=styles['Normal'], fontSize=16,
                                              alignment=TA_RIGHT, fontName='Helvetica-Bold',
-                                             textColor=HexColor('#ffffff'))) ]],
-                  colWidths=[138 * mm, 40 * mm])
+                                             textColor=primary))]],
+                  colWidths=[89 * mm, 89 * mm])
     net_t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), primary),
+        ('BOX', (0, 0), (-1, -1), 1.2, primary),
+        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#f0f7ff')),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 9),
         ('TOPPADDING', (0, 0), (-1, -1), 9),
+        ('LEFTPADDING', (0, 0), (-1, -1), 12),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 12),
     ]))
     story.append(net_t)
+    story.append(Spacer(1, 4 * mm))
+
+    # ── Amount in words ──
+    story.append(Paragraph(
+        f"<b>Amount in words:</b> {payslip['amount_words']}",
+        ParagraphStyle('PSWords', parent=styles['Normal'], fontSize=10)))
     story.append(Spacer(1, 5 * mm))
 
-    # ── Bank deposit ──
-    if payslip['bank_name'] or payslip['bank_account']:
-        bank_t = Table([[Paragraph('<b>Salary deposited into:</b>', label),
-                         Paragraph(f"{payslip['bank_name'] or '-'}", value),
-                         Paragraph('<b>Account:</b>', label),
-                         Paragraph(payslip['bank_account'] or '-', value)]],
-                       colWidths=[40 * mm, 50 * mm, 28 * mm, 60 * mm])
-        bank_t.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BOX', (0, 0), (-1, -1), 0.5, HexColor('#d1d5db')),
-            ('BACKGROUND', (0, 0), (-1, -1), HexColor('#f8fafc')),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('LEFTPADDING', (0, 0), (-1, -1), 8),
-        ]))
-        story.append(bank_t)
-        story.append(Spacer(1, 7 * mm))
-
-    # ── Signatures ──
-    sig_t = Table([
-        [Paragraph('<b>Prepared by</b>', label), Paragraph('<b>Employee Signature</b>', label)],
-        [Paragraph('______________________', small_center), Paragraph('______________________', small_center)],
-        [Paragraph('Name / Date', small_center), Paragraph('Name / Date', small_center)],
-    ], colWidths=[89 * mm, 89 * mm])
-    sig_t.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('TOPPADDING', (0, 1), (-1, 1), 22),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 2),
+    # ── For office use (YTD) ──
+    ytd_rows = [[Paragraph('<b>For office use</b>', cell_bold), '', '', '']]
+    ytd_rows.append([
+        Paragraph('YTD Gross:', small), Paragraph('', small),
+        Paragraph('YTD PAYE:', small), Paragraph('', small),
+    ])
+    ytd_rows.append([
+        Paragraph('YTD AIDS Levy:', small), Paragraph('', small),
+        Paragraph('YTD Net:', small), Paragraph('', small),
+    ])
+    ytd_t = Table(ytd_rows, colWidths=[44 * mm, 46 * mm, 44 * mm, 44 * mm])
+    ytd_t.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.4, HexColor('#d1d5db')),
+        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#f9fafb')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
     ]))
-    story.append(sig_t)
+    story.append(ytd_t)
+    story.append(Spacer(1, 6 * mm))
+
+    # ── Signatures + school stamp ──
+    def sig_block(title):
+        return [
+            Paragraph(f"<b>{title}</b>", ParagraphStyle('PSSigT', parent=styles['Normal'],
+                                                        fontSize=9.5, textColor=black)),
+            Spacer(1, 2 * mm),
+            Paragraph('Signature: ______________________', small),
+            Spacer(1, 2 * mm),
+            Paragraph('Date: ______________________', small),
+        ]
+
+    stamp_cell = [Paragraph('<b>SCHOOL<br/>STAMP</b>',
+                             ParagraphStyle('PSStamp', parent=small_center,
+                                            leading=12))]
+    stamp_t = Table([stamp_cell], colWidths=[40 * mm])
+    stamp_t.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.8, HexColor('#9ca3af')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+    ]))
+    sig_outer = Table([[sig_block('Authorised by (Head of School) — Signature:'),
+                        sig_block("Employee's Acknowledgement — Signature:"),
+                        stamp_t]],
+                      colWidths=[76 * mm, 62 * mm, 40 * mm])
+    sig_outer.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    story.append(sig_outer)
     story.append(Spacer(1, 5 * mm))
 
+    # ── How the deductions were calculated ──
+    calc_lines = [
+        Paragraph('HOW THE DEDUCTIONS WERE CALCULATED',
+                  ParagraphStyle('PSCalcT', parent=styles['Normal'], fontSize=8.5,
+                                 fontName='Helvetica-Bold')),
+        Spacer(1, 1.5 * mm),
+        Paragraph(
+            f"PAYE = ({payslip['paye_rate_pct']}% × Gross) − {cc}{payslip['paye_exemption']:.2f} "
+            f"= ({payslip['paye_rate_pct']}% × {payslip['gross']:.2f}) − "
+            f"{payslip['paye_exemption']:.2f} = {cc}{payslip['paye']:.2f}",
+            ParagraphStyle('PSCalcL', parent=styles['Normal'], fontSize=8.5)),
+        Paragraph(
+            f"AIDS Levy = {payslip['aids_rate_pct']}% × PAYE = "
+            f"{payslip['aids_rate_pct']}% × {payslip['paye']:.2f} = {cc}{payslip['aids']:.2f}",
+            ParagraphStyle('PSCalcL2', parent=styles['Normal'], fontSize=8.5)),
+        Paragraph('Net Pay = Gross − PAYE − AIDS Levy',
+                  ParagraphStyle('PSCalcL3', parent=styles['Normal'], fontSize=8.5)),
+    ]
+    calc_t = Table([[calc_lines]], colWidths=[178 * mm])
+    calc_t.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.5, HexColor('#9ca3af')),
+        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#fefce8')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(calc_t)
+    story.append(Spacer(1, 5 * mm))
+
+    # ── Footer ──
     story.append(HRFlowable(width='100%', thickness=0.5, color=HexColor('#d1d5db')))
     story.append(Spacer(1, 2 * mm))
+    story.append(Paragraph(
+        f"Salary is paid by direct bank transfer into the employee's "
+        f"{payslip['bank_name'] or 'bank'} account stated above. This is a "
+        f"confidential, computer-generated document — {school_name}.",
+        ParagraphStyle('PSFoot', parent=styles['Normal'], fontSize=7.5,
+                       alignment=TA_CENTER, textColor=grey)))
+    story.append(Spacer(1, 1 * mm))
     story.append(Paragraph(_software_footer(theme),
-                           ParagraphStyle('PSFoot', parent=styles['Normal'], fontSize=7,
+                           ParagraphStyle('PSFoot2', parent=styles['Normal'], fontSize=7,
                                           alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
+
     doc.build(story)
     buf.seek(0)
     return buf
@@ -8906,10 +9044,12 @@ def init_db():
     for student in Student.query.filter(Student.cost_center_id.is_(None)).all():
         assign_cost_center(student)
 
-    # Seed the payslip staff member (Makumbe Albert - Teacher).
-    # Net pay US$425 after Pay As You Earn and AIDS levy, deposited into
-    # ZB Bank account 451200282033405. Idempotent - only created once.
-    if not Staff.query.filter_by(employee_number='MS-MAKUMBE').first():
+    # Seed the payslip staff member (Makumbe Albert - Teacher) to match the
+    # official July 2026 payslip template exactly:
+    #   Gross 523.84, PAYE 95.96 ((25% x gross) - 35), AIDS Levy 2.88 (3% of
+    #   PAYE) -> Net 425.00, deposited into ZB Bank 451200282033405.
+    makumbe = Staff.query.filter_by(employee_number='MS-MAKUMBE').first()
+    if makumbe is None:
         db.session.add(Staff(
             employee_number='MS-MAKUMBE',
             first_name='Albert',
@@ -8917,15 +9057,23 @@ def init_db():
             position='Teacher',
             department='Academic',
             status='Active',
-            salary=500.0,              # gross
-            paye_deduction=60.0,       # Pay As You Earn
-            aids_levy_deduction=15.0,  # AIDS levy
+            salary=523.84,             # gross
+            paye_deduction=95.96,      # Pay As You Earn: (25% x 523.84) - 35
+            aids_levy_deduction=2.88,  # AIDS levy: 3% of PAYE
             other_deductions=0.0,
             bank_name='ZB Bank',
             bank_account='451200282033405',
             phone='',
             email='',
         ))
+    elif (makumbe.salary == 500.0 and makumbe.paye_deduction == 60.0
+          and makumbe.aids_levy_deduction == 15.0):
+        # Migrate the older placeholder figures to the official template ones.
+        makumbe.salary = 523.84
+        makumbe.paye_deduction = 95.96
+        makumbe.aids_levy_deduction = 2.88
+        makumbe.bank_name = 'ZB Bank'
+        makumbe.bank_account = '451200282033405'
 
     db.session.commit()
 
