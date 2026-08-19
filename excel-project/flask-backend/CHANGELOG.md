@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.8.0] — 2026-08-19
+
+### Added (Flask app)
+
+#### Payroll & payslips
+- New **Finance → Payroll** page listing active staff with gross pay, PAYE,
+  AIDS levy, net pay and bank account, with payslip view + PDF download.
+- Per-employee **payslip page** (branded header/logo, earnings, deductions,
+  net pay, bank deposit line) with print support; super admins can edit the
+  payslip figures (gross, PAYE, AIDS levy, other, bank name/account).
+- New Staff payroll columns (`paye_deduction`, `aids_levy_deduction`,
+  `other_deductions`, `bank_name`, `bank_account`) added automatically on
+  startup for existing installations.
+- Seeded employee: **Albert Makumbe (Teacher)** — gross US$500, PAYE US$60,
+  AIDS Levy US$15 → **net US$425**, deposited into **ZB Bank
+  451200282033405**. Verified: payslip page, PDF, edit and net computation.
+
+#### Server runs independently of a browser + permanent address
+- The Windows EXE now runs **headless by default** — no browser opens on the
+  server machine; client devices use their own browsers
+  (`--open-browser` re-enables a local browser if ever needed; `--no-browser`
+  remains for compatibility).
+- The launcher prints a **PERMANENT SERVER ADDRESS** based on the computer
+  name (`http://MOBISCHOLA-SERVER:5000` after the one-time rename, or
+  `http://<computername>:5000`), writes it to `server-address.txt` in the
+  data folder, and shows it prominently in the console.
+- `setup-lan-server.bat` now offers to **rename the PC to MOBISCHOLA-SERVER**
+  (so the permanent address never changes), creates a **MobiSchola Portal**
+  shortcut on the desktop pointing at the permanent address, and starts the
+  server headless. `START.bat` also prints the permanent address.
+
+---
+
 ## [2.7.1] — 2026-08-14
 
 ### Added (Flask app — WhatsApp parent registration)

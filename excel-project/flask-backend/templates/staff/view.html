@@ -5,6 +5,9 @@
 <div class="page-header">
     <div><h1>Staff Profile</h1><p>Employee No: {{ staff.employee_number }}</p></div>
     <div class="actions">
+        {% if session.get('user_role') in ['super_admin', 'accountant', 'bursar'] %}
+        <a href="{{ url_for('staff_payslip', id=staff.id) }}" class="btn btn-success"><i class="fas fa-money-bill-wave"></i> Payslip</a>
+        {% endif %}
         {% if session.get('user_role') == 'super_admin' %}
         <a href="{{ url_for('staff_edit', id=staff.id) }}" class="btn btn-primary"><i class="fas fa-edit"></i> Edit</a>
         {% endif %}

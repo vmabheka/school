@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -271,10 +272,41 @@ def run_diagnostics(port: int) -> None:
     print('=' * 62)
 
 
+def hostname() -> str:
+    """Best-effort machine name to build a permanent LAN address."""
+    name = ''
+    if os.name == 'nt':
+        name = os.environ.get('COMPUTERNAME', '')
+    if not name:
+        try:
+            name = socket.gethostname()
+        except OSError:
+            name = ''
+    return re.sub(r'[^A-Za-z0-9\-]', '', name).strip('-') or 'MOBISCHOLA-SERVER'
+
+
+def write_server_address_file(data_dir, port, permanent_url, addresses):
+    """Persist the server addresses so tools/operators can find them."""
+    try:
+        lines = ['MobiSchola Server Addresses', '=' * 30,
+                 f'PERMANENT SERVER ADDRESS: {permanent_url}',
+                 f'This computer: http://127.0.0.1:{port}']
+        for addr in addresses:
+            lines.append(f'http://{addr}:{port}')
+        (data_dir / 'server-address.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    except OSError:
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='MobiSchola offline Windows server')
     parser.add_argument('--verify-production-server', action='store_true')
-    parser.add_argument('--no-browser', action='store_true')
+    parser.add_argument('--no-browser', action='store_true',
+                        help='Do not open a browser (default: the server runs headless, '
+                             'clients use their own browsers).')
+    parser.add_argument('--open-browser', action='store_true',
+                        help='Open a browser on THIS machine when the server is ready '
+                             '(off by default - the server runs independently of a browser).')
     parser.add_argument('--diagnose', action='store_true',
                         help='Print network/firewall diagnostics and exit.')
     parser.add_argument('--lan', action='store_true',
@@ -340,11 +372,17 @@ def main() -> int:
         init_db()
 
     url = f'http://127.0.0.1:{port}'
+    addresses = lan_addresses() if lan_mode else []
+    machine_name = hostname()
+    permanent_url = f'http://{machine_name}:{port}'
+    write_server_address_file(data_dir, port, permanent_url, addresses)
+
     print('=' * 62)
     print(' MobiSchola - Waitress Production WSGI Server')
+    print(' Running independently of a browser - client devices use their own.')
+    print(f' PERMANENT SERVER ADDRESS: {permanent_url}')
     print(f' This computer: {url}')
     if lan_mode:
-        addresses = lan_addresses()
         if addresses:
             print(' Other devices on the same network:')
             for address in addresses:
@@ -352,6 +390,7 @@ def main() -> int:
         else:
             print(' LAN address was not detected. Run ipconfig to find the IPv4 address.')
         print()
+        print(' Addresses saved to: server-address.txt (in the data folder)')
         print(' Cannot connect from another device? Run on this computer as Administrator:')
         print('   setup-lan-server.bat')
     print(f' Data: {data_dir}')
@@ -360,7 +399,8 @@ def main() -> int:
     print(' Press Ctrl+C to stop the server.')
     print('=' * 62)
 
-    if not args.no_browser:
+    # Default: NO browser on the server machine (it runs headless).
+    if args.open_browser and not args.no_browser:
         threading.Thread(target=open_browser_when_ready, args=(url,), daemon=True).start()
 
     threads = int(os.environ.get('EXCEL_SCHOOLS_THREADS', '8'))

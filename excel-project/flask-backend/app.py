@@ -349,7 +349,12 @@ class Staff(db.Model):
     department = db.Column(db.String(100))
     position = db.Column(db.String(100))  # Teacher, Head, Clerk, etc.
     employment_date = db.Column(db.Date, default=date.today)
-    salary = db.Column(db.Float)
+    salary = db.Column(db.Float)  # gross basic salary per month
+    paye_deduction = db.Column(db.Float, default=0)   # Pay As You Earn
+    aids_levy_deduction = db.Column(db.Float, default=0)  # AIDS levy (3% of taxable)
+    other_deductions = db.Column(db.Float, default=0)
+    bank_name = db.Column(db.String(100))
+    bank_account = db.Column(db.String(50))
     phone = db.Column(db.String(20))
     email = db.Column(db.String(100))
     address = db.Column(db.String(300))
@@ -1163,6 +1168,168 @@ def _brand_header_story(story, theme, title_size=14, show_contact=True):
     story.append(HRFlowable(width='100%', thickness=1, color=primary))
     story.append(Spacer(1, 4 * mm))
     return story
+
+
+# ─── Payroll / Payslips ────────────────────────────────────────────────
+
+def staff_net_pay(staff):
+    """Net monthly pay = gross salary - PAYE - AIDS levy - other deductions."""
+    gross = float(staff.salary or 0.0)
+    paye = float(staff.paye_deduction or 0.0)
+    aids = float(staff.aids_levy_deduction or 0.0)
+    other = float(staff.other_deductions or 0.0)
+    return gross - paye - aids - other
+
+
+def build_payslip_data(staff, period=None):
+    """Return a dict describing a staff member's payslip for a period."""
+    if period is None:
+        period = datetime.utcnow().strftime('%B %Y')
+    gross = float(staff.salary or 0.0)
+    paye = float(staff.paye_deduction or 0.0)
+    aids = float(staff.aids_levy_deduction or 0.0)
+    other = float(staff.other_deductions or 0.0)
+    net = gross - paye - aids - other
+    return {
+        'staff': staff,
+        'period': period,
+        'gross': gross,
+        'paye': paye,
+        'aids': aids,
+        'other': other,
+        'total_deductions': paye + aids + other,
+        'net': net,
+        'bank_name': staff.bank_name or '',
+        'bank_account': staff.bank_account or '',
+    }
+
+
+def _generate_payslip_pdf(payslip):
+    """Generate a PDF payslip using the shared branded header/footer."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+
+    theme = get_theme()
+    currency = theme.get('currency_symbol', '$')
+    staff = payslip['staff']
+    primary = HexColor(theme.get('primary_color', '#1F2080'))
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm,
+                            topMargin=15 * mm, bottomMargin=15 * mm)
+    styles = getSampleStyleSheet()
+    label = ParagraphStyle('PSLabel', parent=styles['Normal'], fontSize=9, textColor=HexColor('#6b7280'))
+    value = ParagraphStyle('PSValue', parent=styles['Normal'], fontSize=10, fontName='Helvetica-Bold')
+    hdr = ParagraphStyle('PSHdr', parent=styles['Normal'], fontSize=8,
+                         fontName='Helvetica-Bold', textColor=HexColor('#ffffff'))
+
+    story = []
+    _brand_header_story(story, theme, title_size=15)
+    story.append(Paragraph('EMPLOYEE PAYSLIP',
+                           ParagraphStyle('PSTitle', parent=styles['Normal'], fontSize=13,
+                                          alignment=TA_CENTER, fontName='Helvetica-Bold',
+                                          textColor=primary)))
+    story.append(Paragraph(f'Pay Period: {payslip["period"]}',
+                           ParagraphStyle('PSPeriod', parent=styles['Normal'], fontSize=9,
+                                          alignment=TA_CENTER, textColor=HexColor('#6b7280'))))
+    story.append(Spacer(1, 5 * mm))
+
+    # Employee details
+    info = [
+        [Paragraph('Employee:', label), Paragraph(f"{staff.first_name} {staff.last_name}", value)],
+        [Paragraph('Employee No:', label), Paragraph(staff.employee_number or '-', value)],
+        [Paragraph('Position:', label), Paragraph(staff.position or '-', value)],
+        [Paragraph('Department:', label), Paragraph(staff.department or '-', value)],
+    ]
+    t = Table(info, colWidths=[40 * mm, 65 * mm, 40 * mm, 65 * mm])
+    t.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                           ('BOTTOMPADDING', (0, 0), (-1, -1), 3)]))
+    story.append(t)
+    story.append(Spacer(1, 5 * mm))
+
+    # Earnings & deductions
+    rows = [[Paragraph('<b>Description</b>', hdr), Paragraph('<b>Amount</b>',
+             ParagraphStyle('PSHdrR', parent=hdr, alignment=TA_RIGHT))]]
+    rows.append([Paragraph('Basic Salary (Gross)', styles['Normal']),
+                 Paragraph(f"{currency}{payslip['gross']:,.2f}",
+                           ParagraphStyle('PR', parent=styles['Normal'], alignment=TA_RIGHT))])
+    story.append(Spacer(1, 3 * mm))
+    story.append(Paragraph('EARNINGS', ParagraphStyle('PSEarn', parent=styles['Normal'],
+                          fontSize=9, fontName='Helvetica-Bold', textColor=primary)))
+    earn_t = Table(rows, colWidths=[140 * mm, 40 * mm])
+    earn_t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), primary),
+        ('TEXTCOLOR', (0, 0), (-1, 0), HexColor('#ffffff')),
+        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#e5e7eb')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    story.append(earn_t)
+    story.append(Spacer(1, 4 * mm))
+
+    deduct_rows = [[Paragraph('<b>Description</b>', hdr),
+                    Paragraph('<b>Amount</b>', ParagraphStyle('PSHdrR2', parent=hdr, alignment=TA_RIGHT))]]
+    deduct_rows.append([Paragraph('Pay As You Earn (PAYE)', styles['Normal']),
+                        Paragraph(f"{currency}{payslip['paye']:,.2f}",
+                                  ParagraphStyle('PR2', parent=styles['Normal'], alignment=TA_RIGHT))])
+    deduct_rows.append([Paragraph('AIDS Levy', styles['Normal']),
+                        Paragraph(f"{currency}{payslip['aids']:,.2f}",
+                                  ParagraphStyle('PR3', parent=styles['Normal'], alignment=TA_RIGHT))])
+    if payslip['other'] > 0:
+        deduct_rows.append([Paragraph('Other Deductions', styles['Normal']),
+                            Paragraph(f"{currency}{payslip['other']:,.2f}",
+                                      ParagraphStyle('PR4', parent=styles['Normal'], alignment=TA_RIGHT))])
+    story.append(Paragraph('DEDUCTIONS', ParagraphStyle('PSDed', parent=styles['Normal'],
+                          fontSize=9, fontName='Helvetica-Bold', textColor=HexColor('#b91c1c'))))
+    ded_t = Table(deduct_rows, colWidths=[140 * mm, 40 * mm])
+    ded_t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), HexColor('#6b7280')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), HexColor('#ffffff')),
+        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#e5e7eb')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    story.append(ded_t)
+    story.append(Spacer(1, 5 * mm))
+
+    # Net pay
+    net_row = [[Paragraph('<b>NET PAY</b>', ParagraphStyle('PSNetL', parent=styles['Normal'],
+                            fontSize=11, fontName='Helvetica-Bold')),
+                Paragraph(f"<b>{currency}{payslip['net']:,.2f}</b>",
+                          ParagraphStyle('PSNetR', parent=styles['Normal'], fontSize=13,
+                                         alignment=TA_RIGHT, fontName='Helvetica-Bold',
+                                         textColor=primary))]]
+    net_t = Table(net_row, colWidths=[140 * mm, 40 * mm])
+    net_t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#f0fdf4')),
+        ('LINEABOVE', (0, 0), (-1, 0), 1, primary),
+        ('LINEBELOW', (0, 0), (-1, -1), 1, primary),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(net_t)
+    story.append(Spacer(1, 6 * mm))
+
+    # Bank deposit
+    if payslip['bank_name'] or payslip['bank_account']:
+        story.append(HRFlowable(width='100%', thickness=0.5, color=HexColor('#d1d5db')))
+        story.append(Spacer(1, 2 * mm))
+        bank_line = (f"Salary deposited into: <b>{payslip['bank_name']}</b> "
+                     f"Account <b>{payslip['bank_account']}</b>")
+        story.append(Paragraph(bank_line, ParagraphStyle('PSBank', parent=styles['Normal'],
+                               fontSize=9, alignment=TA_CENTER)))
+        story.append(Spacer(1, 4 * mm))
+
+    story.append(Paragraph(_software_footer(theme),
+                           ParagraphStyle('PSFoot', parent=styles['Normal'], fontSize=7,
+                                          alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
+    doc.build(story)
+    buf.seek(0)
+    return buf
 
 
 def set_theme(key, value):
@@ -2428,6 +2595,64 @@ def staff_assignment_delete(id, assignment_id):
     log_sync('StaffSubject', assignment_id, 'DELETE', snapshot)
     flash('Teaching assignment removed.', 'success')
     return redirect(url_for('staff_view', id=id))
+
+
+# ─── Payroll / Payslips ────────────────────────────────────────────────
+
+@app.route('/payroll')
+@login_required
+@role_required('super_admin', 'accountant', 'bursar')
+def payroll_list():
+    """List staff with their net pay and bank details for payslip access."""
+    staff = Staff.query.filter_by(status='Active').order_by(Staff.last_name, Staff.first_name).all()
+    rows = []
+    for s in staff:
+        ps = build_payslip_data(s)
+        rows.append(ps)
+    return render_template('staff/payroll.html', rows=rows)
+
+
+@app.route('/staff/<int:id>/payslip', methods=['GET', 'POST'])
+@login_required
+@role_required('super_admin', 'accountant', 'bursar')
+def staff_payslip(id):
+    """View (and for super admins, update) a staff member's payslip."""
+    staff = Staff.query.get_or_404(id)
+    if request.method == 'POST':
+        if session.get('user_role') != 'super_admin':
+            flash('Only a Super Admin can update payslip details.', 'danger')
+            return redirect(url_for('staff_payslip', id=id))
+        try:
+            staff.salary = float(request.form.get('salary') or 0)
+            staff.paye_deduction = float(request.form.get('paye') or 0)
+            staff.aids_levy_deduction = float(request.form.get('aids') or 0)
+            staff.other_deductions = float(request.form.get('other') or 0)
+            staff.bank_name = (request.form.get('bank_name') or '').strip() or None
+            staff.bank_account = (request.form.get('bank_account') or '').strip() or None
+            db.session.commit()
+            flash('Payslip details updated.', 'success')
+        except (TypeError, ValueError):
+            flash('Please enter valid numbers for salary and deductions.', 'danger')
+        return redirect(url_for('staff_payslip', id=id))
+
+    period = request.args.get('period') or datetime.utcnow().strftime('%B %Y')
+    payslip = build_payslip_data(staff, period)
+    return render_template('staff/payslip.html', payslip=payslip,
+                           is_super_admin=session.get('user_role') == 'super_admin')
+
+
+@app.route('/staff/<int:id>/payslip/pdf')
+@login_required
+@role_required('super_admin', 'accountant', 'bursar')
+def staff_payslip_pdf(id):
+    """Download a PDF payslip for a staff member."""
+    staff = Staff.query.get_or_404(id)
+    period = request.args.get('period') or datetime.utcnow().strftime('%B %Y')
+    payslip = build_payslip_data(staff, period)
+    buf = _generate_payslip_pdf(payslip)
+    filename = f"payslip_{staff.first_name}_{staff.last_name}_{period.replace(' ', '_')}.pdf"
+    return send_file(buf, as_attachment=True, download_name=filename,
+                     mimetype='application/pdf')
 
 
 @app.route('/staff/<int:id>/edit', methods=['GET', 'POST'])
@@ -8399,6 +8624,11 @@ def init_db():
             ('fee_structure', 'stay_in_fee', 'FLOAT', '0'),
             ('class', 'sync_id', 'VARCHAR(36)', 'NULL'),
             ('staff_subject', 'sync_id', 'VARCHAR(36)', 'NULL'),
+            ('staff', 'paye_deduction', 'FLOAT', '0'),
+            ('staff', 'aids_levy_deduction', 'FLOAT', '0'),
+            ('staff', 'other_deductions', 'FLOAT', '0'),
+            ('staff', 'bank_name', 'VARCHAR(100)', 'NULL'),
+            ('staff', 'bank_account', 'VARCHAR(50)', 'NULL'),
         ]:
             try:
                 conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type} DEFAULT {def_val}"))
@@ -8576,6 +8806,27 @@ def init_db():
     # (existing installations upgraded in place keep their data).
     for student in Student.query.filter(Student.cost_center_id.is_(None)).all():
         assign_cost_center(student)
+
+    # Seed the payslip staff member (Makumbe Albert - Teacher).
+    # Net pay US$425 after Pay As You Earn and AIDS levy, deposited into
+    # ZB Bank account 451200282033405. Idempotent - only created once.
+    if not Staff.query.filter_by(employee_number='MS-MAKUMBE').first():
+        db.session.add(Staff(
+            employee_number='MS-MAKUMBE',
+            first_name='Albert',
+            last_name='Makumbe',
+            position='Teacher',
+            department='Academic',
+            status='Active',
+            salary=500.0,              # gross
+            paye_deduction=60.0,       # Pay As You Earn
+            aids_levy_deduction=15.0,  # AIDS levy
+            other_deductions=0.0,
+            bank_name='ZB Bank',
+            bank_account='451200282033405',
+            phone='',
+            email='',
+        ))
 
     db.session.commit()
 

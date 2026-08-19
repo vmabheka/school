@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Payslip — {{ payslip.staff.first_name }} {{ payslip.staff.last_name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1><i class="fas fa-money-bill-wave" style="color:var(--success);margin-right:8px;"></i>Employee Payslip</h1>
+        <p>{{ payslip.staff.first_name }} {{ payslip.staff.last_name }} — {{ payslip.period }}</p>
+    </div>
+    <div class="actions no-print d-flex gap-1">
+        <a href="{{ url_for('staff_payslip_pdf', id=payslip.staff.id, period=payslip.period) }}" class="btn btn-primary"><i class="fas fa-file-pdf"></i> Download PDF</a>
+        <button onclick="window.print()" class="btn btn-secondary"><i class="fas fa-print"></i> Print</button>
+        <a href="{{ url_for('payroll_list') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Payroll</a>
+    </div>
+</div>
+
+<div class="card" style="max-width:760px;margin:0 auto;">
+    <div class="card-body" style="padding:36px;">
+        <!-- Header -->
+        <div style="text-align:center;margin-bottom:24px;border-bottom:2px solid var(--primary);padding-bottom:16px;">
+            {% if theme.logo_url %}
+            <img src="{{ url_for('static', filename=theme.logo_url) }}" alt="{{ school_name }} Logo"
+                 style="max-height:60px;max-width:160px;object-fit:contain;margin-bottom:8px;">
+            {% endif %}
+            <h2 style="color:var(--primary);margin:0;">{{ school_name }}</h2>
+            <p style="color:var(--text-light);font-size:13px;margin:4px 0 0;">{{ theme.school_motto|default('') }}</p>
+            <p style="margin-top:10px;font-size:12px;letter-spacing:2px;font-weight:700;color:var(--text);">EMPLOYEE PAYSLIP — {{ payslip.period|upper }}</p>
+        </div>
+
+        <!-- Employee -->
+        <table style="width:100%;font-size:13px;margin-bottom:20px;">
+            <tr>
+                <td style="padding:6px 0;color:var(--text-light);width:22%;">Employee</td>
+                <td style="padding:6px 0;font-weight:600;">{{ payslip.staff.first_name }} {{ payslip.staff.last_name }}</td>
+                <td style="padding:6px 0;color:var(--text-light);width:22%;">Employee No</td>
+                <td style="padding:6px 0;font-weight:600;">{{ payslip.staff.employee_number or '-' }}</td>
+            </tr>
+            <tr>
+                <td style="padding:6px 0;color:var(--text-light);">Position</td>
+                <td style="padding:6px 0;">{{ payslip.staff.position or '-' }}</td>
+                <td style="padding:6px 0;color:var(--text-light);">Department</td>
+                <td style="padding:6px 0;">{{ payslip.staff.department or '-' }}</td>
+            </tr>
+        </table>
+
+        <!-- Earnings -->
+        <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px;">
+            <tr style="background:var(--primary);color:#fff;">
+                <th style="padding:8px 12px;text-align:left;">EARNINGS</th>
+                <th style="padding:8px 12px;text-align:right;">Amount</th>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:8px 12px;">Basic Salary (Gross)</td>
+                <td style="padding:8px 12px;text-align:right;font-weight:600;">{{ currency_symbol }}{{ "{:,.2f}".format(payslip.gross) }}</td>
+            </tr>
+        </table>
+
+        <!-- Deductions -->
+        <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px;">
+            <tr style="background:#6b7280;color:#fff;">
+                <th style="padding:8px 12px;text-align:left;">DEDUCTIONS</th>
+                <th style="padding:8px 12px;text-align:right;">Amount</th>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:8px 12px;">Pay As You Earn (PAYE)</td>
+                <td style="padding:8px 12px;text-align:right;">{{ currency_symbol }}{{ "{:,.2f}".format(payslip.paye) }}</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:8px 12px;">AIDS Levy</td>
+                <td style="padding:8px 12px;text-align:right;">{{ currency_symbol }}{{ "{:,.2f}".format(payslip.aids) }}</td>
+            </tr>
+            {% if payslip.other > 0 %}
+            <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:8px 12px;">Other Deductions</td>
+                <td style="padding:8px 12px;text-align:right;">{{ currency_symbol }}{{ "{:,.2f}".format(payslip.other) }}</td>
+            </tr>
+            {% endif %}
+        </table>
+
+        <!-- Net pay -->
+        <div style="display:flex;justify-content:space-between;align-items:center;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:14px 18px;margin-bottom:18px;">
+            <strong style="font-size:15px;">NET PAY</strong>
+            <strong style="font-size:20px;color:var(--primary);">{{ currency_symbol }}{{ "{:,.2f}".format(payslip.net) }}</strong>
+        </div>
+
+        <!-- Bank -->
+        {% if payslip.bank_name or payslip.bank_account %}
+        <div style="border-top:1px dashed var(--border);padding-top:14px;text-align:center;font-size:13px;color:var(--text-light);">
+            Salary deposited into: <strong style="color:var(--text);">{{ payslip.bank_name or '-' }}</strong>
+            Account <strong style="color:var(--text);">{{ payslip.bank_account or '-' }}</strong>
+        </div>
+        {% endif %}
+
+        <div style="margin-top:18px;text-align:center;font-size:10px;color:var(--text-light);">
+            {{ software_name }} v{{ software_version }} — {{ software_byline }}
+        </div>
+    </div>
+</div>
+
+<!-- Payslip details editor (Super Admin only) -->
+{% if is_super_admin %}
+<div class="card mt-2 no-print" style="max-width:760px;margin:16px auto 0;">
+    <div class="card-header"><h3><i class="fas fa-cog" style="color:var(--secondary);margin-right:8px;"></i>Edit Payslip Details</h3></div>
+    <div class="card-body">
+        <form method="POST" class="form-grid">
+            <div class="form-group">
+                <label>Gross Salary ({{ currency_symbol }})</label>
+                <input type="number" step="0.01" min="0" name="salary" class="form-control" value="{{ payslip.gross }}">
+            </div>
+            <div class="form-group">
+                <label>PAYE ({{ currency_symbol }})</label>
+                <input type="number" step="0.01" min="0" name="paye" class="form-control" value="{{ payslip.paye }}">
+            </div>
+            <div class="form-group">
+                <label>AIDS Levy ({{ currency_symbol }})</label>
+                <input type="number" step="0.01" min="0" name="aids" class="form-control" value="{{ payslip.aids }}">
+            </div>
+            <div class="form-group">
+                <label>Other Deductions ({{ currency_symbol }})</label>
+                <input type="number" step="0.01" min="0" name="other" class="form-control" value="{{ payslip.other }}">
+            </div>
+            <div class="form-group">
+                <label>Bank Name</label>
+                <input type="text" name="bank_name" class="form-control" value="{{ payslip.bank_name }}">
+            </div>
+            <div class="form-group">
+                <label>Bank Account</label>
+                <input type="text" name="bank_account" class="form-control" value="{{ payslip.bank_account }}">
+            </div>
+            <div class="form-group" style="grid-column:1/-1;">
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Payslip Details</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<style>
+    @media print {
+        .no-print { display: none !important; }
+        .sidebar, .header { display: none !important; }
+        .main { margin: 0; padding: 20px; }
+        .card { box-shadow: none; border: 1px solid #ccc; }
+    }
+</style>
+{% endblock %}

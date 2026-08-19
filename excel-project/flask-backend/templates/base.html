@@ -740,6 +740,9 @@
             <a href="{{ url_for('debtors_list') }}" class="nav-item {% if 'debtor' in request.endpoint %}active{% endif %}">
                 <i class="fas fa-exclamation-triangle"></i> Debtors
             </a>
+            <a href="{{ url_for('payroll_list') }}" class="nav-item {% if request.endpoint == 'payroll_list' or request.endpoint == 'staff_payslip' or request.endpoint == 'staff_payslip_pdf' %}active{% endif %}">
+                <i class="fas fa-money-check-alt"></i> Payroll
+            </a>
             {% if user_role == 'super_admin' %}
             <a href="{{ url_for('payment_approvals') }}" class="nav-item {% if request.endpoint == 'payment_approvals' or request.endpoint == 'payment_approval_review' %}active{% endif %}">
                 <i class="fas fa-clipboard-check"></i> Payment Approvals

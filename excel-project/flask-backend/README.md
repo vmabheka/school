@@ -33,6 +33,19 @@ The **school logo is inherited by every report**: PDF receipts, PDF invoices,
 report cards, debtors reports, on-screen receipts/invoices, and the thermal
 print view all show the institution's logo and contact details.
 
+## Payroll & payslips
+
+- **Finance → Payroll** lists active staff with gross pay, PAYE, AIDS levy,
+  net pay and bank details, with one-click payslip view and PDF download.
+- A **payslip page** per employee shows the school header/logo, earnings,
+  deductions (Pay As You Earn, AIDS Levy, other), net pay and the bank account
+  the salary is deposited into, and prints cleanly.
+- Super admins can edit the payslip details (gross salary, PAYE, AIDS levy,
+  other deductions, bank name/account) directly on the payslip page.
+- The bundled installation includes **Albert Makumbe (Teacher)** — gross
+  US$500, PAYE US$60, AIDS Levy US$15 → **net US$425**, deposited into
+  **ZB Bank account 451200282033405**.
+
 ## Printing receipts
 
 Every payment receipt can be printed to **any printer, including an 80mm
@@ -125,15 +138,26 @@ data into the database on that server computer.
    the Private and Domain profiles (a port rule is used on purpose: the EXE
    listens from a temporary folder, so a rule scoped to the EXE file path never
    matches), prints every server URL, copies them to the clipboard, and starts
-   the Waitress WSGI server.
-5. Keep the black server window open. On each other device, open one of the
-   displayed addresses, for example:
+   the Waitress WSGI server. It also offers to rename the computer to
+   **MOBISCHOLA-SERVER** and creates a **MobiSchola Portal** shortcut on the
+   desktop pointing at the permanent address.
+5. **The server runs independently of a browser** — no browser opens on the
+   server machine (the EXE runs headless by default; use `--open-browser`
+   only if you want it). The console window shows the **PERMANENT SERVER
+   ADDRESS** and every client request.
+6. **Permanent address**: the server prints a name-based address that never
+   changes even when the IP does — `http://MOBISCHOLA-SERVER:5000` (or
+   `http://<computername>:5000` if you kept the name). The same address is
+   written to `server-address.txt` in the data folder and to the desktop
+   shortcut. Assign a DHCP reservation too so the IP stays fixed.
+7. On each other device, open the permanent address (or one of the IP
+   addresses shown), for example:
 
    ```text
-   http://192.168.1.25:5000
+   http://MOBISCHOLA-SERVER:5000
    ```
 
-6. Sign in with a separate user account appropriate to each staff member's
+8. Sign in with a separate user account appropriate to each staff member's
    role. Do **not** copy or run the EXE on client devices — they only need a
    browser (a phone works too).
 
