@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.production.example
+__pycache__/
+*.py[cod]
+*.db
+instance/
+.venv/
+venv/
+build/
+dist/
+*.zip
+static/uploads/*
+!static/uploads/.gitkeep

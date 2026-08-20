@@ -38,6 +38,7 @@
                     <th>Description</th>
                     <th>Tuition (Term)</th>
                     <th>Dev Levy (Term)</th>
+                    <th>Stay In Fee (Term)</th>
                     <th>Reg Fee (Once-off)</th>
                     <th>Textbook Levy (Once-off)</th>
                     <th>Term Total</th>
@@ -52,6 +53,7 @@
                     <td>{{ fl.description or '-' }}</td>
                     <td style="color:var(--primary); font-weight:bold;">${{ "%.2f"|format(fl.tuition) }}</td>
                     <td>${{ "%.2f"|format(fl.development_levy or 0) }}</td>
+                    <td>{% if fl.stay_in_fee and fl.stay_in_fee > 0 %}<strong>${{ "%.2f"|format(fl.stay_in_fee) }}</strong>{% else %}<span style="color:var(--text-light);">auto</span>{% endif %}</td>
                     <td>${{ "%.2f"|format(fl.registration_fee or 0) }}</td>
                     <td>${{ "%.2f"|format(fl.textbook_levy or 0) }}</td>
                     <td><strong>${{ "%.2f"|format(fl.total) }}</strong></td>
@@ -63,7 +65,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="9" class="text-center" style="padding:20px;color:var(--text-light);">No fee levels defined. Add one above.</td></tr>
+                <tr><td colspan="10" class="text-center" style="padding:20px;color:var(--text-light);">No fee levels defined. Add one above.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

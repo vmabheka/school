@@ -36,7 +36,8 @@
                 <tr><td style="padding:4px 0;color:var(--text-light);">date_of_birth</td><td>YYYY-MM-DD format</td></tr>
                 <tr><td style="padding:4px 0;color:var(--text-light);">gender</td><td>Male / Female</td></tr>
                 <tr><td style="padding:4px 0;color:var(--text-light);">national_id</td><td>National ID number</td></tr>
-                <tr><td style="padding:4px 0;color:var(--text-light);">class_name</td><td>Must match existing class name</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">class_name</td><td>Created automatically if it doesn't exist yet — only teacher allocation is done manually (Classes page)</td></tr>
+                <tr><td style="padding:4px 0;color:var(--text-light);">entry_mode</td><td><strong>Day</strong> or <strong>Stay In</strong> — Stay In (boarding) learners are automatically billed the Stay In fee every term ($300 primary/secondary, $260 A Level)</td></tr>
                 <tr><td style="padding:4px 0;color:var(--text-light);">admission_date</td><td>YYYY-MM-DD format</td></tr>
                 <tr><td style="padding:4px 0;color:var(--text-light);">previous_school</td><td>Previous school name</td></tr>
                 <tr><td style="padding:4px 0;color:var(--text-light);">address, city, province</td><td>Contact details</td></tr>
@@ -73,7 +74,7 @@
 
 <div class="card mt-2">
     <div class="card-body" style="text-align:center;color:var(--text-light);font-size:12px;">
-        Excel Group of Schools Management System v2.0.0 — Developed by Valentine T Mabheka
+        {{ software_name|default('MobiSchola') }} v{{ software_version|default('2.5.0') }} — {{ software_byline|default('By Edutechweb 0772577666') }}
     </div>
 </div>
 {% endblock %}

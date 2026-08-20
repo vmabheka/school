@@ -8,7 +8,7 @@
  * definitions — nothing here was invented independently of the
  * offline app, and nothing the offline app has is missing here.
  *
- * Author: Valentine T Mabheka | Version: 3.0.0
+ * Author: Edutechweb
  */
 if (!defined('ABSPATH')) exit;
 
@@ -30,6 +30,7 @@ class ESM_Database {
         'esm_timetable_slots',
         'esm_notices', 'esm_messages',
         'esm_sync_log', 'esm_school_settings', 'esm_appearance_settings',
+        'esm_cost_centers',
     ];
 
     public static function get_table_names() {
@@ -183,6 +184,7 @@ class ESM_Database {
             subject_id BIGINT UNSIGNED,
             class_id BIGINT UNSIGNED,
             academic_year_id BIGINT UNSIGNED,
+            sync_id VARCHAR(36) DEFAULT NULL,
             KEY idx_staff (staff_id),
             KEY idx_subject (subject_id)
         ) $charset;";
@@ -410,8 +412,44 @@ class ESM_Database {
             description VARCHAR(200)
         ) $charset;";
 
+        // ── CostCenter (customisable) ───────────────────────────────
+        $sqls[] = "CREATE TABLE IF NOT EXISTS {$pfx}esm_cost_centers (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(80) NOT NULL UNIQUE,
+            code VARCHAR(20) NOT NULL UNIQUE,
+            description VARCHAR(200),
+            sync_id VARCHAR(36) DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) $charset;";
+
         foreach ($sqls as $sql) {
             $wpdb->query($sql);
+        }
+
+        // ── Upgrade: cost_center_id column on students ──────────────
+        $student_cols = $wpdb->get_col("SHOW COLUMNS FROM {$pfx}esm_students");
+        if (!in_array('cost_center_id', $student_cols, true)) {
+            $wpdb->query("ALTER TABLE {$pfx}esm_students ADD COLUMN cost_center_id BIGINT UNSIGNED NULL, ADD KEY idx_cost_center (cost_center_id)");
+        }
+        $students_cols = $wpdb->get_col("SHOW COLUMNS FROM {$pfx}esm_students");
+        if (!in_array('entry_mode', $students_cols, true)) {
+            $wpdb->query("ALTER TABLE {$pfx}esm_students ADD COLUMN entry_mode VARCHAR(20) DEFAULT 'Day'");
+        }
+
+        // ── Seed default cost centres ───────────────────────────────
+        $existing = $wpdb->get_var("SELECT COUNT(*) FROM {$pfx}esm_cost_centers");
+        if (!$existing) {
+            $defaults = [
+                ['Primary', 'PRM', 'Primary School (ECD A to Grade 7)'],
+                ['Secondary', 'SEC', 'Secondary School (Form 1 to Form 6)'],
+                ['Stay In', 'STY', 'Boarding learners (billed the Stay In fee)'],
+            ];
+            foreach ($defaults as $d) {
+                $wpdb->insert(
+                    $pfx . 'esm_cost_centers',
+                    ['name' => $d[0], 'code' => $d[1], 'description' => $d[2]]
+                );
+            }
         }
 
         update_option('esm_db_version', ESM_VERSION);
@@ -468,6 +506,32 @@ class ESM_Database {
             if (!$exists) {
                 $wpdb->insert("{$pfx}esm_appearance_settings", [
                     'setting_key' => $key, 'setting_value' => $val,
+                ]);
+            }
+        }
+
+        // Approved primary subjects — exact mirror of app.py. Upgrades keep
+        // custom/legacy subjects but ensure these six canonical rows exist.
+        $primary_subjects = [
+            'ENGP' => 'English',
+            'CHIS' => 'ChiShona',
+            'MATH' => 'Mathematics',
+            'SOCS' => 'Social Science',
+            'PEA'  => 'PE and Arts',
+            'SNT'  => 'Science and Technology',
+        ];
+        foreach ($primary_subjects as $code => $name) {
+            $subject_id = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$pfx}esm_subjects WHERE code=%s OR name=%s ORDER BY code=%s DESC LIMIT 1",
+                $code, $name, $code
+            ));
+            if ($subject_id) {
+                $wpdb->update("{$pfx}esm_subjects", [
+                    'name' => $name, 'code' => $code, 'is_compulsory' => 1,
+                ], ['id' => $subject_id]);
+            } else {
+                $wpdb->insert("{$pfx}esm_subjects", [
+                    'name' => $name, 'code' => $code, 'is_compulsory' => 1,
                 ]);
             }
         }

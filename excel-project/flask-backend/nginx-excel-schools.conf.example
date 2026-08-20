@@ -1,0 +1,27 @@
+# Copy into /etc/nginx/sites-available/excel-schools and update the domain.
+# TLS certificates can be provisioned with: certbot --nginx -d app.example.com
+upstream excel_schools_app {
+    server 127.0.0.1:8000;
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name app.example.com;
+
+    client_max_body_size 16m;
+
+    location / {
+        proxy_pass http://excel_schools_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+}

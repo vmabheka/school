@@ -10,24 +10,29 @@
             {% if term and ay %} for <strong>{{ term.name }} ({{ ay.name }})</strong>{% endif %}
             {% if total_debtors > 0 %}
                 — <strong style="color:var(--danger);">{{ total_debtors }} debtor{{ '' if total_debtors == 1 else 's' }}</strong>
-                owing <strong style="color:var(--danger);">${{ "{:,.2f}".format(total_owed) }}</strong>
+                {% if is_super_admin %}
+                owing <strong style="color:var(--danger);">{{ currency_symbol }}{{ "{:,.2f}".format(total_owed) }}</strong>
+                {% endif %}
             {% endif %}
         </p>
     </div>
     <div class="actions d-flex gap-1">
         {% if total_debtors > 0 %}
-        <a href="{{ url_for('debtors_export', format='csv', search=search, class_id=class_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
+        <a href="{{ url_for('debtors_export', format='csv', search=search, class_id=class_filter, cost_center=cost_center_filter, grade_level=grade_level_filter, school=school_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
            class="btn btn-secondary" title="Download as CSV (Excel/Numbers compatible)">
             <i class="fas fa-file-csv"></i> CSV
         </a>
-        <a href="{{ url_for('debtors_export', format='excel', search=search, class_id=class_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
+        <a href="{{ url_for('debtors_export', format='excel', search=search, class_id=class_filter, cost_center=cost_center_filter, grade_level=grade_level_filter, school=school_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
            class="btn btn-success" title="Download formatted Excel workbook">
             <i class="fas fa-file-excel"></i> Excel
         </a>
-        <a href="{{ url_for('debtors_export', format='pdf', search=search, class_id=class_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
+        <a href="{{ url_for('debtors_export', format='pdf', search=search, class_id=class_filter, cost_center=cost_center_filter, grade_level=grade_level_filter, school=school_filter, level=level_filter, scholarship=scholarship_filter, min_balance=min_balance, sort=sort_by) }}"
            class="btn btn-danger" title="Download print-ready PDF report">
             <i class="fas fa-file-pdf"></i> PDF
         </a>
+        {% endif %}
+        {% if is_super_admin %}
+        <a href="{{ url_for('cost_centers') }}" class="btn btn-secondary" title="Manage cost centres"><i class="fas fa-chart-pie"></i> Cost Centres</a>
         {% endif %}
         {% if can_record_payments %}
         <a href="{{ url_for('fee_pay') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Record Payment</a>
@@ -44,13 +49,45 @@
             <p>Total Debtors</p>
         </div>
     </div>
+    {% if is_super_admin %}
     <div class="stat-card">
         <div class="icon orange"><i class="fas fa-money-bill-wave"></i></div>
         <div class="info">
-            <h3 style="color:var(--danger);">${{ "{:,.2f}".format(total_owed) }}</h3>
+            <h3 style="color:var(--danger);">{{ currency_symbol }}{{ "{:,.2f}".format(total_owed) }}</h3>
             <p>Total Outstanding</p>
         </div>
     </div>
+    <div class="stat-card">
+        <div class="icon green"><i class="fas fa-bullseye"></i></div>
+        <div class="info">
+            <h3 style="color:var(--primary);">{{ currency_symbol }}{{ "{:,.2f}".format(total_collectible) }}</h3>
+            <p>Total Fees Collectible (Target)</p>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="icon green"><i class="fas fa-check-circle"></i></div>
+        <div class="info">
+            <h3>{{ currency_symbol }}{{ "{:,.2f}".format(total_collected_all) }}</h3>
+            <p>Collected So Far</p>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="icon purple"><i class="fas fa-percent"></i></div>
+        <div class="info">
+            <h3 style="color:var(--success);">{{ "{:.1f}%".format(percent_collected) }}</h3>
+            <p>% Collected vs Target</p>
+        </div>
+    </div>
+    {% else %}
+    {# Bursar / accountant: percentage vs the target only — no money totals #}
+    <div class="stat-card">
+        <div class="icon green"><i class="fas fa-bullseye"></i></div>
+        <div class="info">
+            <h3 style="color:var(--success);">{{ "{:.1f}%".format(percent_collected) }}</h3>
+            <p>% Collected vs Target</p>
+        </div>
+    </div>
+    {% endif %}
     <div class="stat-card">
         <div class="icon yellow"><i class="fas fa-clock"></i></div>
         <div class="info">
@@ -65,18 +102,34 @@
             <p>Recently Overdue (≤30 days)</p>
         </div>
     </div>
-    <div class="stat-card">
-        <div class="icon green"><i class="fas fa-check-circle"></i></div>
-        <div class="info">
-            <h3>${{ "{:,.2f}".format(total_paid) }}</h3>
-            <p>Collected So Far</p>
-        </div>
-    </div>
+    {% if is_super_admin %}
     <div class="stat-card">
         <div class="icon purple"><i class="fas fa-percent"></i></div>
         <div class="info">
-            <h3>${{ "{:,.2f}".format(total_scholarships) }}</h3>
+            <h3>{{ currency_symbol }}{{ "{:,.2f}".format(total_scholarships) }}</h3>
             <p>Scholarship Discounts</p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+{# Collection progress bar (shown to every finance role) #}
+<div class="card mt-2">
+    <div class="card-body" style="padding:14px 20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
+            <span style="font-size:13px;color:var(--text-light);">
+                <i class="fas fa-bullseye"></i>
+                {% if is_super_admin %}
+                Collection progress: <strong>{{ currency_symbol }}{{ "{:,.2f}".format(total_collected_all) }}</strong>
+                of <strong>{{ currency_symbol }}{{ "{:,.2f}".format(total_collectible) }}</strong> fees collectible
+                {% else %}
+                Collection progress vs the fees collectible target
+                {% endif %}
+            </span>
+            <strong style="font-size:16px;color:var(--success);">{{ "{:.1f}%".format(percent_collected) }}</strong>
+        </div>
+        <div style="height:12px;background:var(--bg);border-radius:8px;overflow:hidden;border:1px solid var(--border);">
+            <div style="height:100%;width:{{ [percent_collected, 100]|min }}%;background:linear-gradient(90deg, var(--danger), var(--warning), var(--success));border-radius:8px;"></div>
         </div>
     </div>
 </div>
@@ -94,8 +147,28 @@
                 <option value="{{ c.id }}" {% if class_filter == c.id|string %}selected{% endif %}>{{ c.name }}</option>
                 {% endfor %}
             </select>
-            <select name="level" class="form-control">
-                <option value="">All Levels</option>
+            <select name="cost_center" class="form-control" title="Cost centre">
+                <option value="">All Cost Centres</option>
+                {% for cc in cost_centers %}
+                <option value="{{ cc.id }}" {% if cost_center_filter == cc.id|string %}selected{% endif %}>{{ cc.name }}</option>
+                {% endfor %}
+            </select>
+            {% if is_super_admin %}
+            <a href="{{ url_for('cost_centers') }}" class="btn btn-secondary" title="Manage cost centres"><i class="fas fa-cog"></i></a>
+            {% endif %}
+            <select name="grade_level" class="form-control" title="Grade or form level">
+                <option value="">All Grades / Levels</option>
+                {% for grade_level in grade_levels %}
+                <option value="{{ grade_level }}" {% if grade_level_filter == grade_level %}selected{% endif %}>{{ grade_level }}</option>
+                {% endfor %}
+            </select>
+            <select name="school" class="form-control" title="Primary or Secondary school">
+                <option value="">All Schools</option>
+                <option value="primary" {% if school_filter == 'primary' %}selected{% endif %}>Primary School</option>
+                <option value="secondary" {% if school_filter == 'secondary' %}selected{% endif %}>Secondary School</option>
+            </select>
+            <select name="level" class="form-control" title="Fee level">
+                <option value="">All Fee Levels</option>
                 <option value="ECD" {% if level_filter == 'ECD' %}selected{% endif %}>ECD</option>
                 <option value="Junior" {% if level_filter == 'Junior' %}selected{% endif %}>Junior (Grade 1–7)</option>
                 <option value="O Level" {% if level_filter == 'O Level' %}selected{% endif %}>O Level (Form 1–4)</option>
@@ -120,7 +193,7 @@
                 {% endfor %}
             </select>
             <button type="submit" class="btn btn-primary"><i class="fas fa-filter"></i> Apply</button>
-            {% if search or class_filter or level_filter or scholarship_filter or min_balance or sort_by != 'balance_desc' %}
+            {% if search or class_filter or cost_center_filter or grade_level_filter or school_filter or level_filter or scholarship_filter or min_balance or sort_by != 'balance_desc' %}
             <a href="{{ url_for('debtors_list') }}" class="btn btn-secondary"><i class="fas fa-times"></i> Reset</a>
             {% endif %}
         </form>
@@ -151,6 +224,7 @@
                             Class / Level <i class="fas fa-sort"></i>
                         </a>
                     </th>
+                    <th>Cost Centre</th>
                     <th>Scholarship</th>
                     <th>Invoice</th>
                     <th>Due Date</th>
@@ -185,8 +259,18 @@
                     </td>
                     <td>
                         {{ r.class_name }}
+                        {% if r.grade_level %}
+                        <br><small style="color:var(--text-light);">{{ r.grade_level }} · {{ r.school_name }} School</small>
+                        {% endif %}
                         {% if r.level_name %}
-                        <br><small style="color:var(--text-light);">{{ r.level_name }}</small>
+                        <br><small class="badge badge-info">{{ r.level_name }} fee level</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if r.student.cost_center %}
+                        <span class="badge {% if r.student.cost_center.code == 'STY' %}badge-info{% elif r.student.cost_center.code == 'PRM' %}badge-success{% else %}badge-secondary{% endif %}">{{ r.student.cost_center.name }}</span>
+                        {% else %}
+                        <span style="color:var(--text-light);">—</span>
                         {% endif %}
                     </td>
                     <td>
@@ -270,10 +354,10 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="13" class="text-center" style="padding:40px; color:var(--text-light);">
+                    <td colspan="14" class="text-center" style="padding:40px; color:var(--text-light);">
                         <i class="fas fa-check-circle" style="font-size:32px; color:var(--success); margin-bottom:10px; display:block;"></i>
                         <strong>No debtors found.</strong><br>
-                        {% if search or class_filter or level_filter or scholarship_filter or min_balance %}
+                        {% if search or class_filter or cost_center_filter or level_filter or scholarship_filter or min_balance %}
                         No active students match your current filters.
                         {% else %}
                         All active students have paid in full for {% if term %}{{ term.name }}{% else %}the current term{% endif %}. 🎉
@@ -284,22 +368,34 @@
             </tbody>
             {% if debtors %}
             <tfoot>
+                {% if is_super_admin %}
                 <tr style="background:#fef3c7; font-weight:bold;">
                     <td colspan="9" style="text-align:right; padding:14px;">
                         <strong>{{ debtors|length }} debtor{{ '' if debtors|length == 1 else 's' }} · TOTAL OWED:</strong>
                     </td>
                     <td style="padding:14px; color:var(--danger); font-size:15px;">
-                        ${{ "{:,.2f}".format(total_owed) }}
+                        {{ currency_symbol }}{{ "{:,.2f}".format(total_owed) }}
                     </td>
-                    <td colspan="3"></td>
+                    <td colspan="4"></td>
                 </tr>
+                {% else %}
+                <tr style="background:#fef3c7; font-weight:bold;">
+                    <td colspan="9" style="text-align:right; padding:14px;">
+                        <strong>{{ debtors|length }} debtor{{ '' if debtors|length == 1 else 's' }} · COLLECTION RATE:</strong>
+                    </td>
+                    <td style="padding:14px; color:var(--success); font-size:15px;">
+                        {{ "{:.1f}%".format(percent_collected) }} of target
+                    </td>
+                    <td colspan="4"></td>
+                </tr>
+                {% endif %}
             </tfoot>
             {% endif %}
         </table>
     </div>
 </div>
 
-{% if search or class_filter or level_filter or scholarship_filter or min_balance %}
+{% if search or class_filter or cost_center_filter or level_filter or scholarship_filter or min_balance %}
 <p class="text-center mt-2" style="color:var(--text-light); font-size:12px;">
     Showing <strong>{{ debtors|length }}</strong> filtered result{{ '' if debtors|length == 1 else 's' }}.
     <a href="{{ url_for('debtors_list') }}">Clear filters</a>

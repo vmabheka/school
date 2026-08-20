@@ -1,6 +1,6 @@
 """
-Configuration for Excel Group of Schools Management System
-============================================================
+Configuration for MobiSchola School Management System
+========================================================
 Set environment variables or modify this file for your deployment.
 """
 
@@ -11,8 +11,8 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'excel-schools-change-this-in-production')
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///excel_schools.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SCHOOL_NAME = 'Excel Group of Schools'
-    SCHOOL_MOTTO = 'Wea Sono la Cremma Della Terra'
+    SCHOOL_NAME = os.environ.get('SCHOOL_NAME', 'Excel Group of Schools')
+    SCHOOL_MOTTO = os.environ.get('SCHOOL_MOTTO', 'Wea Sono la Cremma Della Terra')
     DEPLOYMENT_MODE = os.environ.get('DEPLOYMENT_MODE', 'offline')  # online or offline
     SYNC_ENDPOINT = os.environ.get('SYNC_ENDPOINT', '')  # URL of online system API
     SYNC_API_KEY = os.environ.get('SYNC_API_KEY', '')    # API key for sync

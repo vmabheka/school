@@ -19,12 +19,14 @@
         <p>Customize colours, logo, and sync the look with the WordPress online portal</p>
     </div>
     <div class="actions d-flex gap-1">
+        {% if sync_endpoint %}
         <form method="POST" action="{{ url_for('appearance_pull_from_wordpress') }}" style="display:inline;" title="Pull current theme from WordPress">
             <button type="submit" class="btn btn-secondary"><i class="fas fa-cloud-download-alt"></i> Pull from WordPress</button>
         </form>
         <form method="POST" action="{{ url_for('appearance_sync_to_wordpress') }}" style="display:inline;" title="Push current theme to WordPress">
             <button type="submit" class="btn btn-info"><i class="fas fa-cloud-upload-alt"></i> Push to WordPress</button>
         </form>
+        {% endif %}
         <form method="POST" action="{{ url_for('appearance_reset') }}" style="display:inline;" onsubmit="return confirm('Reset all appearance settings to defaults?');">
             <button type="submit" class="btn btn-danger"><i class="fas fa-undo"></i> Reset</button>
         </form>
@@ -39,10 +41,13 @@
     <strong>Pull from WordPress</strong> to apply whatever was set on the WordPress side.
 </div>
 {% else %}
-<div class="flash warning no-print" style="position:relative; max-width:none; margin-bottom:16px;">
-    <i class="fas fa-exclamation-triangle"></i>
-    WordPress sync endpoint is not configured. Theme sync buttons will fail until you
-    <a href="{{ url_for('sync_dashboard') }}" style="color:inherit;text-decoration:underline;">configure it in Sync Center</a>.
+<div class="flash info no-print" style="position:relative; max-width:none; margin-bottom:16px;">
+    <i class="fas fa-info-circle"></i>
+    No WordPress sync endpoint is configured, so the site appearance is managed
+    on this computer only. You can still change everything below — the settings
+    are saved locally and appear on receipts, invoices and reports. Configure
+    the sync endpoint in <a href="{{ url_for('sync_dashboard') }}" style="color:inherit;text-decoration:underline;">Sync Center</a>
+    to enable Push / Pull with the online portal.
 </div>
 {% endif %}
 
@@ -72,49 +77,16 @@
                 <label>School Email</label>
                 <input type="email" name="school_email" class="form-control" value="{{ theme.school_email|default('') }}">
             </div>
-        </div>
-    </div>
-</div>
-
-<!-- Logo Upload -->
-<div class="card mb-2">
-    <div class="card-header"><h3><i class="fas fa-image" style="color:var(--primary);margin-right:8px;"></i>School Logo</h3></div>
-    <div class="card-body">
-        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
-            {% if theme.logo_url %}
-            <div style="text-align:center;">
-                <img src="{{ url_for('static', filename=theme.logo_url) }}" alt="Current Logo"
-                     style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid var(--secondary);padding:4px;">
-                <p style="font-size:11px;color:var(--text-light);margin-top:8px;">Current Logo</p>
-            </div>
-            {% else %}
-            <div style="width:100px;height:100px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;color:var(--secondary);font-size:40px;font-weight:bold;border:3px solid var(--secondary);">
-                E
-            </div>
-            <p style="font-size:11px;color:var(--text-light);">No logo uploaded — using default</p>
-            {% endif %}
-            <div style="flex:1;min-width:250px;">
-                <form method="POST" action="{{ url_for('upload_logo') }}" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-                    <div style="flex:1;">
-                        <input type="file" name="logo_file" class="form-control" accept="image/*" required
-                               style="padding:8px;">
-                        <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Accepted: PNG, JPG, GIF, SVG, WEBP. Max 16MB.</p>
-                    </div>
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> Upload Logo</button>
-                </form>
-                {% if theme.logo_url %}
-                <form method="POST" action="{{ url_for('appearance_settings') }}" style="margin-top:10px;">
-                    <input type="hidden" name="logo_url" value="">
-                    <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove the school logo?');"><i class="fas fa-trash"></i> Remove Logo</button>
-                </form>
-                {% endif %}
+            <div class="form-group">
+                <label>Currency Symbol</label>
+                <input type="text" name="currency_symbol" class="form-control" style="max-width:100px;" value="{{ theme.currency_symbol|default('$') }}">
             </div>
         </div>
-    </div>
-</div>
-
-<form method="POST">
-        </div>
+        <p style="font-size:12px;color:var(--text-light);margin-top:8px;">
+            These details appear on the login page, receipts, invoices and every report.
+            The school logo is used on all reports, receipts and invoices too.
+            Software branding (MobiSchola — By Edutechweb 0772577666) is fixed and cannot be changed.
+        </p>
     </div>
 </div>
 
@@ -245,4 +217,42 @@
     <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
 </div>
 </form>
+
+<!-- School Logo (standalone — not nested inside the settings form) -->
+<div class="card mb-2">
+    <div class="card-header"><h3><i class="fas fa-image" style="color:var(--primary);margin-right:8px;"></i>School Logo</h3></div>
+    <div class="card-body">
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+            {% if theme.logo_url %}
+            <div style="text-align:center;">
+                <img src="{{ url_for('static', filename=theme.logo_url) }}" alt="Current Logo"
+                     style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid var(--secondary);padding:4px;">
+                <p style="font-size:11px;color:var(--text-light);margin-top:8px;">Current Logo</p>
+            </div>
+            {% else %}
+            <div style="width:100px;height:100px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;color:var(--secondary);font-size:40px;font-weight:bold;border:3px solid var(--secondary);">
+                E
+            </div>
+            <p style="font-size:11px;color:var(--text-light);">No logo uploaded — using default</p>
+            {% endif %}
+            <div style="flex:1;min-width:250px;">
+                <form method="POST" action="{{ url_for('upload_logo') }}" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <div style="flex:1;">
+                        <input type="file" name="logo_file" class="form-control" accept="image/*" required
+                               style="padding:8px;">
+                        <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Accepted: PNG, JPG, GIF, SVG, WEBP. Max 16MB.</p>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> Upload Logo</button>
+                </form>
+                {% if theme.logo_url %}
+                <form method="POST" action="{{ url_for('appearance_settings') }}" style="margin-top:10px;">
+                    <input type="hidden" name="logo_url" value="">
+                    <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove the school logo?');"><i class="fas fa-trash"></i> Remove Logo</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        <p style="font-size:12px;color:var(--text-light);margin-top:10px;">The logo appears on the login page and is printed on receipts, invoices and all reports.</p>
+    </div>
+</div>
 {% endblock %}

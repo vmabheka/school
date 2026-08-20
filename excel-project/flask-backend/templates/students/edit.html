@@ -82,6 +82,23 @@
                 </select>
             </div>
             <div class="form-group">
+                <label>Entry Mode</label>
+                <select name="entry_mode" class="form-control">
+                    <option value="Day" {% if student.entry_mode != 'Stay In' %}selected{% endif %}>Day</option>
+                    <option value="Stay In" {% if student.entry_mode == 'Stay In' %}selected{% endif %}>Stay In (Boarding) — billed Stay In fee every term</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Cost Centre</label>
+                <select name="cost_center_id" class="form-control">
+                    <option value="">Auto (Stay In → Primary → Secondary)</option>
+                    {% for cc in cost_centers %}
+                    <option value="{{ cc.id }}" {% if student.cost_center_id == cc.id %}selected{% endif %}>{{ cc.name }}</option>
+                    {% endfor %}
+                </select>
+                <p style="font-size:11px;color:var(--text-light);margin-top:4px;">Used by the Debtors report. Customise centres under <a href="{{ url_for('cost_centers') }}">Cost Centres</a>.</p>
+            </div>
+            <div class="form-group">
                 <label>Status</label>
                 <select name="status" class="form-control">
                     <option value="Active" {% if student.status == 'Active' %}selected{% endif %}>Active</option>

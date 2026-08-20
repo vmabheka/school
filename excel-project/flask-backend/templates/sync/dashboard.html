@@ -68,6 +68,7 @@
     </div>
 </div>
 
+<form method="POST" action="{{ url_for('sync_save_settings') }}" id="sync-settings-form">
 <!-- Auto-Sync -->
 <div class="card mb-2">
     <div class="card-header"><h3><i class="fas fa-clock" style="color:var(--accent)"></i> Auto-Sync & Access Point Integration</h3></div>
@@ -79,12 +80,12 @@
         </p>
         <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:8px;font-weight:600">
-                <input type="checkbox" id="auto-sync-toggle" style="width:20px;height:20px;accent-color:var(--primary)" {% if auto_sync_enabled %}checked{% endif %}>
+                <input type="checkbox" name="auto_sync_enabled" id="auto-sync-toggle" style="width:20px;height:20px;accent-color:var(--primary)" {% if auto_sync_enabled %}checked{% endif %}>
                 Enable Auto-Sync
             </label>
             <div style="display:flex;align-items:center;gap:8px">
                 <label style="font-size:13px;font-weight:600">Check every:</label>
-                <select id="auto-sync-interval" style="padding:8px 14px;border:2px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);cursor:pointer;outline:none;transition:border-color 0.2s"
+                <select name="auto_sync_interval" id="auto-sync-interval" style="padding:8px 14px;border:2px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);cursor:pointer;outline:none;transition:border-color 0.2s"
                     onfocus="this.style.borderColor='var(--primary)'"
                     onblur="this.style.borderColor='var(--border)'">
                     <option value="30" {% if auto_sync_interval == 30 %}selected{% endif %}>30 seconds</option>
@@ -94,7 +95,7 @@
                     <option value="1800" {% if auto_sync_interval == 1800 %}selected{% endif %}>30 minutes</option>
                 </select>
             </div>
-            <button onclick="saveAutoSyncSettings()" class="btn btn-sm btn-primary"><i class="fas fa-save"></i> Save Settings</button>
+        <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-save"></i> Save Settings</button>
         </div>
         <div id="auto-sync-indicator" style="margin-top:12px;padding:10px 16px;background:var(--bg);border-radius:8px;font-size:13px;display:{% if auto_sync_enabled %}block{% else %}none{% endif %}">
             <i class="fas fa-satellite-dish" style="color:var(--primary)"></i> Access Point Monitor active — checking connection periodically...
@@ -143,7 +144,7 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
             <div class="form-group">
                 <label>WordPress Endpoint URL</label>
-                <input type="url" id="sync-endpoint" value="{{ endpoint }}" placeholder="https://school.example.com"
+                <input type="url" name="endpoint" id="sync-endpoint" value="{{ endpoint }}" placeholder="https://crm.egs.ac.zw"
                     style="width:100%;padding:12px 14px;border:2px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);cursor:text;outline:none;transition:border-color 0.2s"
                     onfocus="this.style.borderColor='var(--primary)';this.style.boxShadow='0 0 0 3px rgba(26,86,50,0.1)'"
                     onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
@@ -151,7 +152,7 @@
             <div class="form-group">
                 <label>Sync API Key</label>
                 <div style="position:relative">
-                    <input type="text" id="sync-api-key" value="{{ api_key }}" placeholder="Enter API key from WordPress plugin"
+                    <input type="password" name="api_key" id="sync-api-key" value="{{ api_key }}" placeholder="Enter API key from WordPress plugin"
                         style="width:100%;padding:12px 14px;border:2px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);cursor:text;outline:none;transition:border-color 0.2s;padding-right:40px"
                         onfocus="this.style.borderColor='var(--primary)';this.style.boxShadow='0 0 0 3px rgba(26,86,50,0.1)'"
                         onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
@@ -163,19 +164,20 @@
             </div>
         </div>
         <div style="margin-top:12px;padding:10px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12px;color:#15803d">
-            <i class="fas fa-info-circle"></i> Enter the URL of your WordPress site (e.g. <code>https://crm.egs.ac.zw</code>) and the API key shown on the WordPress Sync Settings page. Then click <strong>Save Configuration</strong> to connect.
+            <i class="fas fa-info-circle"></i> Enter the URL of your WordPress site — either <code>https://crm.egs.ac.zw</code> or the full plugin namespace <code>https://crm.egs.ac.zw/wp-json/excel-schools/v2</code> (both are accepted) — plus the API key shown on the WordPress Sync Settings page. Then click <strong>Save Configuration</strong> to connect.
         </div>
-        <button onclick="saveSyncConfig()" class="btn btn-primary btn-sm" style="margin-top:12px"><i class="fas fa-save"></i> Save Configuration</button>
-        <span id="config-status" style="margin-left:12px;font-size:13px"></span>
+        <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px"><i class="fas fa-save"></i> Save Configuration</button>
     </div>
 </div>
+</form>
 
 <!-- Manual Actions -->
 <div class="card mb-2">
     <div class="card-header"><h3>Manual Actions</h3></div>
     <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap">
-        <a href="{{ url_for('sync_export') }}" class="btn btn-success"><i class="fas fa-download"></i> Export Data (JSON)</a>
+        <a href="{{ url_for('sync_export') }}" class="btn btn-success"><i class="fas fa-download"></i> Export All Data (JSON)</a>
         <a href="{{ url_for('sync_import') }}" class="btn btn-info"><i class="fas fa-upload"></i> Import Data</a>
+        <p style="width:100%;margin:8px 0 0;color:var(--text-light);font-size:12px">The export contains the complete school dataset—not only pending changes—and can be uploaded directly to the WordPress Sync Center.</p>
     </div>
 </div>
 
@@ -208,7 +210,7 @@
         <p><strong><i class="fas fa-globe"></i> One-Button Sync:</strong> Click "Sync Now" to push all local changes to WordPress and pull any new data back. This is the recommended way to sync manually.</p>
         <p><strong><i class="fas fa-satellite-dish"></i> Access Point Monitor:</strong> A background thread that continuously checks if the internet is available via your school's network access point. When it detects connectivity, it automatically triggers a full sync. This works even when no one is logged in.</p>
         <p><strong><i class="fas fa-robot"></i> Auto-Sync:</strong> When enabled, the Access Point Monitor automatically detects when internet is available and triggers a full sync. Perfect for schools that go offline and reconnect periodically. Settings are saved to the database and persist across restarts.</p>
-        <p><strong><i class="fas fa-download"></i> Export/Import:</strong> For environments with no direct connection, export a JSON file and manually upload it to the online system.</p>
+        <p><strong><i class="fas fa-download"></i> Export/Import:</strong> For environments with no direct connection, export a complete JSON snapshot containing academic years, classes, people, finance, exams, accommodation, timetables, and communication data, then upload it to the online system.</p>
         <p><strong><i class="fas fa-clock"></i> Conflict Resolution:</strong> When both systems have modified the same record, the newest change wins (timestamp-based). Sync storms are prevented by enforcing a 60-second minimum between auto-syncs.</p>
     </div>
 </div>
@@ -317,40 +319,6 @@ function oneButtonSync() {
 
 // ─── Auto-Sync Settings (Persisted) ─────────────────────────────
 var autoSyncRefreshTimer = null;
-
-function saveAutoSyncSettings() {
-    var enabled = document.getElementById('auto-sync-toggle').checked;
-    var interval = parseInt(document.getElementById('auto-sync-interval').value);
-    var endpoint = document.getElementById('sync-endpoint').value;
-    var apiKey = document.getElementById('sync-api-key').value;
-
-    fetch('/api/sync/auto-sync-settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({enabled: enabled, interval: interval, endpoint: endpoint, api_key: apiKey})
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) {
-            document.getElementById('config-status').textContent = '✓ Settings saved (persisted to database)';
-            document.getElementById('config-status').style.color = '#065f46';
-            var indicator = document.getElementById('auto-sync-indicator');
-            if (enabled) {
-                indicator.style.display = 'block';
-                startAutoSyncUI(interval);
-            } else {
-                indicator.style.display = 'none';
-                stopAutoSyncUI();
-            }
-            checkInternet();
-            refreshAPStatus();
-        }
-    });
-}
-
-function saveSyncConfig() {
-    saveAutoSyncSettings();
-}
 
 function toggleApiKeyVisibility() {
     var input = document.getElementById('sync-api-key');

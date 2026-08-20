@@ -146,6 +146,9 @@ $avatar_letter = strtoupper(substr($user->display_name ?: $user->user_login, 0, 
             <?php if (in_array($role, ['esm_super_admin', 'esm_bursar', 'esm_teacher'], true)): ?>
             <div class="nav-section">People</div>
             <?php esm_nav_link('students', 'Students', 'fa-user-graduate', $page); ?>
+            <?php if (in_array($role, ['esm_super_admin', 'esm_bursar'], true)): ?>
+            <?php esm_nav_link('classes', 'Classes', 'fa-school', $page); ?>
+            <?php endif; ?>
             <?php if ($role === 'esm_super_admin'): ?>
             <?php esm_nav_link('staff', 'Staff', 'fa-chalkboard-teacher', $page); ?>
             <?php endif; ?>
@@ -190,10 +193,12 @@ $avatar_letter = strtoupper(substr($user->display_name ?: $user->user_login, 0, 
             <?php esm_nav_link('student-portal', 'Student Portal', 'fa-home', $page); ?>
             <?php endif; ?>
 
-            <?php if ($role === 'esm_super_admin'): ?>
+            <?php if (in_array($role, ['esm_super_admin', 'esm_bursar'], true)): ?>
             <div class="nav-section">System</div>
             <a href="<?php echo esc_url(admin_url('admin.php?page=excel-schools-sync')); ?>" class="nav-item"><i class="fas fa-sync-alt"></i> Sync Center</a>
-            <a href="<?php echo esc_url(admin_url('admin.php?page=excel-schools')); ?>" class="nav-item"><i class="fas fa-cog"></i> Settings</a>
+            <?php endif; ?>
+            <?php if ($role === 'esm_super_admin'): ?>
+            <a href="<?php echo esc_url(admin_url('admin.php?page=excel-schools-settings')); ?>" class="nav-item"><i class="fas fa-cog"></i> Settings</a>
             <?php esm_nav_link('users', 'User Management', 'fa-users-cog', $page); ?>
             <?php endif; ?>
         </nav>
@@ -217,7 +222,7 @@ $avatar_letter = strtoupper(substr($user->display_name ?: $user->user_login, 0, 
                 <div class="user-dropdown-menu" id="userDropdown">
                     <a href="<?php echo esc_url(wp_lostpassword_url()); ?>"><i class="fas fa-key"></i> Change Password</a>
                     <?php if ($role === 'esm_super_admin'): ?>
-                    <a href="<?php echo esc_url(admin_url('admin.php?page=excel-schools')); ?>"><i class="fas fa-cog"></i> Settings</a>
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=excel-schools-settings')); ?>"><i class="fas fa-cog"></i> Settings</a>
                     <?php endif; ?>
                     <a href="<?php echo esc_url(wp_logout_url(home_url('/sms/login/'))); ?>" class="danger"><i class="fas fa-sign-out-alt"></i> Logout</a>
                 </div>

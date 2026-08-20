@@ -22,7 +22,14 @@
 <div class="card" style="max-width:800px; margin:0 auto;">
     <div class="card-body" style="padding:40px;">
         <div style="text-align:center; margin-bottom:30px; border-bottom:2px solid var(--primary); padding-bottom:20px;">
-            <h2 style="color:var(--primary); margin-bottom:4px;">Excel Group of Schools</h2>
+            {% if theme.logo_url %}
+            <img src="{{ url_for('static', filename=theme.logo_url) }}" alt="{{ school_name }} Logo"
+                 style="max-height:70px;max-width:180px;object-fit:contain;margin-bottom:10px;">
+            {% endif %}
+            <h2 style="color:var(--primary); margin-bottom:4px;">{{ school_name }}</h2>
+            <p style="color:var(--text-light); font-size:13px;">{{ theme.school_motto|default('') }}</p>
+            {% set contact = [theme.school_address|default(''), theme.school_phone|default(''), theme.school_email|default('')]|select|join(' • ') %}
+            {% if contact %}<p style="color:var(--text-light); font-size:12px;">{{ contact }}</p>{% endif %}
             <p style="color:var(--text-light); font-size:13px;">OFFICIAL STUDENT FEE INVOICE</p>
         </div>
 
@@ -133,7 +140,7 @@
 
         <div style="margin-top:40px; text-align:center; padding-top:20px; border-top:1px dashed var(--border);">
             <p style="font-size:12px; color:var(--text-light);">Please ensure all fee payments are made before the due date.</p>
-            <p style="font-size:12px; color:var(--text-light);">Excel Group of Schools v2.0.0 — Valentine T Mabheka</p>
+            <p style="font-size:12px; color:var(--text-light);">{{ software_name }} v{{ software_version }} — {{ software_byline }} • {{ software_tagline }}</p>
         </div>
     </div>
 </div>

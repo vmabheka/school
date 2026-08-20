@@ -49,13 +49,34 @@
 
 <!-- Students Table -->
 <div class="card">
+    {% set can_manage = session.get('user_role') in ['super_admin', 'bursar', 'admin', 'staff'] %}
+    <form method="POST" id="bulkForm" action="{{ url_for('students_bulk_reassign_class') }}">
+    <input type="hidden" name="back" value="{{ url_for('students_list', page=students.page, search=search, class=class_filter, status=status_filter, scholarship=scholarship_filter) }}">
+    {% if can_manage %}
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <h3 style="margin:0;"><i class="fas fa-users-cog" style="color:var(--secondary);margin-right:8px;"></i>Bulk Actions</h3>
+        <div class="d-flex gap-1 flex-wrap" style="align-items:center;">
+            <span style="font-size:12px;color:var(--text-light);" id="selectedCount">0 selected</span>
+            <select name="new_class_id" class="form-control" style="max-width:220px;">
+                <option value="">Move to class...</option>
+                {% for c in classes %}
+                <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" formaction="{{ url_for('students_bulk_reassign_class') }}" class="btn btn-sm btn-primary"><i class="fas fa-arrows-alt-h"></i> Move</button>
+            <button type="submit" formaction="{{ url_for('students_bulk_delete') }}" class="btn btn-sm btn-danger" onclick="return confirm('Permanently delete the selected learners and all their records? This cannot be undone.');"><i class="fas fa-trash"></i> Delete Selected</button>
+        </div>
+    </div>
+    {% endif %}
     <div class="table-container">
         <table>
             <thead>
                 <tr>
+                    {% if can_manage %}<th style="width:34px;"><input type="checkbox" id="selectAll" title="Select all on this page"></th>{% endif %}
                     <th>Adm No.</th>
                     <th>Name</th>
                     <th>Gender</th>
+                    <th>Mode</th>
                     <th>Class</th>
                     <th>Fee Classification</th>
                     <th>Status</th>
@@ -65,9 +86,11 @@
             <tbody>
                 {% for student in students.items %}
                 <tr>
+                    {% if can_manage %}<td><input type="checkbox" name="student_ids" value="{{ student.id }}" class="rowCheck"></td>{% endif %}
                     <td><strong>{{ student.admission_number }}</strong></td>
-                    <td>{{ student.first_name }} {{ student.other_names }} {{ student.last_name }}</td>
+                    <td>{{ student.first_name }} {{ student.other_names or '' }} {{ student.last_name }}</td>
                     <td>{{ student.gender or '-' }}</td>
+                    <td>{% if student.entry_mode == 'Stay In' %}<span class="badge badge-info">Stay In</span>{% else %}<span class="badge badge-secondary">Day</span>{% endif %}</td>
                     <td>{{ student.class_.name if student.class_ else '-' }}</td>
                     <td>
                         {% if student.fee_classification == 'Regular' or not student.fee_classification %}
@@ -98,13 +121,13 @@
                     </td>
                     <td>
                         <a href="{{ url_for('student_view', id=student.id) }}" class="btn btn-sm btn-info" title="View"><i class="fas fa-eye"></i></a>
-                        {% if session.get('user_role') in ['super_admin', 'bursar', 'admin', 'staff'] %}
+                        {% if can_manage %}
                         <a href="{{ url_for('student_edit', id=student.id) }}" class="btn btn-sm btn-secondary" title="Edit"><i class="fas fa-edit"></i></a>
                         {% endif %}
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="7" class="text-center" style="padding:40px;color:var(--text-light);">
+                <tr><td colspan="9" class="text-center" style="padding:40px;color:var(--text-light);">
                     <i class="fas fa-user-graduate" style="font-size:32px;opacity:0.3;display:block;margin-bottom:8px;"></i>
                     No students found
                 </td></tr>
@@ -112,23 +135,48 @@
             </tbody>
         </table>
     </div>
+    </form>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var selectAll = document.getElementById('selectAll');
+    var counter = document.getElementById('selectedCount');
+    function refreshCount() {
+        var n = document.querySelectorAll('input[name="student_ids"]:checked').length;
+        if (counter) counter.textContent = n + ' selected';
+    }
+    if (selectAll) {
+        selectAll.addEventListener('change', function () {
+            document.querySelectorAll('input[name="student_ids"]').forEach(function (cb) { cb.checked = selectAll.checked; });
+            refreshCount();
+        });
+    }
+    document.querySelectorAll('input[name="student_ids"]').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+            if (selectAll) selectAll.checked = document.querySelectorAll('input[name="student_ids"]').length > 0 &&
+                document.querySelectorAll('input[name="student_ids"]:checked').length === document.querySelectorAll('input[name="student_ids"]').length;
+            refreshCount();
+        });
+    });
+});
+</script>
 
 <!-- Pagination -->
 {% if students.pages > 1 %}
 <div class="pagination">
     {% if students.has_prev %}
-    <a href="{{ url_for('students_list', page=students.prev_num, search=search, class=class_filter, status=status_filter) }}">&laquo; Prev</a>
+    <a href="{{ url_for('students_list', page=students.prev_num, search=search, class=class_filter, status=status_filter, scholarship=scholarship_filter) }}">&laquo; Prev</a>
     {% endif %}
     {% for p in students.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
         {% if p %}
-        <a href="{{ url_for('students_list', page=p, search=search, class=class_filter, status=status_filter) }}" class="{{ 'active' if p == students.page else '' }}">{{ p }}</a>
+        <a href="{{ url_for('students_list', page=p, search=search, class=class_filter, status=status_filter, scholarship=scholarship_filter) }}" class="{{ 'active' if p == students.page else '' }}">{{ p }}</a>
         {% else %}
         <span>...</span>
         {% endif %}
     {% endfor %}
     {% if students.has_next %}
-    <a href="{{ url_for('students_list', page=students.next_num, search=search, class=class_filter, status=status_filter) }}">Next &raquo;</a>
+    <a href="{{ url_for('students_list', page=students.next_num, search=search, class=class_filter, status=status_filter, scholarship=scholarship_filter) }}">Next &raquo;</a>
     {% endif %}
 </div>
 {% endif %}

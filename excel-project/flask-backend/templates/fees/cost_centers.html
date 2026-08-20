@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Cost Centres{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1><i class="fas fa-chart-pie" style="color:var(--secondary);margin-right:8px;"></i>Cost Centres</h1>
+        <p>Customisable groups used to filter the Debtors report — learners are auto-assigned (Stay In → Primary → Secondary) and can be overridden per student.</p>
+    </div>
+    <div class="actions">
+        <a href="{{ url_for('debtors_list') }}" class="btn btn-secondary"><i class="fas fa-exclamation-triangle"></i> Debtors Report</a>
+        <a href="{{ url_for('fees_dashboard') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back to Fees</a>
+    </div>
+</div>
+
+<div class="grid-2">
+    <!-- Add new -->
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-plus-circle" style="color:var(--success);margin-right:8px;"></i>Add Cost Centre</h3></div>
+        <div class="card-body">
+            <form method="POST">
+                <div class="form-group">
+                    <label>Name <span class="required">*</span></label>
+                    <input type="text" name="name" class="form-control" required placeholder="e.g. Sixth Form, Boarding, ECD Block">
+                </div>
+                <div class="form-group">
+                    <label>Code <span class="required">*</span></label>
+                    <input type="text" name="code" class="form-control" required placeholder="e.g. SIX, BDR, ECD" style="text-transform:uppercase;">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" name="description" class="form-control" placeholder="Optional note">
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Add Cost Centre</button>
+            </form>
+            <p style="font-size:12px;color:var(--text-light);margin-top:12px;">
+                The default centres (<strong>Primary</strong>, <strong>Secondary</strong>,
+                <strong>Stay In</strong>) cannot be deleted, but they can be renamed to match
+                your institution. Auto-assignment matches them by code (PRM / SEC / STY).
+            </p>
+        </div>
+    </div>
+
+    <!-- List -->
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-list" style="color:var(--primary);margin-right:8px;"></i>Current Cost Centres</h3></div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Code</th>
+                        <th>Description</th>
+                        <th>Learners</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cc in centers %}
+                    <tr>
+                        <td><strong>{{ cc.name }}</strong>{% if cc.code in ('PRM', 'SEC', 'STY') %} <span class="badge badge-secondary">default</span>{% endif %}</td>
+                        <td><span class="badge badge-info">{{ cc.code }}</span></td>
+                        <td>{{ cc.description or '-' }}</td>
+                        <td>{{ counts.get(cc.id, 0) }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('cost_center_delete', id=cc.id) }}" style="display:inline;" onsubmit="return confirm('Delete cost centre \'{{ cc.name }}\'? Learners will be left unassigned.');">
+                                <button type="submit" class="btn btn-sm btn-danger" {% if cc.code in ('PRM', 'SEC', 'STY') %}title="Default centre — rename instead"{% endif %}><i class="fas fa-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-center" style="padding:30px;color:var(--text-light);">No cost centres yet — add one above.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="card-body" style="border-top:1px solid var(--border);">
+            <p style="font-size:12px;color:var(--text-light);margin:0;">
+                <strong>{{ total_students }}</strong> learner(s) in total. The Debtors report can
+                be filtered by class and cost centre; money totals are visible to the Super Admin
+                only, while the Bursar sees the percentage collected vs the target.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

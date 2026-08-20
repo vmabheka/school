@@ -8,7 +8,7 @@
  * option — the same option the Sync Engine reads/writes — so there is
  * no key-name mismatch between authentication and configuration.
  *
- * Author: Valentine T Mabheka | Version: 3.0.0
+ * Author: Edutechweb
  */
 if (!defined('ABSPATH')) exit;
 
@@ -132,6 +132,17 @@ class ESM_REST_API {
             'notices'        => 'esm_notices',
             'invoices'       => 'esm_invoices',
             'invoice_items'  => 'esm_invoice_items',
+            'parents'        => 'esm_parents',
+            'student_parent' => 'esm_student_parent',
+            'staff_subjects' => 'esm_staff_subjects',
+            'exams'          => 'esm_exams',
+            'hostels'        => 'esm_hostels',
+            'rooms'          => 'esm_rooms',
+            'room_allocations' => 'esm_room_allocations',
+            'timetable_slots'=> 'esm_timetable_slots',
+            'messages'       => 'esm_messages',
+            'school_settings'=> 'esm_school_settings',
+            'cost_centers'   => 'esm_cost_centers',
         ];
     }
 
@@ -143,6 +154,12 @@ class ESM_REST_API {
             'FeeLevel' => 'esm_fee_levels', 'Class' => 'esm_classes',
             'Subject' => 'esm_subjects', 'AcademicYear' => 'esm_academic_years',
             'Term' => 'esm_terms', 'Invoice' => 'esm_invoices',
+            'InvoiceItem' => 'esm_invoice_items', 'Parent' => 'esm_parents',
+            'StudentParent' => 'esm_student_parent', 'StaffSubject' => 'esm_staff_subjects',
+            'Exam' => 'esm_exams', 'Hostel' => 'esm_hostels', 'Room' => 'esm_rooms',
+            'RoomAllocation' => 'esm_room_allocations', 'TimetableSlot' => 'esm_timetable_slots',
+            'Message' => 'esm_messages', 'SchoolSetting' => 'esm_school_settings',
+            'CostCenter' => 'esm_cost_centers',
         ];
     }
 
@@ -205,7 +222,7 @@ class ESM_REST_API {
         $result = ['status' => 'ok', 'sync_id' => $sync_id];
 
         if ($action === 'CREATE' || $action === 'UPDATE') {
-            $existing = $sync_id ? $wpdb->get_row($wpdb->prepare("SELECT id, updated_at FROM $table WHERE sync_id=%s", $sync_id)) : null;
+            $existing = $sync_id ? $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE sync_id=%s", $sync_id)) : null;
             $sanitized = [];
             foreach ($data as $k => $v) {
                 $sanitized[sanitize_key($k)] = is_string($v) ? sanitize_text_field($v) : $v;

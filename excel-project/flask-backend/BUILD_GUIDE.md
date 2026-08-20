@@ -6,8 +6,8 @@
 |----------|---------------|--------|
 | **Linux** | `./build.sh` | `dist/ExcelSchools/ExcelSchools` |
 | **Linux (portable)** | `./build.sh --portable` | `dist/ExcelSchools-portable` |
-| **Windows** | `build.bat` | `dist\ExcelSchools\ExcelSchools.exe` |
-| **Windows (portable)** | `build.bat --portable` | `dist\ExcelSchools-portable.exe` |
+| **Windows (portable)** | `build-windows-exe.bat` | `dist\MobiSchola.exe` |
+| **Windows (GitHub Actions)** | Workflow: Build Windows Offline EXE | Downloadable artifact |
 | **macOS** | `./build_macos.sh` | `dist/ExcelSchools/ExcelSchools` |
 | **Docker** | `docker build -t excel-schools .` | Docker image |
 
@@ -40,17 +40,41 @@ chmod +x build.sh
 
 ### 3. Build for Windows
 
+PyInstaller must run on Windows to produce a Windows executable. Open Command Prompt in this directory and run:
+
 ```cmd
-REM Install PyInstaller first
-pip install pyinstaller
-
-REM Build both
-build.bat --all
-
-REM Or just one:
-build.bat --portable
-build.bat --directory
+build-windows-exe.bat
 ```
+
+Outputs:
+- `dist\MobiSchola.exe`
+- `dist\MobiSchola.exe.sha256`
+- `dist\production-server.txt`
+- `dist\setup-lan-server.bat`
+- `dist\test-client.bat`
+
+For a central school-network server, copy the EXE, `setup-lan-server.bat` and
+`test-client.bat` to the server computer, then run the setup batch file as
+Administrator. It configures a **port-based** Windows Firewall allow rule
+(Private + Domain profiles) and displays the URL that client devices should
+open. `test-client.bat` is a connection test to run on any client device that
+cannot reach the server.
+
+Diagnose server-side network problems with:
+
+```cmd
+dist\MobiSchola.exe --diagnose
+```
+
+Verify the embedded server manually with:
+
+```cmd
+dist\MobiSchola.exe --verify-production-server
+```
+
+The executable bundles Python, templates, static files, the application, and the **Waitress production WSGI server**. The build fails unless the frozen EXE confirms `PRODUCTION_WSGI_STATUS=embedded-and-ready`; verification details are written to `dist\production-server.txt`. School data is stored persistently under `%LOCALAPPDATA%\ExcelSchools`, not inside the EXE.
+
+Alternatively, run the GitHub Actions workflow **Build Windows Offline EXE** and download the `ExcelSchools-Offline-Windows` artifact.
 
 ### 4. Build for macOS
 

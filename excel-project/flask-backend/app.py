@@ -1,11 +1,12 @@
 """
-Excel Group of Schools - School Management System
-===================================================
+MobiSchola — School Management System
+======================================
 A comprehensive web-based school management system that can be deployed
-both online and offline with periodic synchronization.
+online or offline (LAN) and is fully brandable for any institution:
+school name, motto, logo, contact details, colours, currency symbol and
+software branding are configurable per deployment.
 
-Author: Valentine T Mabheka
-Version: 2.1.0
+MobiSchola v2.5.0 — By Edutechweb 0772577666 — Manage smarter—even offline.
 """
 
 import os
@@ -15,11 +16,13 @@ import re
 import uuid
 from datetime import datetime, date, timedelta
 from functools import wraps
+from pathlib import Path
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, jsonify, session, send_file, make_response)
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import openpyxl
@@ -28,32 +31,139 @@ import requests
 
 # ─── App Configuration ────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}, r"/sync*": {"origins": "*"}})
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'excel-schools-secret-key-2024')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
-    'DATABASE_URL', 'sqlite:///excel_schools.db'
+_deployment_mode = os.environ.get('DEPLOYMENT_MODE', 'offline').strip().lower()
+_is_production = _deployment_mode == 'online'
+_secret_key = os.environ.get('SECRET_KEY', 'excel-schools-secret-key-2024')
+_database_url = os.environ.get('DATABASE_URL', 'sqlite:///excel_schools.db')
+
+if _is_production:
+    if len(_secret_key) < 32 or _secret_key in {
+        'excel-schools-secret-key-2024',
+        'excel-schools-change-this-in-production',
+        'change-this-to-a-long-random-string',
+    }:
+        raise RuntimeError('Production requires a unique SECRET_KEY of at least 32 characters.')
+    if _database_url.startswith('sqlite:') and os.environ.get('ALLOW_SQLITE_PRODUCTION') != 'true':
+        raise RuntimeError('Production requires PostgreSQL/MySQL; set ALLOW_SQLITE_PRODUCTION=true only for temporary testing.')
+
+_engine_options = {
+    'pool_pre_ping': True,
+    'pool_recycle': int(os.environ.get('DB_POOL_RECYCLE', '300')),
+}
+if _database_url.startswith('sqlite:'):
+    # One WSGI process owns the central offline database while multiple LAN
+    # clients submit requests concurrently. Extend lock waits and permit the
+    # Waitress worker threads to share SQLAlchemy-managed connections.
+    _engine_options['connect_args'] = {
+        'timeout': int(os.environ.get('SQLITE_BUSY_TIMEOUT', '30')),
+        'check_same_thread': False,
+    }
+
+app.config.update(
+    SECRET_KEY=_secret_key,
+    SQLALCHEMY_DATABASE_URI=_database_url,
+    SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    SQLALCHEMY_ENGINE_OPTIONS=_engine_options,
+    UPLOAD_FOLDER=os.environ.get(
+        'UPLOAD_FOLDER', os.path.join(os.path.dirname(__file__), 'static', 'uploads')
+    ),
+    MAX_CONTENT_LENGTH=int(os.environ.get('MAX_UPLOAD_MB', '16')) * 1024 * 1024,
+    SCHOOL_NAME=os.environ.get('SCHOOL_NAME', 'Excel Group of Schools'),
+    SCHOOL_MOTTO=os.environ.get('SCHOOL_MOTTO', 'Excellence in Education'),
+    SCHOOL_LOGO='images/logo.png',
+    DEPLOYMENT_MODE=_deployment_mode,
+    SYNC_ENDPOINT=os.environ.get('SYNC_ENDPOINT', ''),
+    SYNC_API_KEY=os.environ.get('SYNC_API_KEY', ''),
+    SESSION_COOKIE_SECURE=_is_production,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PREFERRED_URL_SCHEME='https' if _is_production else 'http',
+    PERMANENT_SESSION_LIFETIME=timedelta(
+        minutes=int(os.environ.get('SESSION_LIFETIME_MINUTES', '480'))
+    ),
 )
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
-app.config['SCHOOL_NAME'] = 'Excel Group of Schools'
-app.config['SCHOOL_MOTTO'] = 'Excellence in Education'
-app.config['SCHOOL_LOGO'] = 'images/logo.png'
-app.config['DEPLOYMENT_MODE'] = os.environ.get('DEPLOYMENT_MODE', 'offline')  # online|offline
-app.config['SYNC_ENDPOINT'] = os.environ.get('SYNC_ENDPOINT', '')
-app.config['SYNC_API_KEY'] = os.environ.get('SYNC_API_KEY', '')
+
+if os.environ.get('TRUST_PROXY', 'false').lower() == 'true':
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
+_cors_origins = [
+    origin.strip() for origin in os.environ.get('CORS_ORIGINS', '').split(',')
+    if origin.strip()
+]
+# Browser CORS is disabled unless explicit origins are configured. Server-to-
+# server sync is unaffected because it does not require browser CORS headers.
+if _cors_origins:
+    CORS(app, resources={r"/api/*": {"origins": _cors_origins}})
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+    if _is_production:
+        response.headers.setdefault(
+            'Strict-Transport-Security', 'max-age=31536000; includeSubDomains'
+        )
+    return response
+
+
+@app.errorhandler(500)
+def handle_internal_error(exc):
+    """Friendly error page instead of the bare 'Internal Server Error'."""
+    db.session.rollback()
+    app.logger.error('Internal Server Error: %s', exc, exc_info=True)
+    try:
+        return render_template('error.html',
+                               message=str(exc) or 'An unexpected error occurred.'), 500
+    except Exception:
+        return ('<h1>Internal Server Error</h1>'
+                '<p>An unexpected error occurred. Check the server console '
+                'for details.</p>'), 500
+
+
+@app.errorhandler(404)
+def handle_not_found(exc):
+    return render_template('error.html',
+                           message='The page you requested was not found.'), 404
+
 
 db = SQLAlchemy(app)
 
 # App version (synced with WordPress plugin)
-APP_VERSION = '2.1.0'
-APP_VERSION_DATE = '2026-07-06'
+APP_VERSION = '2.5.0'
+APP_VERSION_DATE = '2026-08-12'
 
-# Initial super-admin credentials used when provisioning a new installation.
-DEFAULT_ADMIN_USERNAME = 'edusync'
-DEFAULT_ADMIN_PASSWORD = 'edusync26'
+# Software branding — shown in the UI, reports, receipts, invoices, PDFs and
+# exported files. Every institution can override these on the Appearance
+# settings page (or with SOFTWARE_NAME / SOFTWARE_BYLINE / SOFTWARE_TAGLINE /
+# SOFTWARE_VERSION / CURRENCY_SYMBOL environment variables).
+SOFTWARE_NAME = 'MobiSchola'
+SOFTWARE_BYLINE = 'By Edutechweb 0772577666'
+SOFTWARE_TAGLINE = 'Manage smarter—even offline.'
+
+# Software branding is fixed and NOT customisable from the UI. These keys are
+# excluded from the Appearance save form, theme sync and theme import, so site
+# administrators can never change them. Only the deployment operator can
+# override them via environment variables (SOFTWARE_NAME, SOFTWARE_BYLINE,
+# SOFTWARE_TAGLINE, SOFTWARE_VERSION).
+SOFTWARE_BRANDING_KEYS = frozenset({
+    'software_name',
+    'software_byline',
+    'software_tagline',
+    'software_version',
+})
+
+# Initial super-admin credentials used only when provisioning a new database.
+DEFAULT_ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'edusync')
+DEFAULT_ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'edusync26')
+if _is_production and (
+    len(DEFAULT_ADMIN_PASSWORD) < 16 or DEFAULT_ADMIN_PASSWORD == 'edusync26'
+):
+    raise RuntimeError('Production requires a unique ADMIN_PASSWORD of at least 16 characters.')
 
 # ─── Inject theme into every template ─────────────────────────────────
 @app.context_processor
@@ -66,6 +176,11 @@ def inject_theme():
     return dict(
         theme=theme,
         school_name=theme.get('school_name', 'Excel Group of Schools'),
+        software_name=theme.get('software_name', SOFTWARE_NAME),
+        software_byline=theme.get('software_byline', SOFTWARE_BYLINE),
+        software_tagline=theme.get('software_tagline', SOFTWARE_TAGLINE),
+        software_version=theme.get('software_version', APP_VERSION),
+        currency_symbol=theme.get('currency_symbol', '$'),
         user_role=role,
         role_label=ROLE_LABELS.get(role, role.title() if role else 'Guest'),
         role_nav_sections=ROLE_NAV_SECTIONS.get(role, []),
@@ -124,10 +239,11 @@ class Class(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), nullable=False)  # e.g., "Grade 1A"
     level = db.Column(db.String(20))  # e.g., "Grade 1", "Form 1"
-    stream = db.Column(db.String(10))  # e.g., "A", "B"
+    stream = db.Column(db.String(30))  # e.g., "A", "Blue"
     teacher_id = db.Column(db.Integer, db.ForeignKey('staff.id'))
     capacity = db.Column(db.Integer, default=40)
     academic_year_id = db.Column(db.Integer, db.ForeignKey('academic_year.id'))
+    sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()), unique=True)
     students = db.relationship('Student', backref='class_', lazy=True)
 
 
@@ -169,6 +285,9 @@ class Student(db.Model):
     scholarship_notes = db.Column(db.Text)
     is_new_learner = db.Column(db.Boolean, default=True)
     billed_once_off_levies = db.Column(db.Boolean, default=False)
+    entry_mode = db.Column(db.String(20), default='Day')  # Day or Stay In (boarding)
+    cost_center_id = db.Column(db.Integer, db.ForeignKey('cost_center.id'))
+    cost_center = db.relationship('CostCenter', backref='students')
     # Relations
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     parents = db.relationship('Parent', secondary=student_parent, backref='students')
@@ -230,7 +349,12 @@ class Staff(db.Model):
     department = db.Column(db.String(100))
     position = db.Column(db.String(100))  # Teacher, Head, Clerk, etc.
     employment_date = db.Column(db.Date, default=date.today)
-    salary = db.Column(db.Float)
+    salary = db.Column(db.Float)  # gross basic salary per month
+    paye_deduction = db.Column(db.Float, default=0)   # Pay As You Earn
+    aids_levy_deduction = db.Column(db.Float, default=0)  # AIDS levy (3% of taxable)
+    other_deductions = db.Column(db.Float, default=0)
+    bank_name = db.Column(db.String(100))
+    bank_account = db.Column(db.String(50))
     phone = db.Column(db.String(20))
     email = db.Column(db.String(100))
     address = db.Column(db.String(300))
@@ -245,10 +369,20 @@ class Staff(db.Model):
 
 class StaffSubject(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'))
-    subject_id = db.Column(db.Integer, db.ForeignKey('subject.id'))
-    class_id = db.Column(db.Integer, db.ForeignKey('class.id'))
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
+    subject_id = db.Column(db.Integer, db.ForeignKey('subject.id'), nullable=False)
+    class_id = db.Column(db.Integer, db.ForeignKey('class.id'), nullable=False)
     academic_year_id = db.Column(db.Integer, db.ForeignKey('academic_year.id'))
+    sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()), unique=True)
+    subject = db.relationship('Subject', backref='staff_assignments')
+    class_ = db.relationship('Class', backref='subject_assignments')
+    academic_year = db.relationship('AcademicYear', backref='staff_subject_assignments')
+    __table_args__ = (
+        db.UniqueConstraint(
+            'staff_id', 'subject_id', 'class_id', 'academic_year_id',
+            name='uq_staff_subject_class_year',
+        ),
+    )
 
 
 class Exam(db.Model):
@@ -275,6 +409,23 @@ class ExamResult(db.Model):
     sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()))
 
 
+class CostCenter(db.Model):
+    """Customisable cost centres used to group learners for reporting.
+
+    Defaults: Primary, Secondary and Stay In. Institutions can add, rename
+    or remove centres on the Cost Centres page; learners are auto-assigned
+    (Stay In > Primary > Secondary) and can be overridden per student.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), nullable=False, unique=True)
+    code = db.Column(db.String(20), unique=True, nullable=False)
+    description = db.Column(db.String(200))
+    sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()))
+
+    def __repr__(self):
+        return f'<CostCenter {self.name}>'
+
+
 class FeeStructure(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -287,6 +438,7 @@ class FeeStructure(db.Model):
     registration_fee = db.Column(db.Float, default=10)
     textbook_levy = db.Column(db.Float, default=0)
     boarding = db.Column(db.Float, default=0)
+    stay_in_fee = db.Column(db.Float, default=0)  # boarding learners only; 0 = automatic by level
     transport = db.Column(db.Float, default=0)
     lunch = db.Column(db.Float, default=0)
     library = db.Column(db.Float, default=0)
@@ -311,6 +463,45 @@ class FeePayment(db.Model):
     received_by = db.Column(db.Integer, db.ForeignKey('staff.id'))
     sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class PaymentEditRequest(db.Model):
+    """An approval workflow for editing a committed fee payment.
+
+    Bursars/accountants cannot change a recorded payment directly. They
+    submit an edit request; a super admin reviews it and either approves
+    (the changes are applied to the payment) or rejects it.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    payment_id = db.Column(db.Integer, db.ForeignKey('fee_payment.id'))
+    requested_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    request_date = db.Column(db.DateTime, default=datetime.utcnow)
+    changes = db.Column(db.Text)  # JSON: {amount, payment_date, payment_method, description}
+    reason = db.Column(db.String(300))
+    status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    reviewed_at = db.Column(db.DateTime)
+    review_note = db.Column(db.String(300))
+    payment = db.relationship('FeePayment', backref='edit_requests')
+    requestor = db.relationship('User', foreign_keys=[requested_by])
+    reviewer = db.relationship('User', foreign_keys=[reviewed_by])
+    sync_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class WhatsAppSession(db.Model):
+    """Stateful conversation session for the WhatsApp parent bot.
+
+    Stores the current registration step and collected data so a parent
+    can register step-by-step from their phone.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    phone = db.Column(db.String(30), unique=True, nullable=False)
+    step = db.Column(db.String(40))
+    data = db.Column(db.Text)  # JSON payload (child id, collected fields...)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
 
 
 class Invoice(db.Model):
@@ -442,6 +633,7 @@ class FeeLevel(db.Model):
     registration_fee = db.Column(db.Float, default=10)
     textbook_levy = db.Column(db.Float, default=0)
     boarding = db.Column(db.Float, default=0)
+    stay_in_fee = db.Column(db.Float, default=0)  # boarding learners only; 0 = automatic by level
     transport = db.Column(db.Float, default=0)
     lunch = db.Column(db.Float, default=0)
     library = db.Column(db.Float, default=0)
@@ -481,6 +673,27 @@ class SyncSetting(db.Model):
 import threading
 import socket
 import time as _time
+
+
+def _wp_rest_base(endpoint):
+    """Return the WordPress REST base URL for the MobiSchola plugin.
+
+    The WordPress plugin registers its routes under the
+    ``excel-schools/v2`` namespace (e.g. ``/wp-json/excel-schools/v2/sync``),
+    while this app's own REST routes live under ``/api/...``. Accept either
+    stored style so the offline app can always reach the online portal:
+
+      * ``https://crm.egs.ac.zw``                        (bare site URL)
+      * ``https://crm.egs.ac.zw/wp-json/excel-schools/v2`` (full namespace)
+
+    Returns '' when no endpoint is configured.
+    """
+    base = (endpoint or '').strip().rstrip('/')
+    if not base:
+        return ''
+    if '/wp-json/excel-schools/v2' in base:
+        return base
+    return base + '/wp-json/excel-schools/v2'
 
 
 class AccessPointMonitor:
@@ -569,7 +782,7 @@ class AccessPointMonitor:
             try:
                 import requests as _req
                 resp = _req.get(
-                    f"{endpoint.rstrip('/')}/api/stats",
+                    f"{_wp_rest_base(endpoint)}/stats",
                     headers={'X-ESM-API-Key': api_key},
                     timeout=8,
                 )
@@ -644,7 +857,7 @@ class AccessPointMonitor:
             'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
             'ExamResult': ExamResult,
             'Notice': Notice, 'FeeLevel': FeeLevel, 'Class': Class,
-            'Subject': Subject, 'FeeStructure': FeeStructure,
+            'Subject': Subject, 'FeeStructure': FeeStructure, 'StaffSubject': StaffSubject,
         }
         for log in pending_logs:
             try:
@@ -671,7 +884,7 @@ class AccessPointMonitor:
                     'timestamp': log.created_at.isoformat() if log.created_at else datetime.utcnow().isoformat(),
                 }
                 resp = _req.post(
-                    f"{endpoint.rstrip('/')}/api/sync",
+                    f"{_wp_rest_base(endpoint)}/sync",
                     json=payload,
                     headers={'Content-Type': 'application/json', 'X-ESM-API-Key': api_key},
                     timeout=30,
@@ -692,7 +905,7 @@ class AccessPointMonitor:
         pulled = 0
         try:
             resp = _req.get(
-                f"{endpoint.rstrip('/')}/api/sync/pending",
+                f"{_wp_rest_base(endpoint)}/sync/pending",
                 headers={'X-ESM-API-Key': api_key},
                 timeout=30,
             )
@@ -703,7 +916,7 @@ class AccessPointMonitor:
                     'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
                     'ExamResult': ExamResult,
                     'Notice': Notice, 'FeeLevel': FeeLevel, 'FeeStructure': FeeStructure,
-                    'Class': Class, 'Subject': Subject,
+                    'Class': Class, 'Subject': Subject, 'StaffSubject': StaffSubject,
                     'AcademicYear': AcademicYear, 'Term': Term,
                 }
                 synced_ids = []
@@ -768,7 +981,7 @@ class AccessPointMonitor:
                 if synced_ids:
                     try:
                         _req.post(
-                            f"{endpoint.rstrip('/')}/api/sync/mark-synced",
+                            f"{_wp_rest_base(endpoint)}/sync/mark-synced",
                             json={'ids': synced_ids, 'api_key': api_key},
                             headers={'Content-Type': 'application/json', 'X-ESM-API-Key': api_key},
                             timeout=15,
@@ -803,6 +1016,12 @@ DEFAULT_THEME = {
     'school_address': '',
     'school_phone': '',
     'school_email': '',
+    # Software branding (deployment customisation)
+    'software_name': SOFTWARE_NAME,
+    'software_byline': SOFTWARE_BYLINE,
+    'software_tagline': SOFTWARE_TAGLINE,
+    'software_version': APP_VERSION,
+    'currency_symbol': '$',
     # Deep navy blue — matches the EGS crest outer ring & shield
     'primary_color': '#1F2080',
     'primary_dark': '#13145A',
@@ -833,7 +1052,521 @@ def get_theme():
     # Merge with defaults
     theme = dict(DEFAULT_THEME)
     theme.update(settings)
+    # Environment variables override everything so each deployment can brand
+    # the system for its own institution without touching the database.
+    env_overrides = {
+        'school_name': 'SCHOOL_NAME',
+        'school_motto': 'SCHOOL_MOTTO',
+        'school_address': 'SCHOOL_ADDRESS',
+        'school_phone': 'SCHOOL_PHONE',
+        'school_email': 'SCHOOL_EMAIL',
+        'software_name': 'SOFTWARE_NAME',
+        'software_byline': 'SOFTWARE_BYLINE',
+        'software_tagline': 'SOFTWARE_TAGLINE',
+        'software_version': 'SOFTWARE_VERSION',
+        'currency_symbol': 'CURRENCY_SYMBOL',
+    }
+    for key, env_name in env_overrides.items():
+        value = os.environ.get(env_name)
+        if value:
+            theme[key] = value
     return theme
+
+
+def software_branding():
+    """Return the current software branding block (name, byline, tagline, version)."""
+    theme = get_theme()
+    return {
+        'name': theme.get('software_name', SOFTWARE_NAME),
+        'byline': theme.get('software_byline', SOFTWARE_BYLINE),
+        'tagline': theme.get('software_tagline', SOFTWARE_TAGLINE),
+        'version': theme.get('software_version', APP_VERSION),
+        'currency': theme.get('currency_symbol', '$'),
+    }
+
+
+def theme_logo_path():
+    """Absolute filesystem path of the current school logo, or None."""
+    theme = get_theme()
+    logo_url = theme.get('logo_url', '')
+    if not logo_url:
+        return None
+    candidate = Path(app.static_folder) / logo_url
+    return str(candidate) if candidate.exists() else None
+
+
+def _pdf_logo_image(max_height_mm=16):
+    """Return a reportlab Image flowable of the school logo (or None)."""
+    from reportlab.platypus import Image
+    from reportlab.lib.utils import ImageReader
+    from reportlab.lib.units import mm
+    path = theme_logo_path()
+    if not path:
+        return None
+    try:
+        reader = ImageReader(path)
+        width, height = reader.getSize()
+        if not width or not height:
+            return None
+        max_height = max_height_mm * mm
+        scale = max_height / height
+        img = Image(path, width=width * scale, height=max_height)
+        img.hAlign = 'CENTER'
+        return img
+    except Exception:
+        return None
+
+
+def _software_footer(theme=None):
+    """Footer line used on every PDF: 'MobiSchola v2.5.0 — By Edutechweb 0772577666'."""
+    theme = theme or get_theme()
+    return (f"{theme.get('software_name', SOFTWARE_NAME)} "
+            f"v{theme.get('software_version', APP_VERSION)} — "
+            f"{theme.get('software_byline', SOFTWARE_BYLINE)}")
+
+
+def _brand_header_story(story, theme, title_size=14, show_contact=True):
+    """Append the school logo, school name, motto and contact line to a PDF story.
+
+    Used by every generated report (receipts, invoices, report cards, debtors)
+    so the institution's identity and logo appear on all output.
+    """
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.colors import HexColor
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Spacer, HRFlowable, Paragraph
+
+    base = getSampleStyleSheet()['Normal']
+    primary = HexColor(theme.get('primary_color', '#1F2080'))
+    logo = _pdf_logo_image()
+    if logo:
+        story.append(logo)
+        story.append(Spacer(1, 3 * mm))
+    story.append(Paragraph(
+        theme.get('school_name', SOFTWARE_NAME),
+        ParagraphStyle('BrandTitle', parent=base, fontSize=title_size,
+                       alignment=TA_CENTER, fontName='Helvetica-Bold',
+                       textColor=primary)))
+    motto = (theme.get('school_motto') or '').strip()
+    if motto:
+        story.append(Paragraph(
+            motto,
+            ParagraphStyle('BrandMotto', parent=base, fontSize=9,
+                           alignment=TA_CENTER, textColor=HexColor('#6b7280'))))
+    if show_contact:
+        contact_parts = [theme.get(k, '').strip() for k in
+                         ('school_address', 'school_phone', 'school_email')]
+        contact = ' • '.join(p for p in contact_parts if p)
+        if contact:
+            story.append(Paragraph(
+                contact,
+                ParagraphStyle('BrandContact', parent=base, fontSize=8,
+                               alignment=TA_CENTER,
+                               textColor=HexColor('#9ca3af'))))
+    story.append(Spacer(1, 3 * mm))
+    story.append(HRFlowable(width='100%', thickness=1, color=primary))
+    story.append(Spacer(1, 4 * mm))
+    return story
+
+
+# ─── Payroll / Payslips ────────────────────────────────────────────────
+
+# Payslip template configuration (matches the official July 2026 payslip).
+PAYSLIP_CURRENCY_CODE = 'US$'
+PAYSLIP_CURRENCY_LABEL = 'United States Dollars'
+PAYSLIP_PAYE_RATE_PCT = 25       # PAYE = (rate% x gross) - exemption
+PAYSLIP_PAYE_EXEMPTION = 35.00
+PAYSLIP_AIDS_RATE_PCT = 3        # AIDS Levy = rate% of PAYE
+
+_ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
+         'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen',
+         'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
+_TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy',
+         'Eighty', 'Ninety']
+
+
+def _words_two(n):
+    if n < 20:
+        return _ONES[n]
+    return _TENS[n // 10] + ('-' + _ONES[n % 10] if n % 10 else '')
+
+
+def _words_three(n):
+    h, r = n // 100, n % 100
+    parts = []
+    if h:
+        parts.append(_ONES[h] + ' Hundred')
+    if r:
+        word = _words_two(r)
+        parts.append(('and ' if h else '') + word)
+    return ' '.join(parts) if parts else 'Zero'
+
+
+def _amount_in_words(amount):
+    """425.00 -> ('Four Hundred and Twenty-Five', 0) ; 425.50 -> (..., 50)."""
+    amt = round(float(amount or 0.0), 2)
+    dollars = int(amt)
+    cents = int(round((amt - dollars) * 100))
+    millions = dollars // 1000000
+    thousands = (dollars // 1000) % 1000
+    rest = dollars % 1000
+    parts = []
+    if millions:
+        parts.append(_words_three(millions) + ' Million')
+    if thousands:
+        parts.append(_words_three(thousands) + ' Thousand')
+    if rest or not parts:
+        parts.append(_words_three(rest))
+    return ' '.join(parts), cents
+
+
+def _format_bank_account(account):
+    """'451200282033405' -> '4512 0028 2033 405' (as on the template)."""
+    digits = re.sub(r'\D', '', account or '')
+    return ' '.join(digits[i:i + 4] for i in range(0, len(digits), 4))
+
+
+def _payslip_amount_words(net):
+    """425.00 -> 'Four Hundred and Twenty-Five United States Dollars Only'."""
+    words, cents = _amount_in_words(net)
+    if cents:
+        return (f"{words} {PAYSLIP_CURRENCY_LABEL} and "
+                f"{_words_two(cents)} Cents")
+    return f"{words} {PAYSLIP_CURRENCY_LABEL} Only"
+
+
+def staff_net_pay(staff):
+    """Net monthly pay = gross salary - PAYE - AIDS levy - other deductions."""
+    gross = float(staff.salary or 0.0)
+    paye = float(staff.paye_deduction or 0.0)
+    aids = float(staff.aids_levy_deduction or 0.0)
+    other = float(staff.other_deductions or 0.0)
+    return round(gross - paye - aids - other, 2)
+
+
+def build_payslip_data(staff, period=None):
+    """Return a dict describing a staff member's payslip for a period.
+
+    Mirrors the official payslip template: gross, PAYE, AIDS levy, net pay,
+    amount in words, formatted bank account, and the deduction formulas.
+    """
+    if period is None:
+        period = datetime.utcnow().strftime('%B %Y')
+    gross = float(staff.salary or 0.0)
+    paye = float(staff.paye_deduction or 0.0)
+    aids = float(staff.aids_levy_deduction or 0.0)
+    other = float(staff.other_deductions or 0.0)
+    net = round(gross - paye - aids - other, 2)
+    return {
+        'staff': staff,
+        'period': period,
+        'period_upper': period.upper(),
+        'gross': gross,
+        'paye': paye,
+        'aids': aids,
+        'other': other,
+        'total_deductions': paye + aids + other,
+        'net': net,
+        'bank_name': staff.bank_name or '',
+        'bank_account': staff.bank_account or '',
+        'bank_account_display': _format_bank_account(staff.bank_account),
+        'currency_code': PAYSLIP_CURRENCY_CODE,
+        'currency_label': PAYSLIP_CURRENCY_LABEL,
+        'amount_words': _payslip_amount_words(net),
+        # Deduction formulas as displayed on the template.
+        'paye_rate_pct': PAYSLIP_PAYE_RATE_PCT,
+        'paye_exemption': PAYSLIP_PAYE_EXEMPTION,
+        'aids_rate_pct': PAYSLIP_AIDS_RATE_PCT,
+        'pay_date': '',
+        'payslip_no': '',
+    }
+
+
+def _generate_payslip_pdf(payslip):
+    """Generate the payslip PDF exactly matching the official template
+    (Makumbe_Albert_Payslip_July_2026.pdf):
+
+      school header (name/address/cell/email)
+      PAYSLIP — <PERIOD>  /  Currency: United States Dollars (US$) • Strictly Confidential
+      employee details (name, position, pay period, pay date, payslip no,
+                        bank, account number)
+      EARNINGS (US$) | DEDUCTIONS (US$) side-by-side with totals
+      NET PAY box + amount in words
+      For-office-use YTD box
+      Authorised by / Employee's Acknowledgement signatures + SCHOOL STAMP
+      HOW THE DEDUCTIONS WERE CALCULATED (formulas)
+      confidentiality footer
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
+                                    TableStyle, HRFlowable)
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+
+    theme = get_theme()
+    staff = payslip['staff']
+    primary = HexColor(theme.get('primary_color', '#1F2080'))
+    grey = HexColor('#6b7280')
+    black = HexColor('#111827')
+    cc = payslip['currency_code']
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm,
+                            topMargin=14 * mm, bottomMargin=14 * mm)
+    styles = getSampleStyleSheet()
+    label = ParagraphStyle('PSLabel', parent=styles['Normal'], fontSize=9.5, textColor=black)
+    value = ParagraphStyle('PSValue', parent=styles['Normal'], fontSize=9.5, fontName='Helvetica-Bold')
+    cell = ParagraphStyle('PSCell', parent=styles['Normal'], fontSize=9.5)
+    cell_right = ParagraphStyle('PSCellR', parent=cell, alignment=TA_RIGHT)
+    cell_bold = ParagraphStyle('PSCellB', parent=cell, fontName='Helvetica-Bold')
+    cell_right_bold = ParagraphStyle('PSCellRB', parent=cell_right, fontName='Helvetica-Bold')
+    small = ParagraphStyle('PSSmall', parent=styles['Normal'], fontSize=8, textColor=grey)
+    small_center = ParagraphStyle('PSSmallC', parent=small, alignment=TA_CENTER)
+
+    story = []
+
+    # ── School header ──
+    school_name = theme.get('school_name', 'School')
+    address = theme.get('school_address', '').strip()
+    phone = theme.get('school_phone', '').strip()
+    email = theme.get('school_email', '').strip()
+    header_lines = [Paragraph(school_name.upper(),
+                              ParagraphStyle('PSHeadName', parent=styles['Normal'],
+                                             fontSize=15, fontName='Helvetica-Bold',
+                                             textColor=primary))]
+    if address:
+        header_lines.append(Paragraph(address, ParagraphStyle('PSHeadAddr',
+                                       parent=styles['Normal'], fontSize=9.5)))
+    contact_bits = []
+    if phone:
+        contact_bits.append(f"Cell: {phone}")
+    if email:
+        contact_bits.append(f"Email: {email}")
+    if contact_bits:
+        header_lines.append(Paragraph('      '.join(contact_bits),
+                                      ParagraphStyle('PSHeadContact', parent=styles['Normal'],
+                                                     fontSize=9.5, textColor=grey)))
+    header_t = Table([[header_lines]], colWidths=[178 * mm])
+    header_t.setStyle(TableStyle([
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+    ]))
+    story.append(header_t)
+    story.append(Spacer(1, 2 * mm))
+    story.append(HRFlowable(width='100%', thickness=1, color=primary))
+    story.append(Spacer(1, 3 * mm))
+
+    # ── Title + currency line ──
+    story.append(Paragraph(f"PAYSLIP — {payslip['period_upper']}",
+                           ParagraphStyle('PSTitle', parent=styles['Normal'], fontSize=15,
+                                          alignment=TA_CENTER, fontName='Helvetica-Bold',
+                                          textColor=black)))
+    story.append(Paragraph(
+        f"Currency: {payslip['currency_label']} ({cc})  •  Strictly Confidential",
+        ParagraphStyle('PSCurr', parent=styles['Normal'], fontSize=9,
+                       alignment=TA_CENTER, textColor=grey)))
+    story.append(Spacer(1, 4 * mm))
+
+    # ── Employee details ──
+    emp_items = [
+        ('Employee Name', f"{staff.first_name} {staff.last_name}"),
+        ('Position', staff.position or '-'),
+        ('Pay Period', payslip['period']),
+        ('Pay Date', payslip['pay_date'] or ''),
+        ('Payslip No.', payslip['payslip_no'] or ''),
+        ('Bank', payslip['bank_name'] or '-'),
+        ('Account Number', payslip['bank_account_display'] or '-'),
+    ]
+    emp_rows = []
+    for i in range(0, len(emp_items), 2):
+        left = emp_items[i]
+        right = emp_items[i + 1] if i + 1 < len(emp_items) else ('', '')
+        emp_rows.append([
+            Paragraph(f"{left[0]}:", label), Paragraph(left[1], value),
+            Paragraph(f"{right[0]}:", label) if right[0] else Paragraph('', label),
+            Paragraph(right[1], value) if right[0] else Paragraph('', value),
+        ])
+    emp_t = Table(emp_rows, colWidths=[44 * mm, 46 * mm, 44 * mm, 44 * mm])
+    emp_t.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('LINEBELOW', (0, 0), (-1, -2), 0.3, HexColor('#e5e7eb')),
+    ]))
+    story.append(emp_t)
+    story.append(Spacer(1, 5 * mm))
+
+    # ── EARNINGS | DEDUCTIONS side by side ──
+    def money_table(rows, header_text):
+        header = [[Paragraph(f'<b>{header_text}</b>', cell_bold),
+                   Paragraph('<b>Amount</b>', cell_right_bold)]]
+        data = header + rows
+        t = Table(data, colWidths=[58 * mm, 28 * mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), HexColor('#f3f4f6')),
+            ('GRID', (0, 0), (-1, -1), 0.4, HexColor('#d1d5db')),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        return t
+
+    earn_rows = [
+        [Paragraph('Basic Salary', cell), Paragraph(f"{payslip['gross']:.2f}", cell_right)],
+        [Paragraph('<b>TOTAL EARNINGS</b>', cell_bold),
+         Paragraph(f"<b>{payslip['gross']:.2f}</b>", cell_right_bold)],
+    ]
+    ded_rows = [
+        [Paragraph('PAYE (Pay As You Earn)', cell), Paragraph(f"{payslip['paye']:.2f}", cell_right)],
+        [Paragraph('AIDS Levy (3% of PAYE)', cell), Paragraph(f"{payslip['aids']:.2f}", cell_right)],
+        [Paragraph('<b>TOTAL DEDUCTIONS</b>', cell_bold),
+         Paragraph(f"<b>{payslip['total_deductions']:.2f}</b>", cell_right_bold)],
+    ]
+    earn_t = money_table(earn_rows, 'EARNINGS  (US$)')
+    ded_t = money_table(ded_rows, 'DEDUCTIONS  (US$)')
+    pair_t = Table([[earn_t, ded_t]], colWidths=[89 * mm, 89 * mm])
+    pair_t.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (0, 0), 0),
+        ('RIGHTPADDING', (0, 0), (0, 0), 4),
+        ('LEFTPADDING', (1, 0), (1, 0), 4),
+        ('RIGHTPADDING', (1, 0), (1, 0), 0),
+    ]))
+    story.append(pair_t)
+    story.append(Spacer(1, 5 * mm))
+
+    # ── NET PAY box ──
+    net_t = Table([[Paragraph('<b>NET PAY</b>', ParagraphStyle('PSNetL', parent=styles['Normal'],
+                               fontSize=13, fontName='Helvetica-Bold')),
+                    Paragraph(f"<b>{cc}{payslip['net']:.2f}</b>",
+                              ParagraphStyle('PSNetR', parent=styles['Normal'], fontSize=16,
+                                             alignment=TA_RIGHT, fontName='Helvetica-Bold',
+                                             textColor=primary))]],
+                  colWidths=[89 * mm, 89 * mm])
+    net_t.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 1.2, primary),
+        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#f0f7ff')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 9),
+        ('TOPPADDING', (0, 0), (-1, -1), 9),
+        ('LEFTPADDING', (0, 0), (-1, -1), 12),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+    ]))
+    story.append(net_t)
+    story.append(Spacer(1, 4 * mm))
+
+    # ── Amount in words ──
+    story.append(Paragraph(
+        f"<b>Amount in words:</b> {payslip['amount_words']}",
+        ParagraphStyle('PSWords', parent=styles['Normal'], fontSize=10)))
+    story.append(Spacer(1, 5 * mm))
+
+    # ── For office use (YTD) ──
+    ytd_rows = [[Paragraph('<b>For office use</b>', cell_bold), '', '', '']]
+    ytd_rows.append([
+        Paragraph('YTD Gross:', small), Paragraph('', small),
+        Paragraph('YTD PAYE:', small), Paragraph('', small),
+    ])
+    ytd_rows.append([
+        Paragraph('YTD AIDS Levy:', small), Paragraph('', small),
+        Paragraph('YTD Net:', small), Paragraph('', small),
+    ])
+    ytd_t = Table(ytd_rows, colWidths=[44 * mm, 46 * mm, 44 * mm, 44 * mm])
+    ytd_t.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.4, HexColor('#d1d5db')),
+        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#f9fafb')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(ytd_t)
+    story.append(Spacer(1, 6 * mm))
+
+    # ── Signatures + school stamp ──
+    def sig_block(title):
+        return [
+            Paragraph(f"<b>{title}</b>", ParagraphStyle('PSSigT', parent=styles['Normal'],
+                                                        fontSize=9.5, textColor=black)),
+            Spacer(1, 2 * mm),
+            Paragraph('Signature: ______________________', small),
+            Spacer(1, 2 * mm),
+            Paragraph('Date: ______________________', small),
+        ]
+
+    stamp_cell = [Paragraph('<b>SCHOOL<br/>STAMP</b>',
+                             ParagraphStyle('PSStamp', parent=small_center,
+                                            leading=12))]
+    stamp_t = Table([stamp_cell], colWidths=[40 * mm])
+    stamp_t.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.8, HexColor('#9ca3af')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+    ]))
+    sig_outer = Table([[sig_block('Authorised by (Head of School) — Signature:'),
+                        sig_block("Employee's Acknowledgement — Signature:"),
+                        stamp_t]],
+                      colWidths=[76 * mm, 62 * mm, 40 * mm])
+    sig_outer.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    story.append(sig_outer)
+    story.append(Spacer(1, 5 * mm))
+
+    # ── How the deductions were calculated ──
+    calc_lines = [
+        Paragraph('HOW THE DEDUCTIONS WERE CALCULATED',
+                  ParagraphStyle('PSCalcT', parent=styles['Normal'], fontSize=8.5,
+                                 fontName='Helvetica-Bold')),
+        Spacer(1, 1.5 * mm),
+        Paragraph(
+            f"PAYE = ({payslip['paye_rate_pct']}% × Gross) − {cc}{payslip['paye_exemption']:.2f} "
+            f"= ({payslip['paye_rate_pct']}% × {payslip['gross']:.2f}) − "
+            f"{payslip['paye_exemption']:.2f} = {cc}{payslip['paye']:.2f}",
+            ParagraphStyle('PSCalcL', parent=styles['Normal'], fontSize=8.5)),
+        Paragraph(
+            f"AIDS Levy = {payslip['aids_rate_pct']}% × PAYE = "
+            f"{payslip['aids_rate_pct']}% × {payslip['paye']:.2f} = {cc}{payslip['aids']:.2f}",
+            ParagraphStyle('PSCalcL2', parent=styles['Normal'], fontSize=8.5)),
+        Paragraph('Net Pay = Gross − PAYE − AIDS Levy',
+                  ParagraphStyle('PSCalcL3', parent=styles['Normal'], fontSize=8.5)),
+    ]
+    calc_t = Table([[calc_lines]], colWidths=[178 * mm])
+    calc_t.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.5, HexColor('#9ca3af')),
+        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#fefce8')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(calc_t)
+    story.append(Spacer(1, 5 * mm))
+
+    # ── Footer ──
+    story.append(HRFlowable(width='100%', thickness=0.5, color=HexColor('#d1d5db')))
+    story.append(Spacer(1, 2 * mm))
+    story.append(Paragraph(
+        f"Salary is paid by direct bank transfer into the employee's "
+        f"{payslip['bank_name'] or 'bank'} account stated above. This is a "
+        f"confidential, computer-generated document — {school_name}.",
+        ParagraphStyle('PSFoot', parent=styles['Normal'], fontSize=7.5,
+                       alignment=TA_CENTER, textColor=grey)))
+    story.append(Spacer(1, 1 * mm))
+    story.append(Paragraph(_software_footer(theme),
+                           ParagraphStyle('PSFoot2', parent=styles['Normal'], fontSize=7,
+                                          alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf
 
 
 def set_theme(key, value):
@@ -925,6 +1658,7 @@ ROLE_PRIVILEGES = {
         'Communication management',
         'Reports — students, fees',
         'Dashboard with student & financial stats',
+        'Sync management — manual, automatic, import & export',
     ],
     'teacher': [
         'Exam & results entry',
@@ -957,7 +1691,7 @@ ROLE_PRIVILEGES = {
 ROLE_NAV_SECTIONS = {
     'super_admin': ['main', 'people', 'academic', 'finance', 'resources', 'communication', 'analytics', 'system'],
     'accountant': ['main', 'finance', 'analytics', 'communication'],
-    'bursar': ['main', 'people', 'finance', 'communication', 'analytics'],
+    'bursar': ['main', 'people', 'finance', 'communication', 'analytics', 'system'],
     'teacher': ['main', 'people', 'academic', 'resources', 'communication', 'analytics'],
     'parent': ['main', 'communication'],
     'student': ['main', 'academic', 'communication'],
@@ -965,7 +1699,7 @@ ROLE_NAV_SECTIONS = {
 
 # Which specific nav items each role can access (route endpoint keywords)
 ROLE_NAV_ITEMS = {
-    'super_admin': ['dashboard', 'students_list', 'staff_list', 'exams_list',
+    'super_admin': ['dashboard', 'students_list', 'classes_list', 'staff_list', 'exams_list',
                     'timetable_view', 'fees_dashboard', 'invoices_list', 'debtors_list',
                     'fee_levels_list',
                     'hostel_dashboard', 'communication_dashboard',
@@ -974,7 +1708,7 @@ ROLE_NAV_ITEMS = {
     'accountant': ['dashboard', 'fees_dashboard', 'invoices_list', 'debtors_list',
                    'fee_levels_list', 'reports_dashboard',
                    'communication_dashboard', 'user_management'],
-    'bursar': ['dashboard', 'students_list', 'fees_dashboard', 'invoices_list',
+    'bursar': ['dashboard', 'students_list', 'classes_list', 'fees_dashboard', 'invoices_list',
                'debtors_list', 'communication_dashboard',
                'reports_dashboard', 'sync_dashboard'],
     'teacher': ['dashboard', 'students_list', 'exams_list',
@@ -1005,14 +1739,47 @@ def _staff_for_current_user():
     return Staff.query.filter_by(user_id=session['user_id']).first()
 
 
-def get_teacher_class_ids(staff_id):
-    """Return list of class IDs the teacher is the form master of."""
-    return [c.id for c in Class.query.filter_by(teacher_id=staff_id).all()]
+def get_teacher_class_ids(staff_id, ay_id=None):
+    """Return every class explicitly assigned to this teacher.
+
+    A teacher may access a class either as its form master (Class.teacher_id)
+    or through a class+subject StaffSubject assignment. This is important for
+    secondary teachers who commonly teach one subject across several streams.
+    """
+    if ay_id is None:
+        current_year = AcademicYear.query.filter_by(is_current=True).first()
+        ay_id = current_year.id if current_year else None
+    form_class_query = Class.query.filter_by(teacher_id=staff_id)
+    if ay_id:
+        form_class_query = form_class_query.filter(db.or_(
+            Class.academic_year_id == ay_id,
+            Class.academic_year_id.is_(None),
+        ))
+    class_ids = {c.id for c in form_class_query.all()}
+    query = StaffSubject.query.filter_by(staff_id=staff_id)
+    if ay_id:
+        query = query.filter(db.or_(
+            StaffSubject.academic_year_id == ay_id,
+            StaffSubject.academic_year_id.is_(None),
+        ))
+    class_ids.update(ss.class_id for ss in query.all() if ss.class_id)
+    return sorted(class_ids)
 
 
-def get_teacher_subject_ids(staff_id):
-    """Return list of subject IDs the teacher is assigned to via StaffSubject."""
-    return [ss.subject_id for ss in StaffSubject.query.filter_by(staff_id=staff_id).all()]
+def get_teacher_subject_ids(staff_id, class_id=None, ay_id=None):
+    """Return subjects explicitly assigned to a teacher, optionally per class."""
+    query = StaffSubject.query.filter_by(staff_id=staff_id)
+    if class_id:
+        query = query.filter_by(class_id=class_id)
+    if ay_id is None:
+        current_year = AcademicYear.query.filter_by(is_current=True).first()
+        ay_id = current_year.id if current_year else None
+    if ay_id:
+        query = query.filter(db.or_(
+            StaffSubject.academic_year_id == ay_id,
+            StaffSubject.academic_year_id.is_(None),
+        ))
+    return sorted({ss.subject_id for ss in query.all() if ss.subject_id})
 
 
 def get_teacher_classes_with_subjects(staff_id, ay_id=None):
@@ -1024,26 +1791,28 @@ def get_teacher_classes_with_subjects(staff_id, ay_id=None):
     """
     from collections import defaultdict
     result = defaultdict(set)
-    for c in Class.query.filter_by(teacher_id=staff_id).all():
-        # Form master → teacher teaches all primary-level learning areas
-        # (or all subjects for secondary). Use the level to decide.
+    form_class_query = Class.query.filter_by(teacher_id=staff_id)
+    if ay_id:
+        form_class_query = form_class_query.filter(db.or_(
+            Class.academic_year_id == ay_id,
+            Class.academic_year_id.is_(None),
+        ))
+    for c in form_class_query.all():
+        # Primary form masters cover the standard primary learning areas.
+        # Secondary form-master status is pastoral only; teaching access must
+        # always come from explicit class+subject assignments.
         if is_primary_level(c.level):
-            for s in Subject.query.filter(Subject.name.in_(PRIMARY_LEARNING_AREAS)).all():
-                result[c.id].add(s.id)
+            for subject in Subject.query.filter(Subject.name.in_(PRIMARY_LEARNING_AREAS)).all():
+                result[c.id].add(subject.id)
         else:
-            # Secondary — teacher is assumed to teach all subjects for that class
-            # unless StaffSubject narrows it.
-            ss = StaffSubject.query.filter_by(staff_id=staff_id, class_id=c.id).all()
-            if ss:
-                for s in ss:
-                    result[c.id].add(s.subject_id)
-            else:
-                for s in Subject.query.all():
-                    result[c.id].add(s.id)
+            result[c.id]  # Keep the form class visible, with no implied subjects.
     # Also add explicit StaffSubject rows (class+subject combos)
     q = StaffSubject.query.filter_by(staff_id=staff_id)
     if ay_id:
-        q = q.filter_by(academic_year_id=ay_id)
+        q = q.filter(db.or_(
+            StaffSubject.academic_year_id == ay_id,
+            StaffSubject.academic_year_id.is_(None),
+        ))
     for ss in q.all():
         if ss.class_id and ss.subject_id:
             result[ss.class_id].add(ss.subject_id)
@@ -1055,9 +1824,14 @@ def teacher_can_access_class(staff_id, class_id):
     return class_id in get_teacher_class_ids(staff_id)
 
 
-def teacher_can_access_subject(staff_id, subject_id):
-    """Return True if this teacher has any StaffSubject assignment to this subject."""
-    return subject_id in get_teacher_subject_ids(staff_id)
+def teacher_can_access_subject(staff_id, subject_id, class_id=None):
+    """Check an explicit subject assignment, optionally for one class."""
+    return subject_id in get_teacher_subject_ids(staff_id, class_id=class_id)
+
+
+def teacher_can_teach(staff_id, class_id, subject_id, ay_id=None):
+    """Require the exact teacher+class+subject combination for mark entry."""
+    return subject_id in get_teacher_classes_with_subjects(staff_id, ay_id).get(class_id, [])
 
 
 def teacher_can_access_student(staff_id, student_id):
@@ -1172,6 +1946,69 @@ def generate_invoice_number():
     return f"{prefix}0001"
 
 
+# Stay In (boarding) fees billed every term to learners whose entry mode is
+# "Stay In": $300 for primary and secondary (O Level), $260 for A Level.
+# A fee level/structure can override this with its own stay_in_fee amount.
+STAY_IN_FEE_PRIMARY_SECONDARY = 300.0
+STAY_IN_FEE_A_LEVEL = 260.0
+
+# Default cost centres (customisable — see /settings/cost-centers).
+# Learners are auto-assigned: Stay In > Primary > Secondary.
+COST_CENTER_DEFAULTS = [
+    ('Primary', 'PRM', 'Primary School (ECD A to Grade 7)'),
+    ('Secondary', 'SEC', 'Secondary School (Form 1 to Form 6)'),
+    ('Stay In', 'STY', 'Boarding learners (billed the Stay In fee)'),
+]
+
+
+def assign_cost_center(student):
+    """Pick the best-matching cost centre for a learner.
+
+    Rule: Stay In learners go to the "Stay In" centre; otherwise primary
+    classes go to "Primary" and everything else to "Secondary". Centres are
+    matched by code first (PRM/SEC/STY), then by name, so renaming a centre
+    keeps the auto-assignment working. Returns the assigned cost_center_id.
+    """
+    if student is None:
+        return None
+
+    def _find(code, name):
+        return (CostCenter.query.filter_by(code=code).first()
+                or CostCenter.query.filter(
+                    db.func.lower(CostCenter.name) == name.lower()).first())
+
+    cc_stay = _find('STY', 'Stay In')
+    cc_primary = _find('PRM', 'Primary')
+    cc_secondary = _find('SEC', 'Secondary')
+
+    if getattr(student, 'entry_mode', 'Day') == 'Stay In' and cc_stay:
+        student.cost_center_id = cc_stay.id
+    elif (student.class_ and student.class_.level
+          and is_primary_level(student.class_.level) and cc_primary):
+        student.cost_center_id = cc_primary.id
+    elif cc_secondary:
+        student.cost_center_id = cc_secondary.id
+    return student.cost_center_id
+
+
+def normalize_entry_mode(value):
+    """Map user input (Excel, forms) to the canonical entry modes Day / Stay In."""
+    text = (value or '').strip().lower()
+    if text in ('stay in', 'stay-in', 'stayin', 'boarding', 'boarder',
+                'boarding student', 'resident', 'residential', 'hostel', 'hosteller'):
+        return 'Stay In'
+    return 'Day'
+
+
+def get_stay_in_fee_default(student):
+    """Automatic Stay In fee by level: $300 primary/secondary, $260 A Level."""
+    if student.class_ and student.class_.level:
+        m = re.search(r'Form\s*(\d+)', student.class_.level, re.IGNORECASE)
+        if m and int(m.group(1)) >= 5:
+            return STAY_IN_FEE_A_LEVEL
+    return STAY_IN_FEE_PRIMARY_SECONDARY
+
+
 def get_student_fee_structure(student, term=None, ay=None):
     if not term:
         term = get_current_term()
@@ -1274,8 +2111,20 @@ def generate_student_invoice(student, term=None, academic_year=None):
             if tb_levy > 0: items_data.append(('Textbook Levy (Once-off)', tb_levy))
             student.billed_once_off_levies = True
 
+        # Stay In (boarding) learners are billed the Stay In fee every term.
+        # Amount comes from the fee level/structure, or defaults automatically:
+        # $300 primary & secondary, $260 A Level.
+        if getattr(student, 'entry_mode', 'Day') == 'Stay In':
+            stay_fee = float(getattr(source, 'stay_in_fee', 0.0) or 0.0)
+            if stay_fee <= 0:
+                stay_fee = get_stay_in_fee_default(student)
+            if stay_fee > 0:
+                items_data.append(('Stay In Fee (Boarding)', stay_fee))
+
         # Keep legacy optional fees if explicitly greater than 0
-        if getattr(source, 'boarding', 0.0) and source.boarding > 0: items_data.append(('Boarding Fee', source.boarding))
+        if (getattr(student, 'entry_mode', 'Day') != 'Stay In'
+                and getattr(source, 'boarding', 0.0) and source.boarding > 0):
+            items_data.append(('Boarding Fee', source.boarding))
         if getattr(source, 'transport', 0.0) and source.transport > 0: items_data.append(('Transport Fee', source.transport))
         if getattr(source, 'lunch', 0.0) and source.lunch > 0: items_data.append(('Lunch & Meals', source.lunch))
         if getattr(source, 'library', 0.0) and source.library > 0: items_data.append(('Library Levy', source.library))
@@ -1306,7 +2155,8 @@ def generate_student_invoice(student, term=None, academic_year=None):
         academic_year_id=academic_year.id,
         term_id=term.id,
         issue_date=date.today(),
-        due_date=term.end_date if term and term.end_date else date.today(),
+        # Invoices are due the day after they are created.
+        due_date=date.today() + timedelta(days=1),
         subtotal=subtotal,
         discount_amount=discount,
         total_amount=total
@@ -1405,6 +2255,8 @@ def change_password():
 @app.route('/')
 @login_required
 def dashboard():
+    if session.get('user_role') == 'teacher':
+        return redirect(url_for('teacher_home'))
     stats = get_dashboard_stats()
     recent_students = Student.query.filter_by(status='Active').order_by(
         Student.created_at.desc()).limit(5).all()
@@ -1455,7 +2307,12 @@ def students_list():
             query = query.filter_by(fee_classification=scholarship_filter)
     students = query.order_by(Student.last_name).paginate(
         page=page, per_page=20, error_out=False)
-    classes = Class.query.all()
+    if session.get('user_role') == 'teacher':
+        staff = _staff_for_current_user()
+        class_ids = get_teacher_class_ids(staff.id) if staff else []
+        classes = Class.query.filter(Class.id.in_(class_ids)).order_by(Class.name).all() if class_ids else []
+    else:
+        classes = Class.query.order_by(Class.name).all()
     classifications = db.session.query(Student.fee_classification).distinct().all()
     return render_template('students/list.html',
                            students=students,
@@ -1477,7 +2334,8 @@ def student_add():
             admission_number=admission_number,
             first_name=request.form.get('first_name'),
             last_name=request.form.get('last_name'),
-            other_names=request.form.get('other_names'),
+            other_names=_clean_optional_text(request.form.get('other_names')),
+            entry_mode=normalize_entry_mode(request.form.get('entry_mode')),
             date_of_birth=datetime.strptime(request.form.get('date_of_birth'), '%Y-%m-%d').date() if request.form.get('date_of_birth') else None,
             gender=request.form.get('gender'),
             national_id=request.form.get('national_id'),
@@ -1498,6 +2356,14 @@ def student_add():
             scholarship_staff_id=request.form.get('scholarship_staff_id') if request.form.get('scholarship_staff_id') else None,
             scholarship_notes=request.form.get('scholarship_notes'),
         )
+        # Cost centre: explicit selection wins, otherwise auto-assign
+        # (Stay In > Primary > Secondary).
+        cc_choice = request.form.get('cost_center_id')
+        if cc_choice:
+            try:
+                student.cost_center_id = int(cc_choice)
+            except (TypeError, ValueError):
+                pass
 
         # Handle photo upload
         if 'photo' in request.files:
@@ -1512,6 +2378,8 @@ def student_add():
 
         db.session.add(student)
         db.session.flush()
+        if not student.cost_center_id:
+            assign_cost_center(student)
         generate_student_invoice(student)
 
         # NOTE: Students do NOT get user accounts.
@@ -1569,7 +2437,8 @@ def student_add():
                            next_admission=next_admission,
                            today=date.today().isoformat(),
                            level_classes=json.dumps(level_classes),
-                           fee_levels_json=json.dumps(fee_levels_json))
+                           fee_levels_json=json.dumps(fee_levels_json),
+                           cost_centers=CostCenter.query.order_by(CostCenter.name).all())
 
 
 @app.route('/students/<int:id>')
@@ -1579,17 +2448,139 @@ def student_view(id):
     # Teacher portal: block access to students not in their classes
     if session.get('user_role') == 'teacher':
         staff = _staff_for_current_user()
-        if staff and not teacher_can_access_student(staff.id, id):
+        if not staff or not teacher_can_access_student(staff.id, id):
             flash('You do not have access to this student.', 'danger')
-            return redirect(url_for('teacher_classes'))
-    results = ExamResult.query.filter_by(student_id=id).all()
-    payments = FeePayment.query.filter_by(student_id=id).order_by(
-        FeePayment.payment_date.desc()).all()
+            return redirect(url_for('teacher_home'))
+        assigned_subject_ids = get_teacher_subject_ids(staff.id, class_id=student.class_id)
+        results = ExamResult.query.filter(
+            ExamResult.student_id == id,
+            ExamResult.subject_id.in_(assigned_subject_ids),
+        ).all() if assigned_subject_ids else []
+        payments = []
+    else:
+        results = ExamResult.query.filter_by(student_id=id).all()
+        payments = FeePayment.query.filter_by(student_id=id).order_by(
+            FeePayment.payment_date.desc()).all()
     return render_template('students/view.html',
                            student=student,
                            attendances=[],
                            results=results,
-                           payments=payments)
+                           payments=payments,
+                           classes=Class.query.order_by(Class.name).all())
+
+
+@app.route('/students/<int:id>/reassign-class', methods=['POST'])
+@login_required
+@role_required('super_admin', 'bursar')
+def student_reassign_class(id):
+    """Quickly move one student to a different class (from the profile page)."""
+    student = Student.query.get_or_404(id)
+    new_class_id = request.form.get('class_id') or None
+    if not new_class_id:
+        flash('Please select a class to move the student to.', 'warning')
+        return redirect(url_for('student_view', id=id))
+    cls = Class.query.get(new_class_id)
+    if cls is None:
+        flash('The selected class no longer exists.', 'danger')
+        return redirect(url_for('student_view', id=id))
+    old_class_name = student.class_.name if student.class_ else 'No class'
+    student.class_id = cls.id
+    assign_cost_center(student)
+    student.updated_at = datetime.utcnow()
+    db.session.commit()
+    log_sync('Student', student.id, 'UPDATE', {
+        'admission_number': student.admission_number,
+        'class_id': student.class_id,
+        'class_name': cls.name,
+    })
+    flash(f'{student.first_name} {student.last_name} moved from '
+          f'{old_class_name} to {cls.name}.', 'success')
+    return redirect(url_for('student_view', id=id))
+
+
+@app.route('/students/bulk-reassign-class', methods=['POST'])
+@login_required
+@role_required('super_admin', 'bursar')
+def students_bulk_reassign_class():
+    """Move several selected students to one class in a single action."""
+    new_class_id = request.form.get('new_class_id') or None
+    student_ids = request.form.getlist('student_ids')
+    if not new_class_id:
+        flash('Please select the destination class.', 'warning')
+        return redirect(url_for('students_list'))
+    cls = Class.query.get(new_class_id)
+    if cls is None:
+        flash('The selected class no longer exists.', 'danger')
+        return redirect(url_for('students_list'))
+    ids = []
+    for value in student_ids:
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        flash('No students were selected.', 'warning')
+        return redirect(url_for('students_list'))
+    moved = 0
+    for student in Student.query.filter(Student.id.in_(ids)).all():
+        if student.class_id != cls.id:
+            student.class_id = cls.id
+            assign_cost_center(student)
+            student.updated_at = datetime.utcnow()
+            moved += 1
+    db.session.commit()
+    for student in Student.query.filter(Student.id.in_(ids)).all():
+        log_sync('Student', student.id, 'UPDATE', {
+            'admission_number': student.admission_number,
+            'class_id': student.class_id,
+            'class_name': cls.name,
+        })
+    flash(f'{moved} student(s) moved to {cls.name}.', 'success')
+    back = request.form.get('back') or ''
+    if back.startswith('/'):
+        return redirect(back)
+    return redirect(url_for('students_list'))
+
+
+@app.route('/students/bulk-delete', methods=['POST'])
+@login_required
+@role_required('super_admin', 'bursar')
+def students_bulk_delete():
+    """Permanently remove the selected learners and all of their records."""
+    ids = []
+    for value in request.form.getlist('student_ids'):
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        flash('No students were selected.', 'warning')
+        return redirect(request.form.get('back') or url_for('students_list'))
+    students = Student.query.filter(Student.id.in_(ids)).all()
+    deleted = len(students)
+    # Remove links and child rows before deleting the learners themselves.
+    db.session.execute(
+        student_parent.delete().where(student_parent.c.student_id.in_(ids)))
+    invoice_ids = db.session.query(Invoice.id).filter(Invoice.student_id.in_(ids))
+    InvoiceItem.query.filter(InvoiceItem.invoice_id.in_(invoice_ids)).delete(
+        synchronize_session=False)
+    Invoice.query.filter(Invoice.student_id.in_(ids)).delete(
+        synchronize_session=False)
+    FeePayment.query.filter(FeePayment.student_id.in_(ids)).delete(
+        synchronize_session=False)
+    ExamResult.query.filter(ExamResult.student_id.in_(ids)).delete(
+        synchronize_session=False)
+    RoomAllocation.query.filter(RoomAllocation.student_id.in_(ids)).delete(
+        synchronize_session=False)
+    for student in students:
+        log_sync('Student', student.id, 'DELETE')
+        db.session.delete(student)
+    db.session.commit()
+    flash(f'{deleted} student(s) permanently deleted.', 'success')
+    back = request.form.get('back') or ''
+    if back.startswith('/'):
+        return redirect(back)
+    return redirect(url_for('students_list'))
 
 
 @app.route('/students/<int:id>/edit', methods=['GET', 'POST'])
@@ -1600,7 +2591,8 @@ def student_edit(id):
     if request.method == 'POST':
         student.first_name = request.form.get('first_name', student.first_name)
         student.last_name = request.form.get('last_name', student.last_name)
-        student.other_names = request.form.get('other_names')
+        student.other_names = _clean_optional_text(request.form.get('other_names'))
+        student.entry_mode = normalize_entry_mode(request.form.get('entry_mode'))
         student.date_of_birth = datetime.strptime(request.form.get('date_of_birth'), '%Y-%m-%d').date() if request.form.get('date_of_birth') else student.date_of_birth
         student.gender = request.form.get('gender', student.gender)
         student.national_id = request.form.get('national_id')
@@ -1632,6 +2624,17 @@ def student_edit(id):
                     file.save(filepath)
                     student.photo = f"uploads/{filename}"
 
+        # Cost centre: explicit selection wins, otherwise re-auto-assign
+        # (class or entry mode may have changed).
+        cc_choice = request.form.get('cost_center_id')
+        if cc_choice:
+            try:
+                student.cost_center_id = int(cc_choice)
+            except (TypeError, ValueError):
+                assign_cost_center(student)
+        else:
+            assign_cost_center(student)
+
         generate_student_invoice(student)
         db.session.commit()
         log_sync('Student', student.id, 'UPDATE')
@@ -1657,7 +2660,8 @@ def student_edit(id):
                            staff_list=staff_list,
                            fee_levels=fee_levels,
                            level_classes=json.dumps(level_classes),
-                           fee_levels_json=json.dumps(fee_levels_json))
+                           fee_levels_json=json.dumps(fee_levels_json),
+                           cost_centers=CostCenter.query.order_by(CostCenter.name).all())
 
 
 @app.route('/students/<int:id>/delete', methods=['POST'])
@@ -1750,11 +2754,143 @@ def staff_add():
 @login_required
 def staff_view(id):
     staff = Staff.query.get_or_404(id)
-    subjects = StaffSubject.query.filter_by(staff_id=id).all()
+    assignments = StaffSubject.query.filter_by(staff_id=id).order_by(
+        StaffSubject.class_id, StaffSubject.subject_id
+    ).all()
     return render_template('staff/view.html',
                            staff=staff,
                            attendances=[],
-                           subjects=subjects)
+                           subjects=assignments,
+                           assignments=assignments,
+                           classes=Class.query.order_by(Class.name).all(),
+                           all_subjects=Subject.query.order_by(Subject.name).all(),
+                           academic_years=AcademicYear.query.order_by(AcademicYear.start_date.desc()).all())
+
+
+@app.route('/staff/<int:id>/assignments', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def staff_assignment_add(id):
+    """Assign one subject in one class to a teacher for an academic year."""
+    staff = Staff.query.get_or_404(id)
+    linked_user = User.query.get(staff.user_id) if staff.user_id else None
+    if (linked_user and linked_user.role != 'teacher') or (not linked_user and (staff.position or '').lower() not in ('teacher', 'hod')):
+        flash('Class and subject assignments can only be added to teacher accounts.', 'danger')
+        return redirect(url_for('staff_view', id=id))
+    class_id = request.form.get('class_id', type=int)
+    subject_id = request.form.get('subject_id', type=int)
+    academic_year_id = request.form.get('academic_year_id', type=int) or None
+    if not class_id or not subject_id:
+        flash('Select both a class and a subject.', 'danger')
+        return redirect(url_for('staff_view', id=id))
+    Class.query.get_or_404(class_id)
+    Subject.query.get_or_404(subject_id)
+    duplicate = StaffSubject.query.filter_by(
+        staff_id=id,
+        class_id=class_id,
+        subject_id=subject_id,
+        academic_year_id=academic_year_id,
+    ).first()
+    if duplicate:
+        flash('That class and subject assignment already exists.', 'warning')
+        return redirect(url_for('staff_view', id=id))
+
+    assignment = StaffSubject(
+        staff_id=id,
+        class_id=class_id,
+        subject_id=subject_id,
+        academic_year_id=academic_year_id,
+    )
+    db.session.add(assignment)
+    db.session.commit()
+    log_sync('StaffSubject', assignment.id, 'CREATE', {
+        'id': assignment.id,
+        'staff_id': assignment.staff_id,
+        'class_id': assignment.class_id,
+        'subject_id': assignment.subject_id,
+        'academic_year_id': assignment.academic_year_id,
+        'sync_id': assignment.sync_id,
+    })
+    flash(f'Assignment added for {staff.first_name} {staff.last_name}.', 'success')
+    return redirect(url_for('staff_view', id=id))
+
+
+@app.route('/staff/<int:id>/assignments/<int:assignment_id>/delete', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def staff_assignment_delete(id, assignment_id):
+    assignment = StaffSubject.query.filter_by(id=assignment_id, staff_id=id).first_or_404()
+    snapshot = {
+        'id': assignment.id,
+        'staff_id': assignment.staff_id,
+        'class_id': assignment.class_id,
+        'subject_id': assignment.subject_id,
+        'academic_year_id': assignment.academic_year_id,
+        'sync_id': assignment.sync_id,
+    }
+    db.session.delete(assignment)
+    db.session.commit()
+    log_sync('StaffSubject', assignment_id, 'DELETE', snapshot)
+    flash('Teaching assignment removed.', 'success')
+    return redirect(url_for('staff_view', id=id))
+
+
+# ─── Payroll / Payslips ────────────────────────────────────────────────
+
+@app.route('/payroll')
+@login_required
+@role_required('super_admin', 'accountant', 'bursar')
+def payroll_list():
+    """List staff with their net pay and bank details for payslip access."""
+    staff = Staff.query.filter_by(status='Active').order_by(Staff.last_name, Staff.first_name).all()
+    rows = []
+    for s in staff:
+        ps = build_payslip_data(s)
+        rows.append(ps)
+    return render_template('staff/payroll.html', rows=rows)
+
+
+@app.route('/staff/<int:id>/payslip', methods=['GET', 'POST'])
+@login_required
+@role_required('super_admin', 'accountant', 'bursar')
+def staff_payslip(id):
+    """View (and for super admins, update) a staff member's payslip."""
+    staff = Staff.query.get_or_404(id)
+    if request.method == 'POST':
+        if session.get('user_role') != 'super_admin':
+            flash('Only a Super Admin can update payslip details.', 'danger')
+            return redirect(url_for('staff_payslip', id=id))
+        try:
+            staff.salary = float(request.form.get('salary') or 0)
+            staff.paye_deduction = float(request.form.get('paye') or 0)
+            staff.aids_levy_deduction = float(request.form.get('aids') or 0)
+            staff.other_deductions = float(request.form.get('other') or 0)
+            staff.bank_name = (request.form.get('bank_name') or '').strip() or None
+            staff.bank_account = (request.form.get('bank_account') or '').strip() or None
+            db.session.commit()
+            flash('Payslip details updated.', 'success')
+        except (TypeError, ValueError):
+            flash('Please enter valid numbers for salary and deductions.', 'danger')
+        return redirect(url_for('staff_payslip', id=id))
+
+    period = request.args.get('period') or datetime.utcnow().strftime('%B %Y')
+    payslip = build_payslip_data(staff, period)
+    return render_template('staff/payslip.html', payslip=payslip,
+                           is_super_admin=session.get('user_role') == 'super_admin')
+
+
+@app.route('/staff/<int:id>/payslip/pdf')
+@login_required
+@role_required('super_admin', 'accountant', 'bursar')
+def staff_payslip_pdf(id):
+    """Download a PDF payslip for a staff member."""
+    staff = Staff.query.get_or_404(id)
+    period = request.args.get('period') or datetime.utcnow().strftime('%B %Y')
+    payslip = build_payslip_data(staff, period)
+    buf = _generate_payslip_pdf(payslip)
+    filename = f"payslip_{staff.first_name}_{staff.last_name}_{period.replace(' ', '_')}.pdf"
+    return send_file(buf, as_attachment=True, download_name=filename,
+                     mimetype='application/pdf')
 
 
 @app.route('/staff/<int:id>/edit', methods=['GET', 'POST'])
@@ -2004,6 +3140,17 @@ def fee_pay():
         db.session.commit()
         log_sync('FeePayment', payment.id, 'CREATE', {'receipt': receipt})
         flash(f'Payment recorded successfully. Receipt: {receipt}', 'success')
+
+        # Automatically send the receipt to the parent(s) via the configured
+        # communication systems (WhatsApp and/or email).
+        try:
+            sent = send_payment_receipt(payment)
+            if sent['whatsapp'] or sent['email']:
+                flash(f'Receipt sent to parent(s): {sent["whatsapp"]} WhatsApp, '
+                      f'{sent["email"]} email.', 'info')
+        except Exception:
+            app.logger.exception('Auto receipt send failed')
+
         return redirect(url_for('fee_receipt', id=payment.id))
 
     students = Student.query.filter_by(status='Active').order_by(Student.last_name).all()
@@ -2016,6 +3163,149 @@ def fee_pay():
                            academic_years=academic_years,
                            prefill_student_id=prefill_student_id,
                            today=date.today().isoformat())
+
+
+@app.route('/fees/payments/<int:id>/edit-request', methods=['GET', 'POST'])
+@login_required
+@role_required('accountant', 'bursar')
+def payment_edit_request(id):
+    """Bursar/accountant requests a change to a recorded payment.
+
+    The change is NOT applied immediately — it waits for super admin
+    approval on the Payment Approvals page.
+    """
+    payment = FeePayment.query.get_or_404(id)
+    if request.method == 'POST':
+        changes = {}
+        new_amount = (request.form.get('amount') or '').strip()
+        if new_amount:
+            try:
+                changes['amount'] = float(new_amount)
+            except (TypeError, ValueError):
+                flash('Please enter a valid amount.', 'danger')
+                return redirect(url_for('payment_edit_request', id=id))
+        new_date = (request.form.get('payment_date') or '').strip()
+        if new_date:
+            try:
+                changes['payment_date'] = datetime.strptime(new_date, '%Y-%m-%d').date().isoformat()
+            except ValueError:
+                flash('Please enter a valid date (YYYY-MM-DD).', 'danger')
+                return redirect(url_for('payment_edit_request', id=id))
+        new_method = (request.form.get('payment_method') or '').strip()
+        if new_method:
+            changes['payment_method'] = new_method
+        new_desc = (request.form.get('description') or '').strip()
+        if new_desc:
+            changes['description'] = new_desc
+        reason = (request.form.get('reason') or '').strip()
+
+        if not changes:
+            flash('Nothing to change — fill in at least one field.', 'warning')
+            return redirect(url_for('payment_edit_request', id=id))
+        if not reason:
+            flash('Please explain why this payment needs to be changed.', 'warning')
+            return redirect(url_for('payment_edit_request', id=id))
+
+        req = PaymentEditRequest(
+            payment_id=payment.id,
+            requested_by=session.get('user_id'),
+            changes=json.dumps(changes),
+            reason=reason,
+        )
+        db.session.add(req)
+        db.session.commit()
+        log_sync('PaymentEditRequest', req.id, 'CREATE', {'payment_id': payment.id})
+        flash('Change request submitted. It will be applied once a Super Admin approves it.', 'success')
+        return redirect(url_for('fee_payments'))
+
+    return render_template('fees/payment_edit_request.html', payment=payment)
+
+
+@app.route('/fees/payment-approvals')
+@login_required
+@role_required('super_admin')
+def payment_approvals():
+    """Super admin reviews pending payment-edit requests."""
+    pending = PaymentEditRequest.query.filter_by(status='pending').order_by(
+        PaymentEditRequest.request_date.asc()).all()
+    history = PaymentEditRequest.query.filter(PaymentEditRequest.status != 'pending').order_by(
+        PaymentEditRequest.reviewed_at.desc()).limit(20).all()
+
+    def _changes_dict(req):
+        try:
+            return json.loads(req.changes or '{}')
+        except (TypeError, ValueError):
+            return {}
+
+    return render_template('fees/payment_approvals.html',
+                           pending=pending, history=history,
+                           changes_map={r.id: _changes_dict(r) for r in pending + history})
+
+
+@app.route('/fees/payment-approvals/<int:request_id>/review', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def payment_approval_review(request_id):
+    """Approve or reject a payment-edit request."""
+    req = PaymentEditRequest.query.get_or_404(request_id)
+    decision = request.form.get('decision', '')
+    note = (request.form.get('review_note') or '').strip()
+
+    if req.status != 'pending':
+        flash('This request has already been reviewed.', 'warning')
+        return redirect(url_for('payment_approvals'))
+
+    if decision == 'approve':
+        payment = FeePayment.query.get(req.payment_id)
+        if not payment:
+            req.status = 'rejected'
+            req.reviewed_by = session.get('user_id')
+            req.reviewed_at = datetime.utcnow()
+            req.review_note = 'Original payment no longer exists.'
+            db.session.commit()
+            flash('The payment no longer exists — request closed.', 'danger')
+            return redirect(url_for('payment_approvals'))
+
+        try:
+            changes = json.loads(req.changes or '{}')
+        except (TypeError, ValueError):
+            changes = {}
+        applied = []
+        if 'amount' in changes:
+            payment.amount = float(changes['amount'])
+            applied.append(f"amount ${payment.amount:,.2f}")
+        if 'payment_date' in changes:
+            payment.payment_date = datetime.strptime(changes['payment_date'], '%Y-%m-%d').date()
+            applied.append(f"date {payment.payment_date}")
+        if 'payment_method' in changes:
+            payment.payment_method = changes['payment_method']
+            applied.append(f"method {payment.payment_method}")
+        if 'description' in changes:
+            payment.description = changes['description']
+            applied.append('description updated')
+
+        db.session.flush()
+        update_invoice_statuses_for_student(payment.student_id, payment.term_id, payment.academic_year_id)
+        req.status = 'approved'
+        req.reviewed_by = session.get('user_id')
+        req.reviewed_at = datetime.utcnow()
+        req.review_note = note or 'Approved'
+        db.session.commit()
+        log_sync('FeePayment', payment.id, 'UPDATE', {
+            'receipt': payment.receipt_number,
+            'changes': applied,
+        })
+        flash(f'Payment {payment.receipt_number} updated: ' + ', '.join(applied) + '.', 'success')
+    elif decision == 'reject':
+        req.status = 'rejected'
+        req.reviewed_by = session.get('user_id')
+        req.reviewed_at = datetime.utcnow()
+        req.review_note = note or 'Rejected'
+        db.session.commit()
+        flash('Change request rejected.', 'warning')
+    else:
+        flash('No decision was made.', 'warning')
+    return redirect(url_for('payment_approvals'))
 
 
 @app.route('/fees/receipt/<int:id>')
@@ -2387,11 +3677,12 @@ def _generate_signature_id(payment):
     return f"SIG-{digest}"
 
 
-def _build_debtor_row(student, term_id, ay_id):
+def _build_debtor_row(student, term_id, ay_id, include_fully_paid=False):
     """Build a debtor data dict for one student in a given term/year.
 
-    Returns None if the student has no invoice or has fully paid
-    (i.e. is not a debtor).
+    Returns None if the student has no invoice — or, unless
+    include_fully_paid is True, if they have fully paid (i.e. are not
+    a debtor). include_fully_paid is used to compute collection targets.
     """
     if not student.class_id or not term_id or not ay_id:
         return None
@@ -2413,7 +3704,7 @@ def _build_debtor_row(student, term_id, ay_id):
 
     net_due = float(invoice.total_amount or 0.0)
     balance = max(0.0, net_due - paid)
-    if balance <= 0.0:
+    if balance <= 0.0 and not include_fully_paid:
         return None  # Not a debtor
 
     today = date.today()
@@ -2438,12 +3729,16 @@ def _build_debtor_row(student, term_id, ay_id):
 
     class_obj = student.class_
     class_name = class_obj.name if class_obj else 'Unassigned'
-    level_name = get_fee_level_name(class_obj.level) if class_obj and class_obj.level else ''
+    grade_level = class_obj.level if class_obj and class_obj.level else ''
+    level_name = get_fee_level_name(grade_level) if grade_level else ''
+    school_name = ('Primary' if is_primary_level(grade_level) else 'Secondary') if grade_level else ''
 
     return {
         'student': student,
         'class_name': class_name,
+        'grade_level': grade_level,
         'level_name': level_name,
+        'school_name': school_name,
         'invoice': invoice,
         'invoice_number': invoice.invoice_number,
         'issue_date': invoice.issue_date,
@@ -2465,18 +3760,22 @@ def _build_debtor_row(student, term_id, ay_id):
 def _query_debtors(term, ay, filters):
     """Apply filters and return list of debtor row dicts.
 
-    `filters` is a dict with keys: search, class_id, level, scholarship,
-    min_balance, sort_by.
+    `filters` supports search, class_id, grade_level, school, fee level,
+    scholarship, minimum balance, and sorting.
     """
     if not term or not ay:
         return []
 
     search = (filters.get('search') or '').strip()
     class_filter = filters.get('class_id') or None
+    cost_center_filter = filters.get('cost_center') or None
+    grade_level_filter = (filters.get('grade_level') or '').strip()
+    school_filter = (filters.get('school') or '').strip().lower()
     level_filter = (filters.get('level') or '').strip()
     scholarship_filter = (filters.get('scholarship') or '').strip()
     min_balance = filters.get('min_balance')
     sort_by = filters.get('sort_by') or 'balance_desc'
+    include_fully_paid = filters.get('include_fully_paid', False)
 
     query = Student.query.filter(Student.status == 'Active')
     if search:
@@ -2490,13 +3789,34 @@ def _query_debtors(term, ay, filters):
             query = query.filter(Student.class_id == int(class_filter))
         except (TypeError, ValueError):
             pass
+    if cost_center_filter:
+        try:
+            query = query.filter(Student.cost_center_id == int(cost_center_filter))
+        except (TypeError, ValueError):
+            pass
+
+    if grade_level_filter or school_filter or level_filter:
+        query = query.join(Class, Student.class_id == Class.id)
+    if grade_level_filter:
+        query = query.filter(Class.level == grade_level_filter)
+    if school_filter == 'primary':
+        query = query.filter(db.or_(
+            Class.level.ilike('ECD%'),
+            Class.level.ilike('Grade%'),
+            Class.level.ilike('Gr %'),
+            Class.level.ilike('Primary%'),
+        ))
+    elif school_filter == 'secondary':
+        query = query.filter(db.or_(
+            Class.level.ilike('Form%'),
+            Class.level.ilike('Secondary%'),
+        ))
     if level_filter:
-        query = query.join(Class, isouter=False)
         if level_filter == 'ECD':
             query = query.filter(Class.level.ilike('ECD%'))
         elif level_filter == 'Junior':
             query = query.filter(db.or_(
-                Class.level.ilike('Grade %'),
+                Class.level.ilike('Grade%'),
                 Class.level.ilike('Gr %'),
             ))
         elif level_filter == 'O Level':
@@ -2518,7 +3838,7 @@ def _query_debtors(term, ay, filters):
 
     debtors = []
     for stu in students:
-        row = _build_debtor_row(stu, term.id, ay.id)
+        row = _build_debtor_row(stu, term.id, ay.id, include_fully_paid=include_fully_paid)
         if row is None:
             continue
         if min_balance is not None:
@@ -2580,6 +3900,9 @@ def debtors_list():
     filters = {
         'search': request.args.get('search', ''),
         'class_id': request.args.get('class_id', ''),
+        'cost_center': request.args.get('cost_center', ''),
+        'grade_level': request.args.get('grade_level', ''),
+        'school': request.args.get('school', ''),
         'level': request.args.get('level', ''),
         'scholarship': request.args.get('scholarship', ''),
         'min_balance': request.args.get('min_balance', ''),
@@ -2597,7 +3920,23 @@ def debtors_list():
     severely_overdue = sum(1 for r in debtors if r['days_overdue'] > 30)
     moderately_overdue = sum(1 for r in debtors if 0 < r['days_overdue'] <= 30)
 
+    # Collection target: total fees collectible across every learner matching
+    # the filters (fully paid included), and the percentage collected.
+    # Only the super admin sees the money amounts; other finance roles see
+    # the percentage only.
+    all_rows = _query_debtors(term, ay, dict(filters, min_balance='',
+                                             include_fully_paid=True))
+    total_collectible = sum(r['net_due'] for r in all_rows)
+    total_collected_all = sum(r['paid'] for r in all_rows)
+    percent_collected = ((total_collected_all / total_collectible * 100.0)
+                         if total_collectible > 0 else 0.0)
+    is_super_admin = session.get('user_role') == 'super_admin'
+
     classes = Class.query.order_by(Class.name).all()
+    cost_centers = CostCenter.query.order_by(CostCenter.name).all()
+    grade_levels = sorted({
+        level for level, in db.session.query(Class.level).distinct().all() if level
+    })
     classifications = sorted({c for c, in db.session.query(Student.fee_classification).distinct().all() if c})
 
     return render_template(
@@ -2610,12 +3949,21 @@ def debtors_list():
         total_scholarships=total_scholarships,
         severely_overdue=severely_overdue,
         moderately_overdue=moderately_overdue,
+        total_collectible=total_collectible,
+        total_collected_all=total_collected_all,
+        percent_collected=percent_collected,
+        is_super_admin=is_super_admin,
         term=term,
         ay=ay,
         classes=classes,
+        cost_centers=cost_centers,
+        grade_levels=grade_levels,
         classifications=classifications,
         search=filters['search'],
         class_filter=filters['class_id'],
+        cost_center_filter=filters['cost_center'],
+        grade_level_filter=filters['grade_level'],
+        school_filter=filters['school'],
         level_filter=filters['level'],
         scholarship_filter=filters['scholarship'],
         min_balance=filters['min_balance'],
@@ -2642,6 +3990,9 @@ def debtors_export():
     filters = {
         'search': request.args.get('search', ''),
         'class_id': request.args.get('class_id', ''),
+        'cost_center': request.args.get('cost_center', ''),
+        'grade_level': request.args.get('grade_level', ''),
+        'school': request.args.get('school', ''),
         'level': request.args.get('level', ''),
         'scholarship': request.args.get('scholarship', ''),
         'min_balance': request.args.get('min_balance', ''),
@@ -2656,6 +4007,17 @@ def debtors_export():
     total_owed = sum(r['balance'] for r in debtors)
     total_net_due = sum(r['net_due'] for r in debtors)
     total_paid = sum(r['paid'] for r in debtors)
+
+    # Collection percentage vs the target (all matching learners, not just
+    # debtors). Money totals are super-admin-only; other roles get the
+    # percentage only.
+    is_super_admin = session.get('user_role') == 'super_admin'
+    all_rows = _query_debtors(term, ay, dict(filters, min_balance='',
+                                             include_fully_paid=True))
+    _collectible = sum(r['net_due'] for r in all_rows)
+    _collected_all = sum(r['paid'] for r in all_rows)
+    percent_collected = ((_collected_all / _collectible * 100.0)
+                         if _collectible > 0 else 0.0)
     term_label = f"{term.name}_{ay.name}" if term and ay else 'Current'
     timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M')
     base_name = f"Debtors_{term_label}_{timestamp}"
@@ -2665,7 +4027,7 @@ def debtors_export():
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow([
-            'Adm No', 'First Name', 'Last Name', 'Class', 'Level',
+            'Adm No', 'First Name', 'Last Name', 'Class', 'Grade / School / Fee Level',
             'Gender', 'Scholarship', 'Invoice No', 'Issue Date', 'Due Date',
             'Days Overdue', 'Subtotal', 'Discount', 'Net Due', 'Paid',
             'Balance Owed', 'Invoice Status', 'Parent Name', 'Parent Phone',
@@ -2678,7 +4040,7 @@ def debtors_export():
                 stu.first_name or '',
                 stu.last_name or '',
                 r['class_name'],
-                r['level_name'],
+                ' / '.join(v for v in (r['grade_level'], r['school_name'], r['level_name']) if v),
                 stu.gender or '',
                 stu.scholarship_label or 'Regular',
                 r['invoice_number'] or '',
@@ -2696,12 +4058,22 @@ def debtors_export():
                 r['parent_email'],
                 r['last_payment_date'].isoformat() if r['last_payment_date'] else '',
             ])
-        # Total row
+        # Total row — money totals are super-admin-only; other finance roles
+        # see the percentage collected vs the target.
         writer.writerow([])
-        writer.writerow(['', '', '', '', '', '', '', '', '', '',
-                         'TOTAL', '', '', f"{total_net_due:.2f}",
-                         f"{total_paid:.2f}",
-                         f"{total_owed:.2f}", '', '', '', '', ''])
+        if is_super_admin:
+            writer.writerow(['', '', '', '', '', '', '', '', '', '',
+                             'TOTAL', '', '', f"{total_net_due:.2f}",
+                             f"{total_paid:.2f}",
+                             f"{total_owed:.2f}", '', '', '', '', ''])
+        else:
+            writer.writerow(['', '', '', '', '', '', '', '', '', '',
+                             'TOTAL', '', '', '', '',
+                             '', '', '', '', '', ''])
+            writer.writerow(['', '', '', '', '', '', '', '', '', '',
+                             'COLLECTION RATE', '', '',
+                             f"{percent_collected:.1f}% of target",
+                             '', '', '', '', '', ''])
 
         resp = make_response(buf.getvalue())
         resp.headers['Content-Type'] = 'text/csv; charset=utf-8'
@@ -2744,7 +4116,7 @@ def debtors_export():
         c2.alignment = Alignment(horizontal='center', vertical='center')
 
         headers = [
-            'Adm No', 'First Name', 'Last Name', 'Class', 'Level',
+            'Adm No', 'First Name', 'Last Name', 'Class', 'Grade / School / Fee Level',
             'Gender', 'Scholarship', 'Invoice No', 'Issue Date', 'Due Date',
             'Days Overdue', 'Subtotal ($)', 'Discount ($)', 'Net Due ($)',
             'Paid ($)', 'Balance Owed ($)', 'Invoice Status',
@@ -2770,7 +4142,7 @@ def debtors_export():
                 stu.first_name or '',
                 stu.last_name or '',
                 r['class_name'],
-                r['level_name'],
+                ' / '.join(v for v in (r['grade_level'], r['school_name'], r['level_name']) if v),
                 stu.gender or '',
                 stu.scholarship_label or 'Regular',
                 r['invoice_number'] or '',
@@ -2802,15 +4174,21 @@ def debtors_export():
         # Totals row
         ws.cell(row=row_idx, column=1, value=f"TOTAL — {len(debtors)} debtors").font = total_font
         ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=11)
-        total_cell_net = ws.cell(row=row_idx, column=14, value=round(total_net_due, 2))
-        total_cell_paid = ws.cell(row=row_idx, column=15, value=round(sum(r['paid'] for r in debtors), 2))
-        total_cell_bal = ws.cell(row=row_idx, column=16, value=round(total_owed, 2))
+        if is_super_admin:
+            total_cell_net = ws.cell(row=row_idx, column=14, value=round(total_net_due, 2))
+            total_cell_paid = ws.cell(row=row_idx, column=15, value=round(sum(r['paid'] for r in debtors), 2))
+            total_cell_bal = ws.cell(row=row_idx, column=16, value=round(total_owed, 2))
+        else:
+            total_cell_net = ws.cell(row=row_idx, column=14, value=f"{percent_collected:.1f}% of target")
+            total_cell_paid = ws.cell(row=row_idx, column=15, value='')
+            total_cell_bal = ws.cell(row=row_idx, column=16, value='')
         for col in (14, 15, 16):
             cell = ws.cell(row=row_idx, column=col)
             cell.font = total_font
             cell.fill = total_fill
             cell.border = border
-            cell.number_format = '#,##0.00'
+            if is_super_admin:
+                cell.number_format = '#,##0.00'
             cell.alignment = Alignment(horizontal='right')
 
         # Column widths
@@ -2873,15 +4251,21 @@ def debtors_export():
                                        textColor=amber)
 
         story = []
-        school_name = theme.get('school_name', 'Excel Group of Schools')
-        story.append(Paragraph(school_name, title_style))
+        _brand_header_story(story, theme, title_size=16)
         story.append(Paragraph("Debtors Report", ParagraphStyle('DH', parent=styles['Normal'],
                                                                 fontSize=12, alignment=TA_CENTER,
                                                                 fontName='Helvetica-Bold',
                                                                 textColor=primary)))
-        meta = (f"Term: {term.name if term else 'N/A'} ({ay.name if ay else 'N/A'}) | "
-                f"Generated: {datetime.utcnow().strftime('%d %b %Y %H:%M')} UTC | "
-                f"Total Debtors: {len(debtors)} | Total Owed: ${total_owed:,.2f}")
+        if is_super_admin:
+            meta = (f"Term: {term.name if term else 'N/A'} ({ay.name if ay else 'N/A'}) | "
+                    f"Generated: {datetime.utcnow().strftime('%d %b %Y %H:%M')} UTC | "
+                    f"Total Debtors: {len(debtors)} | "
+                    f"Total Owed: {theme.get('currency_symbol', '$')}{total_owed:,.2f}")
+        else:
+            meta = (f"Term: {term.name if term else 'N/A'} ({ay.name if ay else 'N/A'}) | "
+                    f"Generated: {datetime.utcnow().strftime('%d %b %Y %H:%M')} UTC | "
+                    f"Total Debtors: {len(debtors)} | "
+                    f"Collection: {percent_collected:.1f}% of target")
         story.append(Paragraph(meta, sub_style))
         story.append(HRFlowable(width='100%', thickness=1, color=primary))
         story.append(Spacer(1, 4 * mm))
@@ -2923,14 +4307,23 @@ def debtors_export():
                 Paragraph(r['parent_phone'] or '-', cell_style),
             ])
 
-        # Totals row
-        data.append([
-            Paragraph('<b>TOTAL</b>', cell_bold), '', '', '', '', '', '',
-            Paragraph(f"<b>{total_net_due:,.2f}</b>", ParagraphStyle('TR1', parent=cell_right, fontName='Helvetica-Bold')),
-            Paragraph(f"<b>{sum(r['paid'] for r in debtors):,.2f}</b>", ParagraphStyle('TR2', parent=cell_right, fontName='Helvetica-Bold')),
-            Paragraph(f"<b>{total_owed:,.2f}</b>", ParagraphStyle('TR3', parent=cell_right, fontName='Helvetica-Bold', textColor=red)),
-            Paragraph(f"<b>{len(debtors)} debtors</b>", cell_bold), '',
-        ])
+        # Totals row — money totals are super-admin-only; other finance roles
+        # see the collection percentage vs the target.
+        if is_super_admin:
+            data.append([
+                Paragraph('<b>TOTAL</b>', cell_bold), '', '', '', '', '', '',
+                Paragraph(f"<b>{total_net_due:,.2f}</b>", ParagraphStyle('TR1', parent=cell_right, fontName='Helvetica-Bold')),
+                Paragraph(f"<b>{sum(r['paid'] for r in debtors):,.2f}</b>", ParagraphStyle('TR2', parent=cell_right, fontName='Helvetica-Bold')),
+                Paragraph(f"<b>{total_owed:,.2f}</b>", ParagraphStyle('TR3', parent=cell_right, fontName='Helvetica-Bold', textColor=red)),
+                Paragraph(f"<b>{len(debtors)} debtors</b>", cell_bold), '',
+            ])
+        else:
+            data.append([
+                Paragraph('<b>TOTAL</b>', cell_bold), '', '', '', '', '', '',
+                Paragraph(f"<b>{percent_collected:.1f}% of target collected</b>",
+                          ParagraphStyle('TR4', parent=cell_bold, textColor=green)),
+                '', '', Paragraph(f"<b>{len(debtors)} debtors</b>", cell_bold), '',
+            ])
 
         table = Table(data, colWidths=pdf_widths, repeatRows=1)
         ts = TableStyle([
@@ -2951,7 +4344,7 @@ def debtors_export():
         story.append(Spacer(1, 4 * mm))
         story.append(HRFlowable(width='100%', thickness=0.5, color=HexColor('#d1d5db')))
         story.append(Paragraph(
-            "Excel Group of Schools v2.0.0 — Debtors Report — Valentine T Mabheka",
+            _software_footer(theme) + " — Debtors Report",
             ParagraphStyle('FooterD', parent=styles['Normal'], fontSize=7,
                            textColor=grey, alignment=TA_CENTER),
         ))
@@ -3011,11 +4404,14 @@ def exam_results(exam_id):
             staff = _staff_for_current_user()
             if staff:
                 try:
-                    if int(class_id or 0) not in get_teacher_class_ids(staff.id):
-                        flash('You are not assigned to that class.', 'danger')
-                        return redirect(url_for('exam_results', exam_id=exam_id))
-                    if int(subject_id or 0) not in get_teacher_subject_ids(staff.id):
-                        flash('You are not assigned to that subject.', 'danger')
+                    selected_class_id = int(class_id or 0)
+                    selected_subject_id = int(subject_id or 0)
+                    ay = get_current_academic_year()
+                    if not teacher_can_teach(
+                        staff.id, selected_class_id, selected_subject_id,
+                        ay.id if ay else None,
+                    ):
+                        flash('You are not assigned to teach that subject for that class.', 'danger')
                         return redirect(url_for('exam_results', exam_id=exam_id))
                 except (TypeError, ValueError):
                     flash('Invalid class or subject selection.', 'danger')
@@ -3050,13 +4446,31 @@ def exam_results(exam_id):
         log_sync('ExamResult', 0, 'CREATE')
         flash('Results recorded successfully.', 'success')
 
-    classes = Class.query.all()
-    subjects = Subject.query.all()
-    results = ExamResult.query.filter_by(exam_id=exam_id).all()
+    assignment_map = {}
+    if session.get('user_role') == 'teacher':
+        staff = _staff_for_current_user()
+        ay = get_current_academic_year()
+        assignment_map = get_teacher_classes_with_subjects(
+            staff.id, ay.id if ay else None
+        ) if staff else {}
+        teachable_class_ids = [cid for cid, sids in assignment_map.items() if sids]
+        classes = Class.query.filter(Class.id.in_(teachable_class_ids)).order_by(Class.name).all() if teachable_class_ids else []
+        subject_ids = sorted({sid for sids in assignment_map.values() for sid in sids})
+        subjects = Subject.query.filter(Subject.id.in_(subject_ids)).order_by(Subject.name).all() if subject_ids else []
+        results = ExamResult.query.join(Student).filter(
+            ExamResult.exam_id == exam_id,
+            Student.class_id.in_(teachable_class_ids),
+            ExamResult.subject_id.in_(subject_ids),
+        ).all() if teachable_class_ids and subject_ids else []
+    else:
+        classes = Class.query.order_by(Class.name).all()
+        subjects = Subject.query.order_by(Subject.name).all()
+        results = ExamResult.query.filter_by(exam_id=exam_id).all()
     return render_template('exams/results.html',
                            exam=exam,
                            classes=classes,
                            subjects=subjects,
+                           assignment_map=assignment_map,
                            results=results)
 
 
@@ -3064,9 +4478,17 @@ def exam_results(exam_id):
 @login_required
 def report_card(exam_id, student_id):
     student = Student.query.get_or_404(student_id)
+    if session.get('user_role') == 'teacher':
+        staff = _staff_for_current_user()
+        if not staff or not teacher_can_access_student(staff.id, student_id):
+            flash('You do not have access to that learner.', 'danger')
+            return redirect(url_for('teacher_home'))
     exam = Exam.query.get_or_404(exam_id)
-    results = ExamResult.query.filter_by(
-        exam_id=exam_id, student_id=student_id).all()
+    results_query = ExamResult.query.filter_by(exam_id=exam_id, student_id=student_id)
+    if session.get('user_role') == 'teacher':
+        subject_ids = get_teacher_subject_ids(staff.id, class_id=student.class_id)
+        results_query = results_query.filter(ExamResult.subject_id.in_(subject_ids))
+    results = results_query.all()
     total_marks = sum(r.marks_obtained for r in results)
     total_possible = sum(r.marks_total for r in results)
     average = (total_marks / total_possible * 100) if total_possible > 0 else 0
@@ -3363,6 +4785,99 @@ def message_send():
 
 # ─── Sync System (Offline → Online) ───────────────────────────────────
 
+# Full-data export order keeps parent records before rows that reference
+# them. These names match the WordPress esm_* table suffixes exactly.
+SYNC_EXPORT_MODELS = {
+    'academic_years': AcademicYear,
+    'terms': Term,
+    'staff': Staff,
+    'classes': Class,
+    'subjects': Subject,
+    'staff_subjects': StaffSubject,
+    'parents': Parent,
+    'students': Student,
+    'exams': Exam,
+    'exam_results': ExamResult,
+    'fee_levels': FeeLevel,
+    'fee_structures': FeeStructure,
+    'cost_centers': CostCenter,
+    'fee_payments': FeePayment,
+    'invoices': Invoice,
+    'invoice_items': InvoiceItem,
+    'hostels': Hostel,
+    'rooms': Room,
+    'room_allocations': RoomAllocation,
+    'timetable_slots': TimetableSlot,
+    'notices': Notice,
+    'messages': Message,
+    'school_settings': SchoolSetting,
+}
+
+
+def _sync_json_value(value):
+    """Convert SQLAlchemy values to portable JSON values."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, timedelta):
+        return str(value)
+    if hasattr(value, 'isoformat'):
+        try:
+            return value.isoformat()
+        except (TypeError, ValueError):
+            pass
+    return value
+
+
+def _serialize_sync_record(record):
+    row = {
+        column.name: _sync_json_value(getattr(record, column.name))
+        for column in record.__table__.columns
+    }
+    # WordPress uses setting_key/setting_value for these mirrored columns.
+    if isinstance(record, SchoolSetting):
+        row['setting_key'] = row.pop('key', None)
+        row['setting_value'] = row.pop('value', None)
+    return row
+
+
+def build_full_sync_export():
+    """Return every portable school-data table in WordPress import format."""
+    export_data = {
+        entity: [_serialize_sync_record(record) for record in model.query.all()]
+        for entity, model in SYNC_EXPORT_MODELS.items()
+    }
+    # student_parent is a many-to-many SQLAlchemy table rather than a model.
+    links = db.session.execute(db.select(student_parent)).mappings().all()
+    export_data['student_parent'] = [dict(row) for row in links]
+
+    pending_events = []
+    for log in SyncLog.query.filter_by(sync_status='pending').order_by(SyncLog.created_at).all():
+        snapshot = None
+        if log.data_snapshot:
+            try:
+                snapshot = json.loads(log.data_snapshot)
+            except (TypeError, json.JSONDecodeError):
+                snapshot = log.data_snapshot
+        pending_events.append({
+            'id': log.id,
+            'entity_type': log.entity_type,
+            'entity_id': log.entity_id,
+            'action': log.action,
+            'data': snapshot,
+            'timestamp': log.created_at.isoformat() if log.created_at else None,
+        })
+
+    return {
+        'format': 'excel-schools-full-sync',
+        'version': APP_VERSION,
+        'source': 'offline-flask',
+        'exported_at': datetime.utcnow().isoformat() + 'Z',
+        'data': export_data,
+        'counts': {entity: len(records) for entity, records in export_data.items()},
+        'pending_events': pending_events,
+    }
+
+
 @app.route('/sync')
 @login_required
 @role_required('super_admin', 'bursar')
@@ -3399,50 +4914,98 @@ def sync_dashboard():
 @login_required
 @role_required('super_admin', 'bursar')
 def sync_export():
-    """Export all pending changes as a JSON file for manual upload to online system."""
-    pending_logs = SyncLog.query.filter_by(sync_status='pending').all()
-    export_data = []
-    for log in pending_logs:
-        entry = {
-            'sync_id': str(uuid.uuid4()),
-            'entity_type': log.entity_type,
-            'entity_id': log.entity_id,
-            'action': log.action,
-            'data': log.data_snapshot,
-            'timestamp': log.created_at.isoformat(),
-        }
-        export_data.append(entry)
-
+    """Download a complete school-data snapshot for WordPress manual import."""
+    payload = build_full_sync_export()
+    content = json.dumps(payload, indent=2, ensure_ascii=False).encode('utf-8')
     filename = f"sync_export_{date.today().isoformat()}.json"
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    with open(filepath, 'w') as f:
-        json.dump(export_data, f, indent=2)
-
-    return send_file(filepath, as_attachment=True, download_name=filename)
+    return send_file(
+        io.BytesIO(content),
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/json',
+    )
 
 
 @app.route('/sync/import', methods=['GET', 'POST'])
 @login_required
 @role_required('super_admin', 'bursar')
 def sync_import():
-    """Import data from online system (JSON file)."""
+    """Import a manual JSON export, including classes, into the offline app."""
     if request.method == 'POST':
         file = request.files.get('sync_file')
-        if file and file.filename.endswith('.json'):
-            content = file.read().decode('utf-8')
-            data = json.loads(content)
-            imported = 0
-            for entry in data:
-                # Process each entry based on entity type
-                entity_type = entry.get('entity_type')
-                action = entry.get('action')
-                entity_data = json.loads(entry.get('data', '{}'))
-                # Apply changes to local database
-                # This is a simplified import - production would need full merge logic
+        if not file or not file.filename.lower().endswith('.json'):
+            flash('Please upload a valid JSON file.', 'danger')
+            return render_template('sync/import.html')
+
+        try:
+            payload = json.loads(file.read().decode('utf-8'))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            flash('The uploaded file is not valid JSON.', 'danger')
+            return render_template('sync/import.html')
+
+        # Accept event exports and full exports grouped below data.classes.
+        if isinstance(payload, dict) and isinstance(payload.get('data'), dict):
+            entries = [
+                {'entity_type': 'Class', 'action': 'UPDATE', 'data': row}
+                for row in payload['data'].get('classes', [])
+            ]
+        elif isinstance(payload, list):
+            entries = payload
+        else:
+            entries = []
+
+        imported = skipped = failed = 0
+        for entry in entries:
+            if entry.get('entity_type') != 'Class':
+                skipped += 1
+                continue
+            action = str(entry.get('action', 'UPDATE')).upper()
+            class_data = entry.get('data') or {}
+            if isinstance(class_data, str):
+                try:
+                    class_data = json.loads(class_data)
+                except json.JSONDecodeError:
+                    failed += 1
+                    continue
+            sync_id_val = class_data.get('sync_id') or entry.get('sync_id')
+            try:
+                existing = Class.query.filter_by(sync_id=sync_id_val).first() if sync_id_val else None
+                if not existing and class_data.get('name'):
+                    existing = Class.query.filter_by(
+                        name=class_data['name'],
+                        academic_year_id=class_data.get('academic_year_id'),
+                    ).first()
+
+                if action == 'DELETE':
+                    if existing:
+                        db.session.delete(existing)
+                        imported += 1
+                    else:
+                        skipped += 1
+                    continue
+
+                if not class_data.get('name'):
+                    skipped += 1
+                    continue
+                cls = existing or Class()
+                for field in ('name', 'level', 'stream', 'teacher_id', 'capacity', 'academic_year_id'):
+                    if field in class_data:
+                        setattr(cls, field, class_data[field] or None)
+                if sync_id_val:
+                    cls.sync_id = sync_id_val
+                if not existing:
+                    db.session.add(cls)
                 imported += 1
-            flash(f'Successfully imported {imported} records.', 'success')
-            return redirect(url_for('sync_dashboard'))
-        flash('Please upload a valid JSON file.', 'danger')
+            except (TypeError, ValueError):
+                failed += 1
+
+        if failed:
+            db.session.rollback()
+            flash(f'Import failed validation for {failed} class record(s); no changes were saved.', 'danger')
+        else:
+            db.session.commit()
+            flash(f'Import complete: {imported} class record(s) applied, {skipped} unrelated or duplicate record(s) skipped.', 'success')
+        return redirect(url_for('sync_dashboard'))
     return render_template('sync/import.html')
 
 
@@ -3468,7 +5031,7 @@ def sync_push():
                 'data': log.data_snapshot,
                 'api_key': app.config['SYNC_API_KEY'],
             }
-            resp = requests.post(f"{endpoint}/api/sync", json=payload, timeout=30)
+            resp = requests.post(f"{_wp_rest_base(endpoint)}/sync", json=payload, timeout=30)
             if resp.status_code == 200:
                 log.sync_status = 'synced'
                 log.sync_timestamp = datetime.utcnow()
@@ -3511,6 +5074,75 @@ def settings():
                            demo_levels=[(lvl[0], lvl[3]) for lvl in DEMO_LEVELS],
                            demo_teacher_password=DEMO_TEACHER_PASSWORD,
                            demo_student_prefix=DEMO_STUDENT_PREFIX)
+
+
+@app.route('/settings/database/clean', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def database_clean():
+    """Wipe ALL school data (students, staff, classes, finance, exams,
+    communication) — guarded by the logged-in user's password.
+
+    System configuration is kept: user accounts, academic years, terms,
+    subjects, fee levels/structures, cost centres, appearance and sync
+    settings. This is irreversible.
+    """
+    password = request.form.get('password', '')
+    confirm = request.form.get('confirm_clean') == 'on'
+    user = db.session.get(User, session.get('user_id'))
+
+    if not user or not user.check_password(password):
+        flash('Incorrect password — database cleaning was NOT performed.', 'danger')
+        return redirect(url_for('settings'))
+    if not confirm:
+        flash('Please tick the confirmation box to clean the database.', 'warning')
+        return redirect(url_for('settings'))
+
+    counts = {
+        'students': Student.query.count(),
+        'parents': Parent.query.count(),
+        'staff': Staff.query.count(),
+        'classes': Class.query.count(),
+        'payments': FeePayment.query.count(),
+        'invoices': Invoice.query.count(),
+        'exams': Exam.query.count(),
+    }
+
+    try:
+        # Delete in dependency order (children before parents).
+        db.session.execute(student_parent.delete())
+        InvoiceItem.query.delete(synchronize_session=False)
+        Invoice.query.delete(synchronize_session=False)
+        FeePayment.query.delete(synchronize_session=False)
+        PaymentEditRequest.query.delete(synchronize_session=False)
+        ExamResult.query.delete(synchronize_session=False)
+        Exam.query.delete(synchronize_session=False)
+        RoomAllocation.query.delete(synchronize_session=False)
+        TimetableSlot.query.delete(synchronize_session=False)
+        StaffSubject.query.delete(synchronize_session=False)
+        Message.query.delete(synchronize_session=False)
+        Notice.query.delete(synchronize_session=False)
+        Parent.query.delete(synchronize_session=False)
+        Student.query.delete(synchronize_session=False)
+        Staff.query.delete(synchronize_session=False)
+        Class.query.delete(synchronize_session=False)
+        SyncLog.query.delete(synchronize_session=False)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('database_clean failed')
+        flash(f'Database cleaning failed: {exc}', 'danger')
+        return redirect(url_for('settings'))
+
+    flash(
+        'Database cleaned. Removed: '
+        f'{counts["students"]} students, {counts["parents"]} parents, '
+        f'{counts["staff"]} staff, {counts["classes"]} classes, '
+        f'{counts["payments"]} payments, {counts["invoices"]} invoices, '
+        f'{counts["exams"]} exams. Users and system settings were kept.',
+        'success',
+    )
+    return redirect(url_for('settings'))
 
 
 # ─── Dummy Data Seeder (Yellow / Blue / Red / Purple / Green / Orange / Sciences / Arts / Commercials) ─
@@ -3670,6 +5302,7 @@ def _seed_dummy_data(actor_user_id=None):
                 fee_classification=fc,
                 scholarship_type=st,
                 scholarship_percentage=sp,
+                entry_mode='Stay In' if cycle in (1, 2, 5) else 'Day',
                 city='Harare',
                 province='Harare',
                 country='Zimbabwe',
@@ -3732,52 +5365,96 @@ def _clear_dummy_data(silent=False):
 
     Returns (success, message).
     """
-    # 1) Students (cascades to fee payments/invoices via FK on student_id)
-    demo_students = Student.query.filter(
-        Student.admission_number.like(f'{DEMO_STUDENT_PREFIX}%')).all()
-    demo_student_ids = [s.id for s in demo_students]
-    demo_class_ids = [s.class_id for s in demo_students if s.class_id]
+    try:
+        # 1) Identify the demo records first (same class names the seeder uses).
+        demo_students = Student.query.filter(
+            Student.admission_number.like(f'{DEMO_STUDENT_PREFIX}%')).all()
+        demo_student_ids = [s.id for s in demo_students]
 
-    # 2) Invoice items + invoices for demo students
-    if demo_student_ids:
-        InvoiceItem.query.filter(
-            InvoiceItem.invoice_id.in_(
-                db.session.query(Invoice.id).filter(Invoice.student_id.in_(demo_student_ids))
-            )
-        ).delete(synchronize_session=False)
-        Invoice.query.filter(Invoice.student_id.in_(demo_student_ids)).delete(
-            synchronize_session=False)
-        FeePayment.query.filter(FeePayment.student_id.in_(demo_student_ids)).delete(
-            synchronize_session=False)
+        demo_class_names = []
+        for _, prefix, _, level_streams in DEMO_LEVELS:
+            for stream in level_streams:
+                demo_class_names.append(f"{prefix} {stream}")
+        demo_classes = Class.query.filter(Class.name.in_(demo_class_names)).all()
+        demo_class_ids = [c.id for c in demo_classes]
+
+        demo_staff = Staff.query.filter(
+            Staff.employee_number.like(f'{DEMO_STAFF_PREFIX}%')).all()
+        demo_staff_ids = [s.id for s in demo_staff]
+        demo_user_ids = [s.user_id for s in demo_staff if s.user_id]
+
+        # 2) Delete child rows BEFORE their parents. StaffSubject has NOT NULL
+        #    foreign keys to staff and class, so deleting a demo class/staff
+        #    through the ORM would try to NULL those FKs and raise an
+        #    IntegrityError ("Internal Server Error" in the browser).
+        if demo_staff_ids or demo_class_ids:
+            StaffSubject.query.filter(
+                db.or_(
+                    StaffSubject.staff_id.in_(demo_staff_ids),
+                    StaffSubject.class_id.in_(demo_class_ids),
+                )
+            ).delete(synchronize_session=False)
+            TimetableSlot.query.filter(
+                db.or_(
+                    TimetableSlot.staff_id.in_(demo_staff_ids),
+                    TimetableSlot.class_id.in_(demo_class_ids),
+                )
+            ).delete(synchronize_session=False)
+
+        # 3) Student child rows (invoice items, invoices, payments, results,
+        #    hostel allocations) for demo students.
+        if demo_student_ids:
+            InvoiceItem.query.filter(
+                InvoiceItem.invoice_id.in_(
+                    db.session.query(Invoice.id).filter(
+                        Invoice.student_id.in_(demo_student_ids))
+                )
+            ).delete(synchronize_session=False)
+            Invoice.query.filter(
+                Invoice.student_id.in_(demo_student_ids)).delete(
+                    synchronize_session=False)
+            FeePayment.query.filter(
+                FeePayment.student_id.in_(demo_student_ids)).delete(
+                    synchronize_session=False)
+            ExamResult.query.filter(
+                ExamResult.student_id.in_(demo_student_ids)).delete(
+                    synchronize_session=False)
+            RoomAllocation.query.filter(
+                RoomAllocation.student_id.in_(demo_student_ids)).delete(
+                    synchronize_session=False)
+
+        # 4) Unassign demo teachers from EVERY class (demo or not) so the
+        #    staff rows can be removed cleanly.
+        if demo_staff_ids:
+            Class.query.filter(Class.teacher_id.in_(demo_staff_ids)).update(
+                {Class.teacher_id: None}, synchronize_session=False)
+
+        # 5) Delete the demo parents themselves, then linked user accounts.
         for s in demo_students:
             db.session.delete(s)
+        for c in demo_classes:
+            db.session.delete(c)
+        for s in demo_staff:
+            db.session.delete(s)
+        if demo_user_ids:
+            User.query.filter(User.id.in_(demo_user_ids)).delete(
+                synchronize_session=False)
 
-    # 3) Demo classes (unassign teacher first, then delete)
-    demo_class_names = [f"{prefix} {stream}"
-                        for _, prefix, _, _ in DEMO_LEVELS
-                        for stream in DEMO_STREAMS]
-    demo_classes = Class.query.filter(Class.name.in_(demo_class_names)).all()
-    for c in demo_classes:
-        c.teacher_id = None
-    db.session.flush()
-    for c in demo_classes:
-        db.session.delete(c)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        msg = f'Failed to clear demo data: {exc}'
+        if not silent:
+            return False, msg
+        return False, msg
 
-    # 4) Demo staff + linked user accounts
-    demo_staff = Staff.query.filter(
-        Staff.employee_number.like(f'{DEMO_STAFF_PREFIX}%')).all()
-    demo_user_ids = [s.user_id for s in demo_staff if s.user_id]
-    for s in demo_staff:
-        db.session.delete(s)
-    if demo_user_ids:
-        User.query.filter(User.id.in_(demo_user_ids)).delete(synchronize_session=False)
-
-    db.session.commit()
     counts = {
         'students': len(demo_students),
         'classes': len(demo_classes),
+        'staff': len(demo_staff),
     }
-    msg = f'Cleared {counts["students"]} demo students and {counts["classes"]} demo classes.'
+    msg = (f'Cleared {counts["students"]} demo students, {counts["classes"]} '
+           f'demo classes and {counts["staff"]} demo staff.')
     if not silent:
         return True, msg
     return True, msg
@@ -3877,40 +5554,86 @@ def add_subject():
     return redirect(url_for('settings'))
 
 
+@app.route('/classes')
+@login_required
+@role_required('super_admin', 'bursar')
+def classes_list():
+    """List classes and expose class creation to admins and bursars."""
+    classes = Class.query.order_by(Class.level, Class.name).all()
+    academic_years = AcademicYear.query.order_by(AcademicYear.start_date.desc()).all()
+    teachers = Staff.query.filter_by(status='Active').order_by(Staff.last_name, Staff.first_name).all()
+    return render_template(
+        'classes/list.html',
+        classes=classes,
+        academic_years=academic_years,
+        teachers=teachers,
+    )
+
+
 @app.route('/settings/class/add', methods=['POST'])
 @login_required
-@role_required('super_admin')
+@role_required('super_admin', 'bursar')
 def add_class():
-    level = request.form.get('level')
-    stream = request.form.get('stream', '')
-    name = request.form.get('name')
+    level = (request.form.get('level') or '').strip()
+    stream = (request.form.get('stream') or '').strip()
+    name = (request.form.get('name') or '').strip()
     if not name:
         # Auto-generate name from level + stream
         name = f"{level} {stream}" if stream else level
-    cls = Class(
-        name=name,
-        level=level,
-        stream=stream,
-        teacher_id=request.form.get('teacher_id') or None,
-        capacity=int(request.form.get('capacity', 40)),
-        academic_year_id=request.form.get('academic_year_id') or None,
-    )
-    db.session.add(cls)
-    db.session.commit()
+    if not name:
+        flash('Please provide a level (and stream) or a class name.', 'warning')
+        return redirect(url_for('classes_list'))
 
-    # Auto-assign primary subjects if this is a primary level class
-    if is_primary_level(level):
-        for subj_name in PRIMARY_SUBJECTS:
-            subj = Subject.query.filter_by(name=subj_name).first()
-            if not subj:
-                # Auto-create the subject if it doesn't exist
-                code = subj_name[:3].upper()
-                subj = Subject(name=subj_name, code=code, is_compulsory=True)
-                db.session.add(subj)
-                db.session.flush()
+    # Defensive parsing: blank or non-numeric capacity / year / teacher must
+    # never crash the form (previously int('') raised -> Internal Server Error).
+    academic_year_id = _safe_int(request.form.get('academic_year_id'), 0) or None
+    teacher_id = _safe_int(request.form.get('teacher_id'), 0) or None
+    capacity = max(1, _safe_int(request.form.get('capacity'), 40))
 
-    flash('Class added.' + (' Primary subjects auto-assigned.' if is_primary_level(level) else ''), 'success')
-    return redirect(url_for('settings'))
+    try:
+        duplicate = Class.query.filter_by(name=name, academic_year_id=academic_year_id).first()
+        if duplicate:
+            flash('A class with that name already exists for the selected academic year.', 'warning')
+            return redirect(url_for('classes_list'))
+
+        cls = Class(
+            name=name,
+            level=level or None,
+            stream=stream or None,
+            teacher_id=teacher_id,
+            capacity=capacity,
+            academic_year_id=academic_year_id,
+        )
+        db.session.add(cls)
+        db.session.flush()
+
+        # Auto-assign primary subjects if this is a primary level class
+        if is_primary_level(level):
+            for subj_name in PRIMARY_SUBJECTS:
+                subj = Subject.query.filter_by(name=subj_name).first()
+                if not subj:
+                    # Auto-create the subject with its stable cross-system code.
+                    code = PRIMARY_SUBJECT_CODES[subj_name]
+                    subj = Subject(name=subj_name, code=code, is_compulsory=True)
+                    db.session.add(subj)
+                    db.session.flush()
+
+        db.session.commit()
+        log_sync('Class', cls.id, 'CREATE', {
+            'name': cls.name,
+            'level': cls.level,
+            'stream': cls.stream,
+            'teacher_id': cls.teacher_id,
+            'capacity': cls.capacity,
+            'academic_year_id': cls.academic_year_id,
+            'sync_id': cls.sync_id,
+        })
+        flash('Class added.' + (' Primary subjects auto-assigned.' if is_primary_level(level) else ''), 'success')
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.error('add_class failed: %s', exc, exc_info=True)
+        flash(f'Could not create the class: {exc}', 'danger')
+    return redirect(url_for('classes_list'))
 
 
 # ─── Teacher Portal (My Classes / Subjects) ──────────────────────────
@@ -3929,21 +5652,22 @@ def teacher_home():
 
     ay = get_current_academic_year()
     term = get_current_term()
-    class_ids = get_teacher_class_ids(staff.id)
-    classes = Class.query.filter(Class.id.in_(class_ids)).all() if class_ids else []
-    subject_ids = get_teacher_subject_ids(staff.id)
-    subjects = Subject.query.filter(Subject.id.in_(subject_ids)).all() if subject_ids else []
-
+    class_ids = get_teacher_class_ids(staff.id, ay.id if ay else None)
+    classes = Class.query.filter(Class.id.in_(class_ids)).order_by(Class.name).all() if class_ids else []
     # Per-class subject breakdown
     cs_map = get_teacher_classes_with_subjects(staff.id, ay.id if ay else None)
+    subject_ids = sorted({sid for sids in cs_map.values() for sid in sids})
+    subjects = Subject.query.filter(Subject.id.in_(subject_ids)).order_by(Subject.name).all() if subject_ids else []
 
     # Student counts per class
     student_counts = {}
     for c in classes:
         student_counts[c.id] = Student.query.filter_by(class_id=c.id, status='Active').count()
 
+    subjects_by_id = {subject.id: subject for subject in subjects}
     return render_template('dashboard/teacher_portal.html',
                            staff=staff, classes=classes, subjects=subjects,
+                           subjects_by_id=subjects_by_id,
                            cs_map=cs_map, student_counts=student_counts,
                            term=term, ay=ay)
 
@@ -3962,8 +5686,11 @@ def teacher_class_view(class_id):
     cls = Class.query.get_or_404(class_id)
     students = Student.query.filter_by(class_id=class_id, status='Active') \
                             .order_by(Student.last_name, Student.first_name).all()
-    subject_ids = get_teacher_subject_ids(staff.id)
-    subjects = Subject.query.filter(Subject.id.in_(subject_ids)).all() if subject_ids else []
+    ay = get_current_academic_year()
+    subject_ids = get_teacher_classes_with_subjects(
+        staff.id, ay.id if ay else None
+    ).get(class_id, [])
+    subjects = Subject.query.filter(Subject.id.in_(subject_ids)).order_by(Subject.name).all() if subject_ids else []
     return render_template('dashboard/teacher_class.html',
                            cls=cls, students=students, subjects=subjects, staff=staff)
 
@@ -3980,15 +5707,105 @@ def teacher_subject_view(subject_id):
         flash('You do not have access to this subject.', 'danger')
         return redirect(url_for('teacher_home'))
     subject = Subject.query.get_or_404(subject_id)
-    # Restrict to students in teacher's classes
-    class_ids = get_teacher_class_ids(staff.id)
+    ay = get_current_academic_year()
+    assignment_map = get_teacher_classes_with_subjects(staff.id, ay.id if ay else None)
+    class_ids = [cid for cid, subject_ids in assignment_map.items() if subject_id in subject_ids]
+    classes = Class.query.filter(Class.id.in_(class_ids)).order_by(Class.name).all() if class_ids else []
     students = Student.query.filter(Student.class_id.in_(class_ids),
-                                     Student.status == 'Active').all() if class_ids else []
+                                     Student.status == 'Active').order_by(
+                                         Student.last_name, Student.first_name
+                                     ).all() if class_ids else []
     return render_template('dashboard/teacher_subject.html',
-                           subject=subject, students=students, staff=staff)
+                           subject=subject, students=students, classes=classes, staff=staff)
 
 
 # ─── Bulk Import ───────────────────────────────────────────────────────
+
+def _clean_optional_text(value):
+    """Return stripped text or None for blank/placeholder cells."""
+    text = (value or '').strip()
+    if text.lower() in ('-', 'n/a', 'na', 'none', 'nil', '—', '–'):
+        return None
+    return text or None
+
+
+def _safe_int(value, default=0):
+    """Parse an integer from user input without raising on blank/garbage."""
+    try:
+        return int(str(value or '').strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_class_name(class_name):
+    """Best-effort split of a class name into (level, stream).
+
+    Examples:
+        'Grade 7A'        -> ('Grade 7', 'A')
+        'Grade 5 Yellow'  -> ('Grade 5', 'Yellow')
+        'Form 3 Blue'     -> ('Form 3', 'Blue')
+        'ECD A Yellow'    -> ('ECD A', 'Yellow')
+        'ECD Yellow'      -> ('ECD A', 'Yellow')
+        'Unknown Class'   -> ('Unknown Class', '')   (nothing is lost)
+    """
+    name = (class_name or '').strip()
+    if not name:
+        return '', ''
+    lower = name.lower()
+    m = re.match(r'^(ecd)\s*([ab])?(?:\s+(.*))?$', lower)
+    if m:
+        level = 'ECD ' + m.group(2).upper() if m.group(2) else 'ECD A'
+        return level, (m.group(3) or '').strip().title()
+    for prefix, label in (('grade', 'Grade'), ('gr', 'Grade'), ('form', 'Form')):
+        m = re.match(rf'^({prefix}\s*\d{{1,2}})\s*([a-z]?)(?:\s+(.*))?$', lower)
+        if m:
+            level = label + ' ' + m.group(1).split()[-1]
+            stream = (m.group(3) or '').strip().title() or m.group(2).upper()
+            return level, stream
+    return name, ''
+
+
+def _auto_create_class(class_name):
+    """Create a class on the fly during bulk import (no teacher assigned).
+
+    Teacher allocation is always done manually afterwards on the Classes
+    page, so the created class starts without a form teacher.
+    """
+    level, stream = _parse_class_name(class_name)
+    ay = get_current_academic_year()
+    cls = Class(
+        name=class_name.strip(),
+        level=level or None,
+        stream=stream or None,
+        capacity=40,
+        academic_year_id=ay.id if ay else None,
+    )
+    db.session.add(cls)
+    db.session.flush()
+    # Auto-assign the approved primary learning areas for primary classes,
+    # exactly like creating the class from the Classes page.
+    if level and is_primary_level(level):
+        for subj_name in PRIMARY_SUBJECTS:
+            subj = Subject.query.filter_by(name=subj_name).first()
+            if not subj:
+                subj = Subject(
+                    name=subj_name,
+                    code=PRIMARY_SUBJECT_CODES[subj_name],
+                    is_compulsory=True,
+                )
+                db.session.add(subj)
+                db.session.flush()
+    log_sync('Class', cls.id, 'CREATE', {
+        'name': cls.name,
+        'level': cls.level,
+        'stream': cls.stream,
+        'teacher_id': None,
+        'capacity': cls.capacity,
+        'academic_year_id': cls.academic_year_id,
+        'sync_id': cls.sync_id,
+    })
+    return cls
+
 
 @app.route('/students/bulk-import', methods=['GET', 'POST'])
 @login_required
@@ -4008,6 +5825,8 @@ def students_bulk_import():
             ws = wb.active
             headers = [str(cell.value).strip().lower() if cell.value else '' for cell in ws[1]]
             created = 0
+            classes_created = 0
+            created_class_cache = {}
             errors = []
             is_first_import = (SyncSetting.get('initial_bulk_import_done') != 'true')
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -4020,11 +5839,19 @@ def students_bulk_import():
                     if Student.query.filter_by(admission_number=adm).first():
                         errors.append(f"Row {row_idx}: Admission number {adm} already exists")
                         continue
+                    # Resolve the class, creating it automatically when the
+                    # name is not in the system yet (teacher allocated later).
                     class_id = None
-                    if row_data.get('class_name'):
-                        cls = Class.query.filter_by(name=row_data.get('class_name')).first()
-                        if cls:
-                            class_id = cls.id
+                    class_name = (row_data.get('class_name') or '').strip()
+                    if class_name:
+                        cls = created_class_cache.get(class_name.lower())
+                        if cls is None:
+                            cls = Class.query.filter_by(name=class_name).first()
+                        if cls is None:
+                            cls = _auto_create_class(class_name)
+                            created_class_cache[class_name.lower()] = cls
+                            classes_created += 1
+                        class_id = cls.id
                     dob = None
                     if row_data.get('date_of_birth'):
                         try:
@@ -4041,25 +5868,26 @@ def students_bulk_import():
                         admission_number=adm,
                         first_name=row_data.get('first_name', '').strip(),
                         last_name=row_data.get('last_name', '').strip(),
-                        other_names=row_data.get('other_names', '').strip() or None,
+                        other_names=_clean_optional_text(row_data.get('other_names')),
                         date_of_birth=dob,
                         gender=row_data.get('gender', '').strip() or None,
-                        national_id=row_data.get('national_id', '').strip() or None,
+                        national_id=_clean_optional_text(row_data.get('national_id')),
                         class_id=class_id,
                         admission_date=adm_date,
-                        previous_school=row_data.get('previous_school', '').strip() or None,
-                        address=row_data.get('address', '').strip() or None,
-                        city=row_data.get('city', '').strip() or None,
-                        province=row_data.get('province', '').strip() or None,
-                        phone=row_data.get('phone', '').strip() or None,
-                        email=row_data.get('email', '').strip() or None,
+                        previous_school=_clean_optional_text(row_data.get('previous_school')),
+                        address=_clean_optional_text(row_data.get('address')),
+                        city=_clean_optional_text(row_data.get('city')),
+                        province=_clean_optional_text(row_data.get('province')),
+                        phone=_clean_optional_text(row_data.get('phone')),
+                        email=_clean_optional_text(row_data.get('email')),
                         fee_classification=row_data.get('fee_classification', 'Regular').strip() or 'Regular',
                         scholarship_type=row_data.get('scholarship_type', 'None').strip() or 'None',
                         scholarship_percentage=float(row_data.get('scholarship_percentage', 0) or 0),
-                        scholarship_sponsor=row_data.get('scholarship_sponsor', '').strip() or None,
-                        scholarship_notes=row_data.get('scholarship_notes', '').strip() or None,
+                        scholarship_sponsor=_clean_optional_text(row_data.get('scholarship_sponsor')),
+                        scholarship_notes=_clean_optional_text(row_data.get('scholarship_notes')),
                         is_new_learner=not is_first_import,
                         billed_once_off_levies=is_first_import,
+                        entry_mode=normalize_entry_mode(row_data.get('entry_mode')),
                     )
                     if student.fee_classification == 'Staff Scholarship' and row_data.get('staff_employee_number'):
                         staff_member = Staff.query.filter_by(employee_number=row_data.get('staff_employee_number').strip()).first()
@@ -4067,6 +5895,7 @@ def students_bulk_import():
                             student.scholarship_staff_id = staff_member.id
                     db.session.add(student)
                     db.session.flush()
+                    assign_cost_center(student)
                     generate_student_invoice(student)
                     # NOTE: Students do NOT get user accounts.
                     # They access the system via the Student Portal linked to their parent's account.
@@ -4077,6 +5906,10 @@ def students_bulk_import():
                 SyncSetting.set('initial_bulk_import_done', 'true')
             db.session.commit()
             msg = f'Successfully imported {created} students.'
+            if classes_created:
+                msg += (f' {classes_created} new class'
+                        f'{"es" if classes_created != 1 else ""} auto-created'
+                        f' (assign teachers in Classes).')
             if errors:
                 msg += f' {len(errors)} rows had errors.'
             flash(msg, 'success' if created > 0 else 'warning')
@@ -4110,7 +5943,7 @@ def students_excel_template():
 
     headers = [
         'admission_number', 'first_name', 'last_name', 'other_names',
-        'date_of_birth', 'gender', 'national_id', 'class_name',
+        'date_of_birth', 'gender', 'national_id', 'class_name', 'entry_mode',
         'admission_date', 'previous_school', 'address', 'city', 'province',
         'phone', 'email', 'fee_classification', 'scholarship_type',
         'scholarship_percentage', 'scholarship_sponsor', 'staff_employee_number',
@@ -4126,15 +5959,15 @@ def students_excel_template():
     # Example rows
     examples = [
         ['', 'Tendai', 'Moyo', '', '2010-05-15', 'Male', '12-345678A12',
-         'Grade 7A', '2026-01-12', 'Previous School', '12 Herbert Chitepo',
+         'Grade 7A', 'Day', '2026-01-12', 'Previous School', '12 Herbert Chitepo',
          'Harare', 'Harare', '0771234567', 'tendai@example.com',
          'Regular', 'None', 0, '', '', ''],
         ['', 'Chiedza', 'Dube', '', '2011-03-22', 'Female', '', 'Grade 6A',
-         '2026-01-12', '', '', 'Bulawayo', '', '0772987654', '',
+         'Stay In', '2026-01-12', '', '', 'Bulawayo', '', '0772987654', '',
          'Staff Scholarship', 'Full', 100, '', 'EMP001',
          'Child of staff member'],
         ['', 'Kudzai', 'Ncube', '', '2010-08-10', 'Male', '', 'Grade 7A',
-         '', '', '', '', '', '', '',
+         'Day', '', '', '', '', '', '', '',
          'Academic Scholarship', 'Partial', 50, 'School Bursary Fund', '',
          'Top performer'],
     ]
@@ -4148,14 +5981,15 @@ def students_excel_template():
     # Instruction sheet
     ws2 = wb.create_sheet("Instructions")
     instructions = [
-        ["EXCEL GROUP OF SCHOOLS — Student Bulk Import Template", ""],
-        ["Author: Valentine T Mabheka | Version 2.0.0", ""],
+        [f"{software_branding()['name'].upper()} — Student Bulk Import Template", ""],
+        [f"{software_branding()['name']} v{software_branding()['version']} | {software_branding()['byline']}", ""],
         ["", ""],
         ["INSTRUCTIONS:", ""],
         ["1.", "Fill in the 'Students Import' sheet with your student data."],
         ["2.", "Leave 'admission_number' blank to auto-generate."],
         ["3.", 'date_of_birth and admission_date must be YYYY-MM-DD format.'],
-        ["4.", "'class_name' must exactly match an existing class in the system."],
+        ["4.", "'class_name' — if the class does not exist yet it is created automatically; only the teacher allocation is done manually later (Classes page)."],
+        ["4b.", "'entry_mode' — Day or Stay In. Stay In (boarding) learners are billed the Stay In fee automatically every term ($300 primary/secondary, $260 A Level)."],
         ["5.", "gender must be Male or Female."],
         ["", ""],
         ["FEE CLASSIFICATION OPTIONS:", ""],
@@ -4371,8 +6205,8 @@ def staff_excel_template():
     # Instruction sheet
     ws2 = wb.create_sheet("Instructions")
     instructions = [
-        ["EXCEL GROUP OF SCHOOLS — Staff Bulk Import Template", ""],
-        ["Author: Valentine T Mabheka | Version 2.0.0", ""],
+        [f"{software_branding()['name'].upper()} — Staff Bulk Import Template", ""],
+        [f"{software_branding()['name']} v{software_branding()['version']} | {software_branding()['byline']}", ""],
         ["", ""],
         ["INSTRUCTIONS:", ""],
         ["1.", "Fill in the 'Staff Import' sheet with staff data."],
@@ -4422,8 +6256,21 @@ def staff_excel_template():
 @role_required('super_admin')
 def appearance_settings():
     if request.method == 'POST':
-        # Save all posted theme fields
+        # Save all posted theme fields — EXCEPT the fixed software branding,
+        # which is never customisable from the UI. Keys that are not part of
+        # this form (logo_url, favicon, login background) are left untouched,
+        # so saving settings can never wipe the uploaded logo.
+        posted = set(request.form.keys())
         for key in DEFAULT_THEME.keys():
+            if key in SOFTWARE_BRANDING_KEYS:
+                # Wipe any previously stored branding so it always falls back
+                # to the fixed default (or the deployment env override).
+                setting = AppearanceSetting.query.filter_by(key=key).first()
+                if setting:
+                    db.session.delete(setting)
+                continue
+            if key not in posted:
+                continue
             val = request.form.get(key, '').strip()
             if val:
                 set_theme(key, val)
@@ -4455,7 +6302,10 @@ def appearance_reset():
 
 # ─── Theme Sync API (Flask ↔ WordPress) ────────────────────────────────
 
-THEME_SYNC_KEYS = list(DEFAULT_THEME.keys())
+# Theme keys that sync with WordPress — software branding is excluded because
+# it is fixed and must never be overwritten by a remote pull/import.
+THEME_SYNC_KEYS = [k for k in DEFAULT_THEME.keys()
+                   if k not in SOFTWARE_BRANDING_KEYS]
 
 
 @app.route('/api/theme/export', methods=['GET'])
@@ -4469,11 +6319,15 @@ def api_theme_export():
     if app.config.get('SYNC_API_KEY') and api_key != app.config['SYNC_API_KEY']:
         return jsonify({'error': 'Invalid API key'}), 403
     theme = get_theme()
+    # Software branding is fixed — never exposed for remote import.
+    export_theme = {k: v for k, v in theme.items()
+                    if k not in SOFTWARE_BRANDING_KEYS}
     return jsonify({
         'success': True,
-        'theme': theme,
-        'default_theme': DEFAULT_THEME,
-        'version': '2.0.0',
+        'theme': export_theme,
+        'default_theme': {k: v for k, v in DEFAULT_THEME.items()
+                          if k not in SOFTWARE_BRANDING_KEYS},
+        'version': APP_VERSION,
         'updated_at': datetime.utcnow().isoformat(),
     })
 
@@ -4517,11 +6371,17 @@ def appearance_sync_to_wordpress():
         return redirect(url_for('appearance_settings'))
     try:
         # Build the theme payload (only keys whose values differ from defaults so we
-        # don't accidentally wipe WordPress-side customisations).
+        # don't accidentally wipe WordPress-side customisations). Software branding
+        # is fixed and excluded.
         current = get_theme()
-        payload = {'theme': current, 'api_key': api_key, 'source': 'flask'}
+        payload = {
+            'theme': {k: v for k, v in current.items()
+                      if k not in SOFTWARE_BRANDING_KEYS},
+            'api_key': api_key,
+            'source': 'flask',
+        }
         resp = requests.post(
-            f"{endpoint}/wp-json/excel-schools/v2/theme/import",
+            f"{_wp_rest_base(endpoint)}/theme/import",
             json=payload,
             headers={'Content-Type': 'application/json', 'X-ESM-API-Key': api_key},
             timeout=15,
@@ -4550,7 +6410,7 @@ def appearance_pull_from_wordpress():
         return redirect(url_for('appearance_settings'))
     try:
         resp = requests.get(
-            f"{endpoint}/wp-json/excel-schools/v2/theme/export",
+            f"{_wp_rest_base(endpoint)}/theme/export",
             headers={'X-ESM-API-Key': api_key},
             timeout=15,
         )
@@ -4625,6 +6485,7 @@ def fee_level_add():
         reg_fee = float(request.form.get('registration_fee', 10))
         tb_levy = float(request.form.get('textbook_levy', 0))
         boarding = float(request.form.get('boarding', 0))
+        stay_in_fee = float(request.form.get('stay_in_fee', 0) or 0)
         transport = float(request.form.get('transport', 0))
         lunch = float(request.form.get('lunch', 0))
         library = float(request.form.get('library', 0))
@@ -4641,6 +6502,7 @@ def fee_level_add():
             registration_fee=reg_fee,
             textbook_levy=tb_levy,
             boarding=boarding,
+            stay_in_fee=stay_in_fee,
             transport=transport,
             lunch=lunch,
             library=library,
@@ -4670,6 +6532,7 @@ def fee_level_edit(id):
         fl.registration_fee = float(request.form.get('registration_fee', 10))
         fl.textbook_levy = float(request.form.get('textbook_levy', 0))
         fl.boarding = float(request.form.get('boarding', 0))
+        fl.stay_in_fee = float(request.form.get('stay_in_fee', 0) or 0)
         fl.transport = float(request.form.get('transport', 0))
         fl.lunch = float(request.form.get('lunch', 0))
         fl.library = float(request.form.get('library', 0))
@@ -4695,18 +6558,84 @@ def fee_level_delete(id):
     return redirect(url_for('fee_levels_list'))
 
 
+# ─── Cost Centres (customisable) ───────────────────────────────────────
+
+@app.route('/settings/cost-centers', methods=['GET', 'POST'])
+@login_required
+@role_required('super_admin')
+def cost_centers():
+    """Manage the customisable cost centres used by the Debtors report."""
+    if request.method == 'POST':
+        name = (request.form.get('name') or '').strip()
+        code = (request.form.get('code') or '').strip().upper()
+        description = (request.form.get('description') or '').strip()
+        if not name or not code:
+            flash('Cost centre name and code are required.', 'danger')
+        elif CostCenter.query.filter(db.or_(
+                CostCenter.name == name, CostCenter.code == code)).first():
+            flash('A cost centre with that name or code already exists.', 'danger')
+        else:
+            cc = CostCenter(name=name, code=code, description=description or None)
+            db.session.add(cc)
+            db.session.commit()
+            log_sync('CostCenter', cc.id, 'CREATE', {
+                'name': cc.name, 'code': cc.code,
+                'description': cc.description, 'sync_id': cc.sync_id,
+            })
+            flash(f'Cost centre "{name}" created. Learners are auto-assigned '
+                  f'to Primary / Secondary / Stay In; use the student form to '
+                  f'override.', 'success')
+        return redirect(url_for('cost_centers'))
+
+    centers = CostCenter.query.order_by(CostCenter.name).all()
+    counts = dict(db.session.query(Student.cost_center_id,
+                                   db.func.count(Student.id))
+                  .group_by(Student.cost_center_id).all())
+    return render_template('fees/cost_centers.html',
+                           centers=centers, counts=counts,
+                           total_students=Student.query.count())
+
+
+@app.route('/settings/cost-centers/<int:id>/delete', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def cost_center_delete(id):
+    cc = db.get_or_404(CostCenter, id)
+    if cc.code in ('PRM', 'SEC', 'STY'):
+        flash(f'"{cc.name}" is a default cost centre and cannot be deleted — '
+              f'rename it instead.', 'warning')
+    else:
+        affected = Student.query.filter_by(cost_center_id=cc.id).count()
+        Student.query.filter_by(cost_center_id=cc.id).update(
+            {Student.cost_center_id: None}, synchronize_session=False)
+        db.session.delete(cc)
+        db.session.commit()
+        log_sync('CostCenter', id, 'DELETE')
+        flash(f'Cost centre "{cc.name}" deleted '
+              f'({affected} learner(s) left unassigned).', 'success')
+    return redirect(url_for('cost_centers'))
+
+
 # ─── Auto-assign Primary Subjects ──────────────────────────────────────
 
-# Heritage-Based Curriculum (HBC) — 6 learning areas for primary level
-# (ECD A through Grade 7) per the Zimbabwe Ministry of Primary & Secondary Education.
+# School-approved subjects for primary level (ECD A through Grade 7).
+# Keep these exact names aligned with WordPress and teacher assignment rules.
 PRIMARY_LEARNING_AREAS = [
-    'Language, Literacy and Communication',
-    'Mathematical Concepts and Numerical Activities',
+    'English',
+    'ChiShona',
+    'Mathematics',
+    'Social Science',
+    'PE and Arts',
     'Science and Technology',
-    'Heritage Studies',
-    'Physical Education, Health and Wellbeing',
-    'Visual and Performing Arts',
 ]
+PRIMARY_SUBJECT_CODES = {
+    'English': 'ENGP',
+    'ChiShona': 'CHIS',
+    'Mathematics': 'MATH',
+    'Social Science': 'SOCS',
+    'PE and Arts': 'PEA',
+    'Science and Technology': 'SNT',
+}
 # Backwards-compatibility alias (kept for any existing template refs)
 PRIMARY_SUBJECTS = PRIMARY_LEARNING_AREAS
 
@@ -4816,14 +6745,10 @@ def _generate_receipt_pdf(payment):
     value_style = ParagraphStyle('Value2', parent=styles['Normal'], fontSize=10, fontName='Helvetica-Bold')
 
     story = []
-    school_name = theme.get('school_name', 'Excel Group of Schools')
-    story.append(Paragraph(school_name, title_style))
-    story.append(Paragraph(theme.get('school_motto', ''), subtitle_style))
-    story.append(Spacer(1, 4*mm))
-    story.append(HRFlowable(width="100%", thickness=1, color=HexColor(theme.get('primary_color', '#1F2080'))))
-    story.append(Spacer(1, 4*mm))
+    _brand_header_story(story, theme, title_size=14)
     story.append(Paragraph("OFFICIAL RECEIPT", ParagraphStyle('Center', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Helvetica-Bold', textColor=HexColor(theme.get('primary_color', '#1F2080')))))
     story.append(Spacer(1, 4*mm))
+    currency = theme.get('currency_symbol', '$')
 
     student = payment.student
     receipt_data = [
@@ -4843,7 +6768,7 @@ def _generate_receipt_pdf(payment):
     # Amount section
     amount_data = [
         [Paragraph('Amount Paid:', ParagraphStyle('AmtLabel', parent=styles['Normal'], fontSize=12, fontName='Helvetica-Bold')),
-         Paragraph(f"${payment.amount:,.2f}", ParagraphStyle('AmtValue', parent=styles['Normal'], fontSize=14, fontName='Helvetica-Bold', alignment=TA_RIGHT, textColor=HexColor(theme.get('primary_color', '#1F2080'))))],
+         Paragraph(f"{currency}{payment.amount:,.2f}", ParagraphStyle('AmtValue', parent=styles['Normal'], fontSize=14, fontName='Helvetica-Bold', alignment=TA_RIGHT, textColor=HexColor(theme.get('primary_color', '#1F2080'))))],
     ]
     amt_table = Table(amount_data, colWidths=[50*mm, 40*mm])
     amt_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('BOTTOMPADDING', (0, 0), (-1, -1), 6)]))
@@ -4892,7 +6817,7 @@ def _generate_receipt_pdf(payment):
     story.append(Spacer(1, 4*mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=HexColor('#d1d5db')))
     story.append(Paragraph("Thank you for your payment!", ParagraphStyle('Thanks', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER, textColor=HexColor('#6b7280'))))
-    story.append(Paragraph("Excel Group of Schools v2.0.0 — Valentine T Mabheka", ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
+    story.append(Paragraph(_software_footer(theme), ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
 
     doc.build(story)
     buf.seek(0)
@@ -4915,14 +6840,10 @@ def _build_invoice_story(invoice, styles, theme):
     item_amt_style = ParagraphStyle('ItemAmtInv', parent=styles['Normal'], fontSize=10, alignment=TA_RIGHT)
 
     story = []
-    school_name = theme.get('school_name', 'Excel Group of Schools')
-    story.append(Paragraph(school_name, title_style))
-    story.append(Paragraph(theme.get('school_motto', ''), subtitle_style))
-    story.append(Spacer(1, 5*mm))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=HexColor(theme.get('primary_color', '#1F2080'))))
-    story.append(Spacer(1, 5*mm))
+    _brand_header_story(story, theme, title_size=16)
     story.append(Paragraph("OFFICIAL STUDENT FEE INVOICE", ParagraphStyle('CenterInv', parent=styles['Normal'], fontSize=13, alignment=TA_CENTER, fontName='Helvetica-Bold', textColor=HexColor(theme.get('primary_color', '#1F2080')))))
     story.append(Spacer(1, 6*mm))
+    currency = theme.get('currency_symbol', '$')
 
     student = invoice.student
     meta_data = [
@@ -4943,15 +6864,15 @@ def _build_invoice_story(invoice, styles, theme):
     story.append(meta_table)
     story.append(Spacer(1, 6*mm))
 
-    items_header = [Paragraph('<b>Description</b>', header_style), Paragraph('<b>Amount ($)</b>', ParagraphStyle('RHead', parent=header_style, alignment=TA_RIGHT))]
+    items_header = [Paragraph('<b>Description</b>', header_style), Paragraph(f'<b>Amount ({currency})</b>', ParagraphStyle('RHead', parent=header_style, alignment=TA_RIGHT))]
     items_rows = [items_header]
     for item in invoice.items:
         items_rows.append([
             Paragraph(item.description, item_desc_style),
-            Paragraph(f"${item.amount:,.2f}", item_amt_style)
+            Paragraph(f"{currency}{item.amount:,.2f}", item_amt_style)
         ])
     if len(items_rows) == 1:
-        items_rows.append([Paragraph('General Term Fees', item_desc_style), Paragraph(f"${invoice.subtotal:,.2f}", item_amt_style)])
+        items_rows.append([Paragraph('General Term Fees', item_desc_style), Paragraph(f"{currency}{invoice.subtotal:,.2f}", item_amt_style)])
 
     items_table = Table(items_rows, colWidths=[120*mm, 48*mm])
     items_table.setStyle(TableStyle([
@@ -4973,16 +6894,16 @@ def _build_invoice_story(invoice, styles, theme):
     balance = max(0.0, invoice.total_amount - total_paid)
 
     summary_data = [
-        [Paragraph('Subtotal:', label_style), Paragraph(f"${invoice.subtotal:,.2f}", value_style)],
+        [Paragraph('Subtotal:', label_style), Paragraph(f"{currency}{invoice.subtotal:,.2f}", value_style)],
     ]
     if invoice.discount_amount > 0:
-        summary_data.append([Paragraph(f'Scholarship Discount ({student.fee_classification}):', label_style), Paragraph(f"-${invoice.discount_amount:,.2f}", ParagraphStyle('DiscVal', parent=value_style, textColor=HexColor('#dc2626')))])
+        summary_data.append([Paragraph(f'Scholarship Discount ({student.fee_classification}):', label_style), Paragraph(f"-{currency}{invoice.discount_amount:,.2f}", ParagraphStyle('DiscVal', parent=value_style, textColor=HexColor('#dc2626')))])
     summary_data.extend([
         [Paragraph('<b>Net Invoice Total:</b>', ParagraphStyle('BLabel', parent=label_style, fontName='Helvetica-Bold', fontSize=11)),
-         Paragraph(f"<b>${invoice.total_amount:,.2f}</b>", ParagraphStyle('BVal', parent=value_style, fontSize=12, alignment=TA_RIGHT, textColor=HexColor(theme.get('primary_color', '#1F2080'))))],
-        [Paragraph('Amount Paid to Date:', label_style), Paragraph(f"${total_paid:,.2f}", value_style)],
+         Paragraph(f"<b>{currency}{invoice.total_amount:,.2f}</b>", ParagraphStyle('BVal', parent=value_style, fontSize=12, alignment=TA_RIGHT, textColor=HexColor(theme.get('primary_color', '#1F2080'))))],
+        [Paragraph('Amount Paid to Date:', label_style), Paragraph(f"{currency}{total_paid:,.2f}", value_style)],
         [Paragraph('<b>Current Balance Due:</b>', ParagraphStyle('BalLabel', parent=label_style, fontName='Helvetica-Bold', fontSize=11)),
-         Paragraph(f"<b>${balance:,.2f}</b>", ParagraphStyle('BalVal', parent=value_style, fontSize=12, alignment=TA_RIGHT, textColor=HexColor('#b91c1c' if balance > 0 else '#15803d')))]
+         Paragraph(f"<b>{currency}{balance:,.2f}</b>", ParagraphStyle('BalVal', parent=value_style, fontSize=12, alignment=TA_RIGHT, textColor=HexColor('#b91c1c' if balance > 0 else '#15803d')))]
     ])
     summary_table = Table(summary_data, colWidths=[120*mm, 48*mm])
     summary_table.setStyle(TableStyle([
@@ -4998,7 +6919,7 @@ def _build_invoice_story(invoice, styles, theme):
     story.append(Spacer(1, 3*mm))
     story.append(Paragraph("Please ensure payments are completed on or before the due date. Thank you!", ParagraphStyle('ThanksInv', parent=styles['Normal'], fontSize=9, alignment=TA_CENTER, textColor=HexColor('#6b7280'))))
     story.append(Spacer(1, 2*mm))
-    story.append(Paragraph("Excel Group of Schools v2.0.0 — Valentine T Mabheka", ParagraphStyle('FooterInv', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
+    story.append(Paragraph(_software_footer(theme), ParagraphStyle('FooterInv', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
     return story
 
 
@@ -5062,11 +6983,7 @@ def _generate_report_card_pdf(student, exam, results):
     header_style = ParagraphStyle('Header3', parent=styles['Normal'], fontSize=9, fontName='Helvetica-Bold', textColor=primary)
 
     story = []
-    story.append(Paragraph(theme.get('school_name', 'Excel Group of Schools'), title_style))
-    story.append(Paragraph(theme.get('school_motto', ''), subtitle_style))
-    story.append(Spacer(1, 3*mm))
-    story.append(HRFlowable(width="100%", thickness=2, color=primary))
-    story.append(Spacer(1, 3*mm))
+    _brand_header_story(story, theme, title_size=16)
     story.append(Paragraph("STUDENT REPORT CARD", ParagraphStyle('Center2', parent=styles['Normal'], fontSize=13, alignment=TA_CENTER, fontName='Helvetica-Bold', textColor=primary)))
     story.append(Spacer(1, 5*mm))
 
@@ -5079,8 +6996,8 @@ def _generate_report_card_pdf(student, exam, results):
          Paragraph('Adm No:', header_style), Paragraph(student.admission_number, styles['Normal'])],
         [Paragraph('Class:', header_style), Paragraph(class_name, styles['Normal']),
          Paragraph('Level:', header_style), Paragraph(fl_name or 'N/A', styles['Normal'])],
-        [Paragraph('Exam:', header_style), Paragraph(exam.name if exam else 'N/A', styles['Normal']),
-         Paragraph('Type:', header_style), Paragraph(exam.exam_type if exam else 'N/A', styles['Normal'])],
+        [Paragraph('Exam:', header_style), Paragraph((exam.name if exam else None) or 'N/A', styles['Normal']),
+         Paragraph('Type:', header_style), Paragraph((exam.exam_type if exam else None) or 'N/A', styles['Normal'])],
         [Paragraph('Gender:', header_style), Paragraph(student.gender or 'N/A', styles['Normal']),
          Paragraph('DOB:', header_style), Paragraph(student.date_of_birth.strftime('%d/%m/%Y') if student.date_of_birth else 'N/A', styles['Normal'])],
     ]
@@ -5168,7 +7085,7 @@ def _generate_report_card_pdf(student, exam, results):
     story.append(sig_table)
     story.append(Spacer(1, 5*mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=HexColor('#d1d5db')))
-    story.append(Paragraph("Excel Group of Schools v2.0.0 — Valentine T Mabheka", ParagraphStyle('Footer2', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
+    story.append(Paragraph(_software_footer(theme), ParagraphStyle('Footer2', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, textColor=HexColor('#9ca3af'))))
 
     doc.build(story)
     buf.seek(0)
@@ -5184,13 +7101,52 @@ def fee_receipt_pdf(id):
     return send_file(buf, as_attachment=True, download_name=f"receipt_{payment.receipt_number}.pdf", mimetype='application/pdf')
 
 
+@app.route('/fees/receipt/<int:id>/send', methods=['POST'])
+@login_required
+@role_required('super_admin', 'accountant', 'bursar')
+def fee_receipt_send(id):
+    """Manually send a receipt to the student's parent(s) via WhatsApp/email."""
+    payment = FeePayment.query.get_or_404(id)
+    sent = send_payment_receipt(payment)
+    if sent['whatsapp'] or sent['email']:
+        flash(f'Receipt sent to parent(s): {sent["whatsapp"]} WhatsApp, '
+              f'{sent["email"]} email.', 'success')
+    else:
+        flash('Nothing sent. Check that WhatsApp/email are enabled and configured '
+              'under Settings → Communication, and that the parent has a phone/email.',
+              'warning')
+    return redirect(url_for('fee_receipt', id=id))
+
+
+@app.route('/fees/receipt/<int:id>/print')
+@login_required
+def fee_receipt_print(id):
+    """Print view of a receipt — 80mm thermal-printer friendly, works with
+    any printer via the browser print dialog."""
+    payment = FeePayment.query.get_or_404(id)
+    recorder = _resolve_recorder(payment.received_by)
+    signature_id = _generate_signature_id(payment)
+    return render_template('fees/receipt_print.html', payment=payment,
+                           recorder=recorder, signature_id=signature_id,
+                           theme=get_theme())
+
+
 @app.route('/exams/<int:exam_id>/student/<int:student_id>/report-card/pdf')
 @login_required
 def report_card_pdf(exam_id, student_id):
     """Download a PDF report card for a student's exam results."""
     exam = Exam.query.get_or_404(exam_id)
     student = Student.query.get_or_404(student_id)
-    results = ExamResult.query.filter_by(student_id=student_id, exam_id=exam_id).all()
+    if session.get('user_role') == 'teacher':
+        staff = _staff_for_current_user()
+        if not staff or not teacher_can_access_student(staff.id, student_id):
+            flash('You do not have access to that learner.', 'danger')
+            return redirect(url_for('teacher_home'))
+    results_query = ExamResult.query.filter_by(student_id=student_id, exam_id=exam_id)
+    if session.get('user_role') == 'teacher':
+        subject_ids = get_teacher_subject_ids(staff.id, class_id=student.class_id)
+        results_query = results_query.filter(ExamResult.subject_id.in_(subject_ids))
+    results = results_query.all()
     if not results:
         flash('No results found for this student in this exam.', 'warning')
         return redirect(url_for('report_card', exam_id=exam_id, student_id=student_id))
@@ -5200,13 +7156,76 @@ def report_card_pdf(exam_id, student_id):
 
 # ─── WhatsApp/SMS Notifications ───────────────────────────────────────
 
-def send_whatsapp_message(phone, message):
-    """Send a WhatsApp message via the Business API. Returns True on success."""
-    api_url = os.environ.get('WHATSAPP_API_URL', '')
-    api_token = os.environ.get('WHATSAPP_API_TOKEN', '')
-    phone_id = os.environ.get('WHATSAPP_PHONE_ID', '')
+# ─── Communication Settings (persisted, configurable per deployment) ───
 
-    if not api_url or not api_token:
+COMM_SETTING_KEYS = {
+    # WhatsApp / Meta Cloud API
+    'comm_whatsapp_api_url': 'WhatsApp API base URL (e.g. https://graph.facebook.com/v19.0)',
+    'comm_whatsapp_api_token': 'WhatsApp access token',
+    'comm_whatsapp_phone_id': 'WhatsApp Business phone number ID',
+    'comm_whatsapp_verify_token': 'WhatsApp webhook verify token',
+    'comm_whatsapp_enabled': 'WhatsApp sending enabled',
+    'comm_auto_receipt_whatsapp': 'Automatically send fee receipts by WhatsApp',
+    # Email / SMTP
+    'comm_smtp_host': 'SMTP server host',
+    'comm_smtp_port': 'SMTP server port',
+    'comm_smtp_user': 'SMTP username',
+    'comm_smtp_pass': 'SMTP password',
+    'comm_smtp_from': 'From email address',
+    'comm_smtp_tls': 'Use TLS (STARTTLS)',
+    'comm_smtp_enabled': 'Email sending enabled',
+    'comm_auto_receipt_email': 'Automatically send fee receipts by email',
+}
+
+
+def comm_setting(key, default=''):
+    """Read a communication setting (DB first, then environment variable)."""
+    env_map = {
+        'comm_whatsapp_api_url': 'WHATSAPP_API_URL',
+        'comm_whatsapp_api_token': 'WHATSAPP_API_TOKEN',
+        'comm_whatsapp_phone_id': 'WHATSAPP_PHONE_ID',
+        'comm_whatsapp_verify_token': 'WHATSAPP_VERIFY_TOKEN',
+        'comm_smtp_host': 'SMTP_HOST',
+        'comm_smtp_port': 'SMTP_PORT',
+        'comm_smtp_user': 'SMTP_USER',
+        'comm_smtp_pass': 'SMTP_PASS',
+        'comm_smtp_from': 'SMTP_FROM',
+        'comm_smtp_tls': 'SMTP_USE_TLS',
+    }
+    stored = SyncSetting.get(key, '')
+    if stored:
+        return stored
+    env_name = env_map.get(key)
+    if env_name and os.environ.get(env_name):
+        return os.environ[env_name]
+    return default
+
+
+def comm_setting_bool(key, default=False):
+    return comm_setting(key, 'true' if default else 'false').strip().lower() in ('true', '1', 'yes', 'on')
+
+
+def set_comm_setting(key, value, description=''):
+    SyncSetting.set(key, value, description or COMM_SETTING_KEYS.get(key, ''))
+
+
+def whatsapp_configured():
+    return bool(comm_setting('comm_whatsapp_api_url') and comm_setting('comm_whatsapp_api_token')
+                and comm_setting('comm_whatsapp_phone_id'))
+
+
+def smtp_configured():
+    return bool(comm_setting('comm_smtp_host') and comm_setting('comm_smtp_user')
+                and comm_setting('comm_smtp_pass'))
+
+
+def send_whatsapp_message(phone, message):
+    """Send a WhatsApp message via the Business (Meta) API. Returns True on success."""
+    api_url = comm_setting('comm_whatsapp_api_url')
+    api_token = comm_setting('comm_whatsapp_api_token')
+    phone_id = comm_setting('comm_whatsapp_phone_id')
+
+    if not api_url or not api_token or not phone_id:
         # Log for manual processing
         log_sync('WhatsApp', 0, 'SEND', {'phone': phone, 'message': message[:200]})
         return False
@@ -5233,7 +7252,7 @@ def send_whatsapp_to_parents(student_ids, message):
     """Send WhatsApp message to parents of given students."""
     sent = 0
     for sid in student_ids:
-        student = Student.query.get(sid)
+        student = db.session.get(Student, sid)
         if student and student.parents:
             for parent in student.parents:
                 if parent.phone:
@@ -5242,6 +7261,93 @@ def send_whatsapp_to_parents(student_ids, message):
                         if send_whatsapp_message(phone, message):
                             sent += 1
     return sent
+
+
+# ─── Payment receipts (automatic + manual) ─────────────────────────────
+
+def build_receipt_text(payment):
+    """Plain-text receipt body used by WhatsApp / SMS / email."""
+    theme = get_theme()
+    student = payment.student
+    currency = theme.get('currency_symbol', '$')
+    inv = Invoice.query.filter_by(
+        student_id=student.id,
+        term_id=payment.term_id,
+        academic_year_id=payment.academic_year_id,
+    ).first()
+    paid_total = db.session.query(db.func.sum(FeePayment.amount)).filter(
+        FeePayment.student_id == student.id,
+        FeePayment.term_id == payment.term_id,
+        FeePayment.academic_year_id == payment.academic_year_id,
+    ).scalar() or 0.0
+    balance = max(0.0, (inv.total_amount if inv else 0.0) - paid_total)
+    term = db.session.get(Term, payment.term_id) if payment.term_id else None
+    term_name = term.name if term else ''
+    lines = [
+        f"*{theme.get('school_name', 'School')}*",
+        f"{theme.get('school_motto', '')}".strip(),
+        '=' * 34,
+        'OFFICIAL FEE RECEIPT',
+        '=' * 34,
+        f"Receipt No: {payment.receipt_number}",
+        f"Date: {payment.payment_date.strftime('%d %B %Y') if payment.payment_date else ''}",
+        f"Student: {student.first_name} {student.last_name}",
+        f"Adm No: {student.admission_number}",
+        f"Class: {student.class_.name if student.class_ else '-'}",
+        f"Term: {term_name}",
+        f"Method: {payment.payment_method or 'Cash'}",
+        '-' * 34,
+        f"AMOUNT PAID: {currency}{payment.amount:,.2f}",
+        '-' * 34,
+        f"Balance for {term_name}: {currency}{balance:,.2f}",
+        '',
+        "Thank you for your payment!",
+        f"{theme.get('software_name', 'MobiSchola')} v{theme.get('software_version', APP_VERSION)} - {theme.get('software_byline', SOFTWARE_BYLINE)}",
+    ]
+    if payment.description:
+        lines.insert(-4, f"Note: {payment.description}")
+    return '\n'.join(lines)
+
+
+def parent_phones_for_student(student):
+    """Unique normalized phone numbers of a student's parents."""
+    phones = []
+    seen = set()
+    for parent in (student.parents if student else []):
+        phone = re.sub(r'[^0-9+]', '', parent.phone or '')
+        key = phone[-9:] if len(phone) >= 9 else phone
+        if len(phone) >= 10 and key not in seen:
+            seen.add(key)
+            phones.append(phone)
+    return phones
+
+
+def send_payment_receipt(payment):
+    """Automatically send the receipt for a payment via WhatsApp and/or email.
+
+    Respects the communication settings toggles. Returns dict with counts.
+    """
+    result = {'whatsapp': 0, 'email': 0}
+    if not payment or not payment.student:
+        return result
+    text = build_receipt_text(payment)
+    student = payment.student
+
+    if comm_setting_bool('comm_whatsapp_enabled') and comm_setting_bool('comm_auto_receipt_whatsapp'):
+        for phone in parent_phones_for_student(student):
+            if send_whatsapp_message(phone, text):
+                result['whatsapp'] += 1
+
+    if comm_setting_bool('comm_smtp_enabled') and comm_setting_bool('comm_auto_receipt_email'):
+        emails = [p.email for p in (student.parents or []) if p.email and '@' in p.email]
+        if emails:
+            result['email'] = send_email_notification(
+                to_emails=emails,
+                subject=f'Fee Receipt {payment.receipt_number}',
+                body=text,
+                html_body=f'<pre style="font-family:monospace;font-size:12px;">{text}</pre>',
+            )
+    return result
 
 
 # ─── Email/SMTP Notifications ─────────────────────────────────────────
@@ -5257,12 +7363,12 @@ def send_email_notification(to_emails, subject, body, html_body=None):
       SMTP_FROM: From email address (default: SMTP_USER)
       SMTP_USE_TLS: Use TLS (default True)
     """
-    smtp_host = os.environ.get('SMTP_HOST', '')
-    smtp_port = int(os.environ.get('SMTP_PORT', '587'))
-    smtp_user = os.environ.get('SMTP_USER', '')
-    smtp_pass = os.environ.get('SMTP_PASS', '')
-    smtp_from = os.environ.get('SMTP_FROM', smtp_user)
-    smtp_tls = os.environ.get('SMTP_USE_TLS', 'true').lower() in ('true', '1', 'yes')
+    smtp_host = comm_setting('comm_smtp_host')
+    smtp_port = int(comm_setting('comm_smtp_port', '587') or 587)
+    smtp_user = comm_setting('comm_smtp_user')
+    smtp_pass = comm_setting('comm_smtp_pass')
+    smtp_from = comm_setting('comm_smtp_from', smtp_user) or smtp_user
+    smtp_tls = comm_setting_bool('comm_smtp_tls', True)
 
     if not smtp_host or not smtp_user or not smtp_pass:
         # SMTP not configured — log for manual processing
@@ -5348,18 +7454,19 @@ def email_send():
 
         # Deduplicate
         emails = list(set(emails))
+        _email_theme = get_theme()
         sent = send_email_notification(
             to_emails=emails,
             subject=subject,
             body=message,
             html_body=f"<div style='font-family:Segoe UI,sans-serif;max-width:600px;margin:0 auto;'>"
                       f"<div style='background:#1F2080;color:#fff;padding:20px;text-align:center;border-radius:12px 12px 0 0'>"
-                      f"<h2 style='margin:0'>Excel Group of Schools</h2>"
-                      f"<p style='margin:4px 0 0;opacity:.8'>Excellence in Education</p></div>"
+                      f"<h2 style='margin:0'>{_email_theme.get('school_name', 'School')}</h2>"
+                      f"<p style='margin:4px 0 0;opacity:.8'>{_email_theme.get('school_motto', '')}</p></div>"
                       f"<div style='padding:20px;background:#fff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px'>"
                       f"<h3>{subject}</h3><p style='line-height:1.6'>{message}</p></div>"
                       f"<p style='text-align:center;font-size:11px;color:#9ca3af;margin-top:12px'>"
-                      f"Excel Group of Schools v2.0.0 — Valentine T Mabheka</p></div>"
+                      f"{_software_footer(_email_theme)} — {_email_theme.get('software_tagline', '')}</p></div>"
         )
 
         flash(f'Email: {sent} of {len(emails)} recipient(s) reached.', 'success' if sent > 0 else 'warning')
@@ -5415,8 +7522,555 @@ def whatsapp_send():
         return redirect(url_for('whatsapp_send'))
 
     classes = Class.query.order_by(Class.name).all()
-    whatsapp_configured = bool(os.environ.get('WHATSAPP_API_URL') and os.environ.get('WHATSAPP_API_TOKEN'))
+    whatsapp_configured = whatsapp_configured()
     return render_template('communication/whatsapp.html', classes=classes, whatsapp_configured=whatsapp_configured)
+
+
+# ─── Communication Settings ────────────────────────────────────────────
+
+@app.route('/settings/communication', methods=['GET', 'POST'])
+@login_required
+@role_required('super_admin')
+def communication_settings():
+    """Configure WhatsApp and email communication systems."""
+    if request.method == 'POST':
+        # WhatsApp fields
+        for key in ('comm_whatsapp_api_url', 'comm_whatsapp_api_token',
+                    'comm_whatsapp_phone_id', 'comm_whatsapp_verify_token'):
+            set_comm_setting(key, (request.form.get(key) or '').strip())
+        set_comm_setting('comm_whatsapp_enabled',
+                         'true' if request.form.get('comm_whatsapp_enabled') == 'on' else 'false')
+        set_comm_setting('comm_auto_receipt_whatsapp',
+                         'true' if request.form.get('comm_auto_receipt_whatsapp') == 'on' else 'false')
+        # Email fields
+        for key in ('comm_smtp_host', 'comm_smtp_user', 'comm_smtp_pass',
+                    'comm_smtp_from'):
+            set_comm_setting(key, (request.form.get(key) or '').strip())
+        try:
+            set_comm_setting('comm_smtp_port', str(int(request.form.get('comm_smtp_port') or 587)))
+        except (TypeError, ValueError):
+            set_comm_setting('comm_smtp_port', '587')
+        set_comm_setting('comm_smtp_tls',
+                         'true' if request.form.get('comm_smtp_tls') == 'on' else 'false')
+        set_comm_setting('comm_smtp_enabled',
+                         'true' if request.form.get('comm_smtp_enabled') == 'on' else 'false')
+        set_comm_setting('comm_auto_receipt_email',
+                         'true' if request.form.get('comm_auto_receipt_email') == 'on' else 'false')
+        flash('Communication settings saved.', 'success')
+        return redirect(url_for('communication_settings'))
+
+    vals = {key: comm_setting(key) for key in COMM_SETTING_KEYS}
+    vals['comm_whatsapp_enabled'] = comm_setting_bool('comm_whatsapp_enabled')
+    vals['comm_auto_receipt_whatsapp'] = comm_setting_bool('comm_auto_receipt_whatsapp')
+    vals['comm_smtp_tls'] = comm_setting_bool('comm_smtp_tls', True)
+    vals['comm_smtp_enabled'] = comm_setting_bool('comm_smtp_enabled')
+    vals['comm_auto_receipt_email'] = comm_setting_bool('comm_auto_receipt_email')
+    webhook_url = request.host_url.rstrip('/') + '/api/whatsapp/webhook'
+    return render_template('communication/settings.html', vals=vals,
+                           webhook_url=webhook_url,
+                           whatsapp_ready=whatsapp_configured(),
+                           smtp_ready=smtp_configured())
+
+
+@app.route('/settings/communication/test', methods=['POST'])
+@login_required
+@role_required('super_admin')
+def communication_test():
+    """Send a test WhatsApp message / email to verify the configuration."""
+    channel = request.form.get('channel', '')
+    recipient = (request.form.get('recipient') or '').strip()
+
+    if channel == 'whatsapp':
+        if not recipient:
+            flash('Enter a WhatsApp number to send the test to.', 'warning')
+            return redirect(url_for('communication_settings'))
+        phone = re.sub(r'[^0-9+]', '', recipient)
+        if send_whatsapp_message(phone, 'Hello! This is a test message from your school system. If you receive this, WhatsApp is configured correctly.'):
+            flash(f'Test WhatsApp message sent to {phone}.', 'success')
+        else:
+            flash('Test message failed. Check the WhatsApp API URL, token and phone ID.', 'danger')
+    elif channel == 'email':
+        if not recipient or '@' not in recipient:
+            flash('Enter a valid email address to send the test to.', 'warning')
+            return redirect(url_for('communication_settings'))
+        sent = send_email_notification(
+            to_emails=[recipient],
+            subject='Test email from school system',
+            body='Hello! This is a test email from your school system. If you receive this, SMTP is configured correctly.',
+        )
+        flash('Test email sent.' if sent else 'Test email failed. Check the SMTP settings.', 'success' if sent else 'danger')
+    else:
+        flash('Unknown test channel.', 'warning')
+    return redirect(url_for('communication_settings'))
+
+
+# ─── WhatsApp Parent Records Bot ───────────────────────────────────────
+
+def _normalize_phone_key(phone):
+    """Return the last 9 digits of a phone number for matching."""
+    digits = re.sub(r'[^0-9]', '', phone or '')
+    return digits[-9:] if len(digits) >= 9 else digits
+
+
+def find_parent_by_whatsapp_number(phone):
+    """Match an incoming WhatsApp number to a Parent record."""
+    key = _normalize_phone_key(phone)
+    if not key:
+        return None
+    for parent in Parent.query.filter(Parent.phone.isnot(None), Parent.phone != '').all():
+        if _normalize_phone_key(parent.phone) == key:
+            return parent
+    return None
+
+
+def _whatsapp_student_balance(student):
+    term = get_current_term()
+    ay = get_current_academic_year()
+    currency = get_theme().get('currency_symbol', '$')
+    if not term or not ay:
+        return 'No current term configured.'
+    inv = Invoice.query.filter_by(student_id=student.id, term_id=term.id,
+                                  academic_year_id=ay.id).first()
+    if not inv:
+        return (f"{student.first_name} ({student.admission_number}): "
+                f"no invoice for {term.name} {ay.name}.")
+    paid = db.session.query(db.func.sum(FeePayment.amount)).filter(
+        FeePayment.student_id == student.id,
+        FeePayment.term_id == term.id,
+        FeePayment.academic_year_id == ay.id,
+    ).scalar() or 0.0
+    balance = max(0.0, float(inv.total_amount or 0.0) - float(paid))
+    return (f"{student.first_name} {student.last_name} ({student.admission_number})\n"
+            f"Class: {student.class_.name if student.class_ else '-'}\n"
+            f"Term: {term.name} ({ay.name})\n"
+            f"Invoice total: {currency}{inv.total_amount:,.2f}\n"
+            f"Paid to date: {currency}{float(paid):,.2f}\n"
+            f"Balance due: {currency}{balance:,.2f}")
+
+
+def _whatsapp_student_results(student):
+    results = ExamResult.query.filter_by(student_id=student.id).order_by(
+        ExamResult.id.desc()).limit(10).all()
+    if not results:
+        return (f"{student.first_name} ({student.admission_number}): "
+                f"no exam results recorded yet.")
+    lines = [f"{student.first_name} {student.last_name} - Latest Results:"]
+    for r in reversed(results):
+        subject = db.session.get(Subject, r.subject_id) if r.subject_id else None
+        subject_name = subject.name if subject else 'Subject'
+        lines.append(f"  {subject_name}: {r.marks_obtained}/{r.marks_total} "
+                     f"({r.grade or '-'})")
+    return '\n'.join(lines)
+
+
+def _whatsapp_student_receipts(student):
+    payments = FeePayment.query.filter_by(student_id=student.id).order_by(
+        FeePayment.payment_date.desc()).limit(5).all()
+    if not payments:
+        return (f"{student.first_name} ({student.admission_number}): "
+                f"no payments recorded yet.")
+    currency = get_theme().get('currency_symbol', '$')
+    lines = [f"{student.first_name} {student.last_name} - Recent Payments:"]
+    for p in payments:
+        lines.append(f"  {p.payment_date.strftime('%d %b %Y') if p.payment_date else ''} "
+                     f"{currency}{p.amount:,.2f} ({p.payment_method or 'Cash'}) "
+                     f"- {p.receipt_number}")
+    return '\n'.join(lines)
+
+
+def _whatsapp_student_summary(student):
+    currency = get_theme().get('currency_symbol', '$')
+    term = get_current_term()
+    inv = None
+    if term:
+        inv = Invoice.query.filter_by(student_id=student.id, term_id=term.id).first()
+    lines = [
+        f"*{student.first_name} {student.last_name}*",
+        f"Adm No: {student.admission_number}",
+        f"Class: {student.class_.name if student.class_ else '-'}",
+        f"Entry Mode: {student.entry_mode or 'Day'}",
+        f"Status: {student.status}",
+    ]
+    if inv:
+        lines.append(f"Current invoice ({term.name if term else ''}): "
+                     f"{currency}{inv.total_amount:,.2f}")
+    parents = student.parents
+    if parents:
+        lines.append(f"Parent: {parents[0].first_name} {parents[0].last_name}")
+    return '\n'.join(lines)
+
+
+WHATSAPP_HELP_TEXT = (
+    "Welcome to the school records WhatsApp service!\n"
+    "Reply with one of the following:\n"
+    "*BALANCE* - fee balance for your child(ren)\n"
+    "*RESULTS* - latest exam results\n"
+    "*RECEIPTS* - recent fee payments\n"
+    "*RECORD* - child's school record summary\n"
+    "*REGISTER* - register your number as a parent\n"
+    "*HELP* - show this menu"
+)
+
+
+# ─── Parent registration via WhatsApp ──────────────────────────────────
+
+WHATSAPP_SESSION_TTL = 24 * 60 * 60  # seconds
+
+
+def _wa_session_get(phone):
+    return WhatsAppSession.query.filter_by(phone=phone).first()
+
+
+def _wa_session_set(phone, step, data):
+    session = _wa_session_get(phone)
+    if session is None:
+        session = WhatsAppSession(phone=phone, step=step, data=json.dumps(data or {}))
+        db.session.add(session)
+    else:
+        session.step = step
+        session.data = json.dumps(data or {})
+        session.updated_at = datetime.utcnow()
+    db.session.commit()
+    return session
+
+
+def _wa_session_clear(phone):
+    session = _wa_session_get(phone)
+    if session:
+        db.session.delete(session)
+        db.session.commit()
+
+
+def _wa_session_stale(session):
+    if not session or not session.updated_at:
+        return False
+    return (datetime.utcnow() - session.updated_at).total_seconds() > WHATSAPP_SESSION_TTL
+
+
+_WHATSAPP_LEVEL_RE = re.compile(
+    r'\b(ecd\s*[ab]?|grade\s*\d{1,2}|gr\s*\d{1,2}|form\s*\d{1,2})\b', re.IGNORECASE)
+
+
+def _parse_child_query(text):
+    """Split 'Tanaka Moyo Grade 6' into (name, level)."""
+    cleaned = re.sub(r'^(register|reg)\b', '', (text or '').strip(), flags=re.IGNORECASE).strip()
+    m = _WHATSAPP_LEVEL_RE.search(cleaned)
+    level = ''
+    name = cleaned
+    if m:
+        level = re.sub(r'\s+', ' ', m.group(1).strip())
+        name = (cleaned[:m.start()] + ' ' + cleaned[m.end():]).strip()
+    return name, level
+
+
+def _find_students_by_name_level(name, level):
+    """Match active learners by name parts and (optional) class level."""
+    name = re.sub(r'\s+', ' ', (name or '').strip())
+    if not name:
+        return []
+    query = Student.query.filter(Student.status == 'Active')
+    parts = name.split()
+    for part in parts:
+        like = f'%{part}%'
+        query = query.filter(db.or_(
+            Student.first_name.ilike(like),
+            Student.last_name.ilike(like),
+            Student.other_names.ilike(like),
+        ))
+    students = query.limit(30).all()
+    if level:
+        lvl = level.lower()
+        filtered = []
+        for s in students:
+            if s.class_ and s.class_.level and s.class_.level.strip().lower().startswith(lvl):
+                filtered.append(s)
+        students = filtered
+    return students
+
+
+def _student_line(student, index=None):
+    prefix = f'{index}. ' if index else ''
+    return (f"{prefix}{student.first_name} {student.last_name}"
+            f" - {student.class_.name if student.class_ else 'No class'}"
+            f" (Adm {student.admission_number})")
+
+
+def handle_parent_registration(phone, text):
+    """Step-by-step WhatsApp registration for a parent.
+
+    Flow: REGISTER <child name> <level> -> confirm child -> collect the
+    parent's own details (name, relationship, phone, email, occupation,
+    national ID, address — matching the student registration form).
+    """
+    cmd = (text or '').strip()
+    lower = cmd.lower()
+    session = _wa_session_get(phone)
+
+    if _wa_session_stale(session):
+        _wa_session_clear(phone)
+        session = None
+
+    if lower in ('cancel', 'stop', 'quit'):
+        _wa_session_clear(phone)
+        return 'Registration cancelled. Text REGISTER to start again.'
+
+    # ── No active session: only start when the message says REGISTER ──
+    if session is None:
+        if not lower.startswith('register'):
+            return ('To register as a parent, text:\n'
+                    '*REGISTER <child full name> <level>*\n'
+                    'Example: REGISTER Tanaka Moyo Grade 6')
+        child_query = cmd[len('register'):].strip()
+        if not child_query:
+            return ('Please provide your child\'s FULL NAME and LEVEL.\n'
+                    'Example: REGISTER Tanaka Moyo Grade 6')
+        name, level = _parse_child_query(child_query)
+        students = _find_students_by_name_level(name, level)
+        if not students:
+            return (f'No learner found matching "{child_query}".\n'
+                    'Check the spelling and the LEVEL (e.g. Grade 6, Form 3) '
+                    'and try again.\nText REGISTER to restart.')
+        if len(students) > 1:
+            lines = ['Multiple learners found. Reply with the NUMBER of your child:']
+            for i, s in enumerate(students[:5], 1):
+                lines.append(_student_line(s, i))
+            if len(students) > 5:
+                lines.append(f'... and {len(students) - 5} more')
+            _wa_session_set(phone, 'select', {'candidates': [s.id for s in students[:5]]})
+            return '\n'.join(lines)
+        _wa_session_set(phone, 'confirm', {'student_id': students[0].id})
+        return (f'Found: {_student_line(students[0])}.\n'
+                'Reply *YES* to register, or *NO* to cancel.')
+
+    # ── Session in progress: consume the reply as the current step answer ──
+    step = session.step
+    try:
+        data = json.loads(session.data or '{}')
+    except (TypeError, ValueError):
+        data = {}
+
+    if step == 'select':
+        try:
+            choice = int(lower.strip())
+        except ValueError:
+            return ('Please reply with the NUMBER of your child '
+                    '(e.g. 1, 2). Text CANCEL to stop.')
+        candidates = data.get('candidates') or []
+        if choice < 1 or choice > len(candidates):
+            return f'Please reply with a number between 1 and {len(candidates)}.'
+        _wa_session_set(phone, 'confirm', {'student_id': candidates[choice - 1]})
+        student = db.session.get(Student, candidates[choice - 1])
+        return (f'You selected: {_student_line(student)}.\n'
+                'Reply *YES* to register, or *NO* to cancel.')
+
+    if step == 'confirm':
+        if lower in ('yes', 'y', 'yeah', 'ok', 'correct', 'confirm'):
+            student = db.session.get(Student, data.get('student_id'))
+            if not student:
+                _wa_session_clear(phone)
+                return 'The learner was not found. Text REGISTER to start again.'
+            existing = find_parent_by_whatsapp_number(phone)
+            if existing:
+                if student not in existing.students:
+                    existing.students.append(student)
+                    db.session.commit()
+                _wa_session_clear(phone)
+                return (f'Your number is already registered, {existing.first_name}. '
+                        f'{student.first_name} {student.last_name} has been linked to '
+                        'your profile.\nYou can now text BALANCE, RESULTS, RECEIPTS or RECORD.')
+            _wa_session_set(phone, 'parent_first_name', {'student_id': student.id})
+            return ('Almost done! Now add your details (as on the student registration form).\n\n'
+                    '*Step 1 of 7*: Enter your FIRST NAME.')
+        _wa_session_clear(phone)
+        return 'Registration cancelled. Text REGISTER to start again.'
+
+    # ── Collecting the parent's own details ──
+    value = cmd.strip()
+    if step == 'parent_first_name':
+        if len(value) < 2:
+            return 'Please enter a valid first name (at least 2 letters).'
+        data['first_name'] = value
+        next_step, prompt = 'parent_last_name', '*Step 2 of 7*: Enter your LAST NAME.'
+    elif step == 'parent_last_name':
+        if len(value) < 2:
+            return 'Please enter a valid last name (at least 2 letters).'
+        data['last_name'] = value
+        next_step = 'parent_relationship'
+        prompt = ('*Step 3 of 7*: Enter your RELATIONSHIP to the child '
+                  '(Father, Mother, Guardian).')
+    elif step == 'parent_relationship':
+        rel = value.lower()
+        if rel not in ('father', 'mother', 'guardian', 'aunt', 'uncle',
+                       'grandfather', 'grandmother', 'sibling', 'other'):
+            return 'Please enter a valid relationship (e.g. Father, Mother, Guardian).'
+        data['relationship'] = value.title()
+        next_step, prompt = 'parent_email', '*Step 4 of 7*: Enter your EMAIL address (or type SKIP).'
+    elif step == 'parent_email':
+        v = value.lower()
+        if v in ('skip', 'none', 'n/a', '-'):
+            data['email'] = ''
+        elif '@' not in v or '.' not in v:
+            return 'That does not look like a valid email. Try again or type SKIP.'
+        else:
+            data['email'] = v
+        next_step, prompt = 'parent_occupation', '*Step 5 of 7*: Enter your OCCUPATION (or type SKIP).'
+    elif step == 'parent_occupation':
+        v = value.lower()
+        if v in ('skip', 'none', 'n/a', '-'):
+            data['occupation'] = ''
+        else:
+            data['occupation'] = value
+        next_step = 'parent_national_id'
+        prompt = '*Step 6 of 7*: Enter your NATIONAL ID number (or type SKIP).'
+    elif step == 'parent_national_id':
+        v = value.lower()
+        if v in ('skip', 'none', 'n/a', '-'):
+            data['national_id'] = ''
+        else:
+            data['national_id'] = value
+        next_step, prompt = 'parent_address', '*Step 7 of 7*: Enter your HOME ADDRESS (or type SKIP).'
+    elif step == 'parent_address':
+        v = value.lower()
+        if v in ('skip', 'none', 'n/a', '-'):
+            data['address'] = ''
+        else:
+            data['address'] = value
+        # ── Create the parent record and link to the child ──
+        student = db.session.get(Student, data.get('student_id'))
+        parent = Parent(
+            first_name=data.get('first_name', ''),
+            last_name=data.get('last_name', ''),
+            relationship=data.get('relationship', ''),
+            phone=phone,
+            email=data.get('email') or None,
+            occupation=data.get('occupation') or None,
+            national_id=data.get('national_id') or None,
+            address=data.get('address') or None,
+        )
+        db.session.add(parent)
+        db.session.flush()
+        if student:
+            student.parents.append(parent)
+        db.session.commit()
+        log_sync('Parent', parent.id, 'CREATE', {
+            'first_name': parent.first_name,
+            'last_name': parent.last_name,
+            'relationship': parent.relationship,
+            'phone': parent.phone,
+            'email': parent.email,
+            'occupation': parent.occupation,
+            'national_id': parent.national_id,
+            'address': parent.address,
+            'sync_id': parent.sync_id,
+        })
+        _wa_session_clear(phone)
+        child_line = _student_line(student) if student else ''
+        return (f'🎉 Registration complete, {parent.first_name}!\n'
+                f'Child: {child_line}\n'
+                'Your details are now linked to the school records.\n'
+                'You can text BALANCE, RESULTS, RECEIPTS or RECORD anytime.')
+    else:
+        _wa_session_clear(phone)
+        return 'Your registration session expired. Text REGISTER to start again.'
+
+    _wa_session_set(phone, next_step, data)
+    return prompt
+
+
+def process_whatsapp_message(phone, text):
+    """Handle an inbound WhatsApp message from a parent and return a reply."""
+    cmd = (text or '').strip().lower()
+    session = _wa_session_get(phone)
+    if _wa_session_stale(session):
+        _wa_session_clear(phone)
+        session = None
+    # Route registration: an active registration conversation, the REGISTER
+    # command, or CANCEL/STOP always go to the registration handler.
+    if session is not None or cmd.startswith('register') or cmd in ('cancel', 'stop', 'quit'):
+        return handle_parent_registration(phone, text)
+
+    parent = find_parent_by_whatsapp_number(phone)
+    if not parent:
+        return ("Sorry, we could not find a parent record linked to this number. "
+                "Please contact the school office to register your number.")
+    students = parent.students
+    if not students:
+        return ("Your number is linked to the school records, but no children "
+                "are linked to your profile yet. Contact the school office.")
+
+    cmd = (text or '').strip().lower()
+    if any(k in cmd for k in ('help', 'menu', 'start', 'hi', 'hello', 'how')):
+        return WHATSAPP_HELP_TEXT
+
+    if any(k in cmd for k in ('balance', 'fees', 'fee', 'owing', 'debt')):
+        parts = ['*Fee Balance*']
+        for student in students:
+            parts.append(_whatsapp_student_balance(student))
+            parts.append('')
+        return '\n'.join(parts).strip()
+
+    if any(k in cmd for k in ('result', 'marks', 'grade', 'exam')):
+        parts = ['*Exam Results*']
+        for student in students:
+            parts.append(_whatsapp_student_results(student))
+            parts.append('')
+        return '\n'.join(parts).strip()
+
+    if any(k in cmd for k in ('receipt', 'payment', 'paid')):
+        parts = ['*Recent Payments*']
+        for student in students:
+            parts.append(_whatsapp_student_receipts(student))
+            parts.append('')
+        return '\n'.join(parts).strip()
+
+    if any(k in cmd for k in ('record', 'summary', 'profile', 'info', 'class')):
+        parts = ['*School Record*']
+        for student in students:
+            parts.append(_whatsapp_student_summary(student))
+            parts.append('')
+        return '\n'.join(parts).strip()
+
+    return WHATSAPP_HELP_TEXT
+
+
+@app.route('/api/whatsapp/webhook', methods=['GET', 'POST'])
+def whatsapp_webhook():
+    """Inbound WhatsApp webhook (Meta Cloud API / Twilio-compatible).
+
+    GET  - webhook verification (hub.mode / hub.verify_token / hub.challenge)
+    POST - receive messages; the bot replies to the parent's number.
+    """
+    if request.method == 'GET':
+        mode = request.args.get('hub.mode', '')
+        token = request.args.get('hub.verify_token', '')
+        challenge = request.args.get('hub.challenge', '')
+        expected = comm_setting('comm_whatsapp_verify_token')
+        if mode == 'subscribe' and expected and token == expected:
+            return challenge, 200
+        return 'Verification failed', 403
+
+    # POST: Meta Cloud API envelope
+    try:
+        body = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        body = {}
+    replied = 0
+    for entry in body.get('entry', []):
+        for change in entry.get('changes', []):
+            value = change.get('value', {})
+            for msg in value.get('messages', []):
+                phone = str(msg.get('from', ''))
+                text = ''
+                if msg.get('type') == 'text':
+                    text = msg.get('text', {}).get('body', '')
+                elif msg.get('type') == 'interactive':
+                    text = msg.get('interactive', {}).get('button_reply', {}).get('title', '')
+                if not text:
+                    continue
+                reply = process_whatsapp_message(phone, text)
+                if send_whatsapp_message(phone, reply):
+                    replied += 1
+    return jsonify({'status': 'ok', 'replied': replied})
 
 
 # ─── Parent Portal ────────────────────────────────────────────────────
@@ -5693,7 +8347,7 @@ def api_sync():
         'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
         'ExamResult': ExamResult,
         'Notice': Notice, 'FeeStructure': FeeStructure, 'FeeLevel': FeeLevel,
-        'Class': Class, 'Subject': Subject,
+        'Class': Class, 'Subject': Subject, 'StaffSubject': StaffSubject,
         'AcademicYear': AcademicYear, 'Term': Term,
     }
 
@@ -5739,7 +8393,7 @@ def api_sync():
                     if hasattr(new_record, key) and key != 'id':
                         try: setattr(new_record, key, value)
                         except: pass
-                if not new_record.sync_id and sync_id_val:
+                if hasattr(new_record, 'sync_id') and not new_record.sync_id and sync_id_val:
                     new_record.sync_id = sync_id_val
                 db.session.add(new_record)
                 db.session.flush()
@@ -5816,7 +8470,7 @@ def api_sync_webhook():
     sync_id_val = entity_data.get('sync_id', '')
     entity_models = {
         'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
-        'FeeLevel': FeeLevel, 'Class': Class, 'Subject': Subject,
+        'FeeLevel': FeeLevel, 'Class': Class, 'Subject': Subject, 'StaffSubject': StaffSubject,
     }
     if entity_type in entity_models and action in ('CREATE', 'UPDATE'):
         model = entity_models[entity_type]
@@ -5849,30 +8503,15 @@ def api_export_entity(entity):
     api_key = request.headers.get('X-ESM-API-Key', '')
     if api_key != app.config['SYNC_API_KEY']:
         return jsonify({'error': 'Invalid API key'}), 403
-    entity_map = {
-        'students': Student, 'staff': Staff, 'fee_payments': FeePayment,
-        'fee_levels': FeeLevel, 'fee_structures': FeeStructure,
-        'classes': Class, 'subjects': Subject,
-        'academic_years': AcademicYear, 'terms': Term,
-        'exam_results': ExamResult,
-        'notices': Notice,
-    }
-    model = entity_map.get(entity)
-    if not model:
-        return jsonify({'error': f'Unknown entity: {entity}'}), 400
-    records = model.query.all()
-    data = []
-    for r in records:
-        row = {}
-        for c in r.__table__.columns:
-            val = getattr(r, c.name)
-            if isinstance(val, (datetime, date)):
-                val = val.isoformat()
-            elif isinstance(val, timedelta):
-                val = str(val)
-            row[c.name] = val
-        data.append(row)
-    return jsonify({'entity': entity, 'data': data, 'count': len(data), 'version': '2.0.0'})
+    if entity == 'student_parent':
+        records = db.session.execute(db.select(student_parent)).mappings().all()
+        data = [dict(row) for row in records]
+    else:
+        model = SYNC_EXPORT_MODELS.get(entity)
+        if not model:
+            return jsonify({'error': f'Unknown entity: {entity}'}), 400
+        data = [_serialize_sync_record(record) for record in model.query.all()]
+    return jsonify({'entity': entity, 'data': data, 'count': len(data), 'version': APP_VERSION})
 
 
 # ─── One-Button Sync & Auto-Sync APIs ────────────────────────────────
@@ -5888,7 +8527,7 @@ def api_check_internet():
     api_key = SyncSetting.get('sync_api_key', '') or app.config.get('SYNC_API_KEY', '')
     try:
         resp = requests.get(
-            f"{endpoint.rstrip('/')}/api/stats",
+            f"{_wp_rest_base(endpoint)}/stats",
             headers={'X-ESM-API-Key': api_key},
             timeout=8
         )
@@ -5942,7 +8581,7 @@ def api_one_button_sync():
                 'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
                 'ExamResult': ExamResult,
                 'Notice': Notice, 'FeeLevel': FeeLevel, 'Class': Class,
-                'Subject': Subject, 'FeeStructure': FeeStructure,
+                'Subject': Subject, 'FeeStructure': FeeStructure, 'StaffSubject': StaffSubject,
             }
             if log.action in ('CREATE', 'UPDATE') and log.entity_type in entity_tables:
                 model = entity_tables[log.entity_type]
@@ -5967,7 +8606,7 @@ def api_one_button_sync():
                 'timestamp': log.created_at.isoformat() if log.created_at else datetime.utcnow().isoformat(),
             }
             resp = requests.post(
-                f"{endpoint.rstrip('/')}/api/sync",
+                f"{_wp_rest_base(endpoint)}/sync",
                 json=payload,
                 headers={'Content-Type': 'application/json', 'X-ESM-API-Key': api_key},
                 timeout=30
@@ -5989,7 +8628,7 @@ def api_one_button_sync():
     # STEP 2: Pull changes from WordPress
     try:
         resp = requests.get(
-            f"{endpoint.rstrip('/')}/api/sync/pending",
+            f"{_wp_rest_base(endpoint)}/sync/pending",
             headers={'X-ESM-API-Key': api_key},
             timeout=30
         )
@@ -6003,7 +8642,7 @@ def api_one_button_sync():
                 'Student': Student, 'Staff': Staff, 'FeePayment': FeePayment,
                 'ExamResult': ExamResult,
                 'Notice': Notice, 'FeeLevel': FeeLevel, 'FeeStructure': FeeStructure,
-                'Class': Class, 'Subject': Subject,
+                'Class': Class, 'Subject': Subject, 'StaffSubject': StaffSubject,
                 'AcademicYear': AcademicYear, 'Term': Term,
             }
 
@@ -6070,7 +8709,7 @@ def api_one_button_sync():
             if synced_ids:
                 try:
                     requests.post(
-                        f"{endpoint.rstrip('/')}/api/sync/mark-synced",
+                        f"{_wp_rest_base(endpoint)}/sync/mark-synced",
                         json={'ids': synced_ids, 'api_key': api_key},
                         headers={'Content-Type': 'application/json', 'X-ESM-API-Key': api_key},
                         timeout=15
@@ -6124,6 +8763,39 @@ def api_auto_sync_settings():
     return jsonify({'success': True, 'enabled': enabled, 'interval': interval})
 
 
+@app.route('/sync/settings', methods=['POST'])
+@login_required
+@role_required('super_admin', 'bursar')
+def sync_save_settings():
+    """Save sync configuration from a plain form POST (works without JavaScript)."""
+    endpoint = (request.form.get('endpoint') or '').strip()
+    api_key = (request.form.get('api_key') or '').strip()
+    enabled = request.form.get('auto_sync_enabled') == 'on'
+    interval = 300
+    try:
+        interval = max(30, int(request.form.get('auto_sync_interval') or 300))
+    except (TypeError, ValueError):
+        pass
+
+    SyncSetting.set('sync_endpoint', endpoint, 'WordPress sync endpoint URL')
+    app.config['SYNC_ENDPOINT'] = endpoint
+    SyncSetting.set('sync_api_key', api_key, 'Sync API key')
+    app.config['SYNC_API_KEY'] = api_key
+    SyncSetting.set('auto_sync_enabled', 'true' if enabled else 'false', 'Auto-sync on/off')
+    SyncSetting.set('auto_sync_interval', str(interval), 'Auto-sync check interval (seconds)')
+
+    if enabled and not ap_monitor.status()['running']:
+        ap_monitor.start()
+    elif not enabled and ap_monitor.status()['running']:
+        ap_monitor.stop()
+
+    if endpoint:
+        flash('Sync settings saved successfully. Endpoint: ' + endpoint, 'success')
+    else:
+        flash('Sync settings saved. Configure the WordPress endpoint URL to connect.', 'warning')
+    return redirect(url_for('sync_dashboard'))
+
+
 @app.route('/api/sync/status')
 @login_required
 @role_required('super_admin', 'bursar')
@@ -6156,6 +8828,17 @@ def api_stats():
     return jsonify(get_dashboard_stats())
 
 
+@app.route('/healthz')
+def healthz():
+    """Unauthenticated liveness/readiness check for containers and proxies."""
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        return jsonify({'status': 'ok', 'version': APP_VERSION}), 200
+    except Exception:
+        app.logger.exception('Database health check failed')
+        return jsonify({'status': 'unhealthy'}), 503
+
+
 # ─── Initialize Database ──────────────────────────────────────────────
 
 def init_db():
@@ -6173,12 +8856,31 @@ def init_db():
             ('fee_structure', 'textbook_levy', 'FLOAT', '0'),
             ('student', 'is_new_learner', 'BOOLEAN', '1'),
             ('student', 'billed_once_off_levies', 'BOOLEAN', '0'),
+            ('student', 'entry_mode', 'VARCHAR(20)', "'Day'"),
+            ('student', 'cost_center_id', 'INTEGER', 'NULL'),
+            ('fee_level', 'stay_in_fee', 'FLOAT', '0'),
+            ('fee_structure', 'stay_in_fee', 'FLOAT', '0'),
+            ('class', 'sync_id', 'VARCHAR(36)', 'NULL'),
+            ('staff_subject', 'sync_id', 'VARCHAR(36)', 'NULL'),
+            ('staff', 'paye_deduction', 'FLOAT', '0'),
+            ('staff', 'aids_levy_deduction', 'FLOAT', '0'),
+            ('staff', 'other_deductions', 'FLOAT', '0'),
+            ('staff', 'bank_name', 'VARCHAR(100)', 'NULL'),
+            ('staff', 'bank_account', 'VARCHAR(50)', 'NULL'),
         ]:
             try:
                 conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type} DEFAULT {def_val}"))
                 conn.commit()
             except Exception:
                 pass
+
+    # Stable IDs let classes created on either installation upsert instead of
+    # duplicating during manual or automatic bidirectional sync.
+    for cls in Class.query.filter(Class.sync_id.is_(None)).all():
+        cls.sync_id = str(uuid.uuid4())
+    for assignment in StaffSubject.query.filter(StaffSubject.sync_id.is_(None)).all():
+        assignment.sync_id = str(uuid.uuid4())
+    db.session.commit()
 
     # Provision the default super admin. Existing installations that still use
     # the previous bootstrap account are migrated once, without resetting the
@@ -6225,93 +8927,173 @@ def init_db():
                 academic_year_id=ay.id,
                 start_date=start,
                 end_date=end,
-                is_current=(name == 'Term 2'),
+                is_current=(name == 'Term 3'),
             )
             db.session.add(t)
 
-    # Create default subjects
-    if not Subject.query.first():
-        # Primary subjects — Heritage-Based Curriculum 6 learning areas (ECD A – Grade 7)
-        primary_subjects = [
-            ('Language, Literacy and Communication', 'LLC',  True),
-            ('Mathematical Concepts and Numerical Activities', 'MCN', True),
-            ('Science and Technology',                    'SNT',  True),
-            ('Heritage Studies',                          'HST',  True),
-            ('Physical Education, Health and Wellbeing', 'PEHW', True),
-            ('Visual and Performing Arts',                'VPA',  True),
-        ]
-        # Secondary subjects (Form 1 – 6)
-        secondary_subjects = [
-            ('Mathematics', 'MATH', True),
-            ('English Language', 'ELAN', True),
-            ('Shona', 'SHON', True),
-            ('Science', 'SCI2', True),
-            ('History', 'HIST', True),
-            ('Geography', 'GEO', True),
-            ('Religious Studies', 'RS', True),
-            ('Physical Education', 'PE', True),
-            ('Art', 'ART', False),
-            ('Music', 'MUS', False),
-            ('Computer Studies', 'CS', False),
-            ('Agriculture', 'AGR', False),
-            ('Commerce', 'COM', False),
-            ('French', 'FRE', False),
-            ('Biology', 'BIO', True),
-            ('Chemistry', 'CHEM', True),
-            ('Physics', 'PHY', True),
-            ('Combined Science', 'CSC', True),
-            ('Principles of Accounts', 'POA', False),
-            ('Business Studies', 'BUST', False),
-            ('Economics', 'ECO', False),
-            ('Literature in English', 'LIT', False),
-            ('Additional Mathematics', 'AMTH', False),
-        ]
-        for name, code, compulsory in primary_subjects + secondary_subjects:
-            s = Subject(name=name, code=code, is_compulsory=compulsory)
-            db.session.add(s)
+    # Billing starts at Term 3 2026: move existing installations forward to
+    # Term 3 (creating it if the current year has no Term 3 yet). Once the
+    # current term is Term 3 this is a no-op on later startups.
+    billing_ay = AcademicYear.query.filter_by(is_current=True).first() or AcademicYear.query.first()
+    if billing_ay:
+        term3 = Term.query.filter_by(name='Term 3', academic_year_id=billing_ay.id).first()
+        if term3 is None:
+            term3 = Term(
+                name='Term 3',
+                academic_year_id=billing_ay.id,
+                start_date=date(2026, 9, 7),
+                end_date=date(2026, 12, 4),
+                is_current=False,
+            )
+            db.session.add(term3)
+            db.session.flush()
+        current_term = Term.query.filter_by(academic_year_id=billing_ay.id, is_current=True).first()
+        if current_term is None or current_term.name != 'Term 3':
+            Term.query.update({Term.is_current: False})
+            term3.is_current = True
+        db.session.commit()
+
+    # Ensure the approved primary subjects and standard secondary subjects
+    # exist on both new and upgraded installations. Existing custom subjects
+    # are retained because they may already be referenced by results.
+    primary_subjects = [
+        (name, PRIMARY_SUBJECT_CODES[name], True)
+        for name in PRIMARY_LEARNING_AREAS
+    ]
+    secondary_subjects = [
+        ('English Language', 'ELAN', True),
+        ('Shona', 'SHON', True),
+        ('Science', 'SCI2', True),
+        ('History', 'HIST', True),
+        ('Geography', 'GEO', True),
+        ('Religious Studies', 'RS', True),
+        ('Physical Education', 'PE', True),
+        ('Art', 'ART', False),
+        ('Music', 'MUS', False),
+        ('Computer Studies', 'CS', False),
+        ('Agriculture', 'AGR', False),
+        ('Commerce', 'COM', False),
+        ('French', 'FRE', False),
+        ('Biology', 'BIO', True),
+        ('Chemistry', 'CHEM', True),
+        ('Physics', 'PHY', True),
+        ('Combined Science', 'CSC', True),
+        ('Principles of Accounts', 'POA', False),
+        ('Business Studies', 'BUST', False),
+        ('Economics', 'ECO', False),
+        ('Literature in English', 'LIT', False),
+        ('Additional Mathematics', 'AMTH', False),
+    ]
+    for name, code, compulsory in primary_subjects + secondary_subjects:
+        subject = Subject.query.filter_by(code=code).first()
+        if not subject:
+            subject = Subject.query.filter_by(name=name).first()
+        if not subject:
+            db.session.add(Subject(name=name, code=code, is_compulsory=compulsory))
+        elif name in PRIMARY_LEARNING_AREAS:
+            # Normalize approved primary names/codes when upgrading.
+            subject.name = name
+            subject.code = code
+            subject.is_compulsory = True
 
     # Create default fee levels
     if not FeeLevel.query.first():
         fee_levels_data = [
-            ('ECD', 'ECD', 'Early Childhood Development (ECD A & B)', 150.0, 0.0, 10.0, 56.0),
-            ('Junior', 'JNR', 'Junior School (Grade 1 to Grade 7)', 100.0, 0.0, 10.0, 126.0),
-            ('O Level', 'OLV', 'O Level (Form 1 to Form 4)', 100.0, 30.0, 10.0, 56.0),
-            ('A Level', 'ALV', 'A Level (Form 5 to Form 6)', 150.0, 30.0, 10.0, 45.0),
+            # (name, code, desc, tuition, dev_levy, reg_fee, tb_levy, stay_in_fee)
+            ('ECD', 'ECD', 'Early Childhood Development (ECD A & B)', 150.0, 0.0, 10.0, 56.0, 300.0),
+            ('Junior', 'JNR', 'Junior School (Grade 1 to Grade 7)', 100.0, 0.0, 10.0, 126.0, 300.0),
+            ('O Level', 'OLV', 'O Level (Form 1 to Form 4)', 100.0, 30.0, 10.0, 56.0, 300.0),
+            ('A Level', 'ALV', 'A Level (Form 5 to Form 6)', 150.0, 30.0, 10.0, 45.0, 260.0),
         ]
-        for name, code, desc, tuition, dev_levy, reg_fee, tb_levy in fee_levels_data:
+        for name, code, desc, tuition, dev_levy, reg_fee, tb_levy, stay_fee in fee_levels_data:
             total = tuition + dev_levy
             fl = FeeLevel(
                 name=name, code=code, description=desc,
                 tuition=tuition, development_levy=dev_levy,
                 registration_fee=reg_fee, textbook_levy=tb_levy,
-                total=total,
+                stay_in_fee=stay_fee, total=total,
             )
             db.session.add(fl)
 
     # Ensure default fee levels have correct amounts if updating existing db
     defaults_map = {
-        'ECD': (150.0, 0.0, 10.0, 56.0),
-        'Junior': (100.0, 0.0, 10.0, 126.0),
-        'O Level': (100.0, 30.0, 10.0, 56.0),
-        'A Level': (150.0, 30.0, 10.0, 45.0),
+        # name: (tuition, dev_levy, reg_fee, tb_levy, stay_in_fee)
+        'ECD': (150.0, 0.0, 10.0, 56.0, 300.0),
+        'Junior': (100.0, 0.0, 10.0, 126.0, 300.0),
+        'O Level': (100.0, 30.0, 10.0, 56.0, 300.0),
+        'A Level': (150.0, 30.0, 10.0, 45.0, 260.0),
     }
-    for name, (tuition, dev_levy, reg_fee, tb_levy) in defaults_map.items():
+    for name, (tuition, dev_levy, reg_fee, tb_levy, stay_fee) in defaults_map.items():
         fl = FeeLevel.query.filter_by(name=name).first()
-        if fl and (fl.tuition != tuition or fl.development_levy != dev_levy or fl.registration_fee != reg_fee or fl.textbook_levy != tb_levy or fl.total != tuition + dev_levy):
+        if fl and (fl.tuition != tuition or fl.development_levy != dev_levy or fl.registration_fee != reg_fee
+                   or fl.textbook_levy != tb_levy or fl.stay_in_fee != stay_fee
+                   or fl.total != tuition + dev_levy):
             fl.tuition = tuition
             fl.development_levy = dev_levy
             fl.registration_fee = reg_fee
             fl.textbook_levy = tb_levy
+            fl.stay_in_fee = stay_fee
             fl.total = tuition + dev_levy
+
+    # Default cost centres (customisable per institution)
+    if not CostCenter.query.first():
+        for name, code, desc in COST_CENTER_DEFAULTS:
+            db.session.add(CostCenter(name=name, code=code, description=desc))
+
+    # Backfill: assign a cost centre to every learner that does not have one
+    # (existing installations upgraded in place keep their data).
+    for student in Student.query.filter(Student.cost_center_id.is_(None)).all():
+        assign_cost_center(student)
+
+    # Seed the payslip staff member (Makumbe Albert - Teacher) to match the
+    # official July 2026 payslip template exactly:
+    #   Gross 523.84, PAYE 95.96 ((25% x gross) - 35), AIDS Levy 2.88 (3% of
+    #   PAYE) -> Net 425.00, deposited into ZB Bank 451200282033405.
+    makumbe = Staff.query.filter_by(employee_number='MS-MAKUMBE').first()
+    if makumbe is None:
+        db.session.add(Staff(
+            employee_number='MS-MAKUMBE',
+            first_name='Albert',
+            last_name='Makumbe',
+            position='Teacher',
+            department='Academic',
+            status='Active',
+            salary=523.84,             # gross
+            paye_deduction=95.96,      # Pay As You Earn: (25% x 523.84) - 35
+            aids_levy_deduction=2.88,  # AIDS levy: 3% of PAYE
+            other_deductions=0.0,
+            bank_name='ZB Bank',
+            bank_account='451200282033405',
+            phone='',
+            email='',
+        ))
+    elif (makumbe.salary == 500.0 and makumbe.paye_deduction == 60.0
+          and makumbe.aids_levy_deduction == 15.0):
+        # Migrate the older placeholder figures to the official template ones.
+        makumbe.salary = 523.84
+        makumbe.paye_deduction = 95.96
+        makumbe.aids_levy_deduction = 2.88
+        makumbe.bank_name = 'ZB Bank'
+        makumbe.bank_account = '451200282033405'
 
     db.session.commit()
 
-    # Seed default appearance settings
+    # Seed default appearance settings (software branding is fixed and is
+    # never stored in the settings table).
     if not AppearanceSetting.query.first():
         for key, val in DEFAULT_THEME.items():
-            if val:
+            if val and key not in SOFTWARE_BRANDING_KEYS:
                 s = AppearanceSetting(key=key, value=val)
                 db.session.add(s)
+        db.session.commit()
+
+    # One-time cleanup: wipe any software branding rows stored by older
+    # versions so branding always comes from the fixed default / env only.
+    stale_branding = AppearanceSetting.query.filter(
+        AppearanceSetting.key.in_(SOFTWARE_BRANDING_KEYS)).all()
+    if stale_branding:
+        for row in stale_branding:
+            db.session.delete(row)
         db.session.commit()
 
     # Restore persisted sync settings into app.config
@@ -6334,12 +9116,13 @@ if __name__ == '__main__':
     with app.app_context():
         init_db()
     mode = app.config['DEPLOYMENT_MODE']
+    _brand = software_branding()
     print(f"\n{'='*60}")
-    print(f"  Excel Group of Schools - Management System")
-    print(f"  Version 2.0.0 | Author: Valentine T Mabheka")
+    print(f"  {_brand['name']} — {_brand['tagline']}")
+    print(f"  {_brand['name']} v{_brand['version']} | {_brand['byline']}")
     print(f"  Deployment Mode: {mode.upper()}")
     print(f"  Server: http://localhost:5000")
-    print(f"  Default Login: edusync / edusync26")
+    print(f"  Admin Username: {DEFAULT_ADMIN_USERNAME}")
     print(f"  Access Point Monitor: {'ACTIVE' if ap_monitor.status()['running'] else 'STANDBY'}")
     print(f"{'='*60}\n")
     app.run(debug=True, host='0.0.0.0', port=5000)
@@ -6353,6 +9136,10 @@ def api_sync_handshake():
         'message': 'Flask offline sync endpoint is live',
         'version': APP_VERSION,
         'school_name': app.config.get('SCHOOL_NAME', 'Excel Group of Schools'),
+        'software_name': get_theme().get('software_name', SOFTWARE_NAME),
+        'software_version': get_theme().get('software_version', APP_VERSION),
+        'software_byline': get_theme().get('software_byline', SOFTWARE_BYLINE),
+        'software_tagline': get_theme().get('software_tagline', SOFTWARE_TAGLINE),
         'school_motto': app.config.get('SCHOOL_MOTTO', ''),
         'timestamp': datetime.utcnow().isoformat()
     })

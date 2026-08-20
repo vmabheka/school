@@ -39,7 +39,17 @@
                     <td>{{ p.payment_date }}</td>
                     <td><span class="badge badge-info">{{ p.payment_method or '-' }}</span></td>
                     <td>{{ p.description or '-' }}</td>
-                    <td><a href="{{ url_for('fee_receipt', id=p.id) }}" class="btn btn-sm btn-secondary"><i class="fas fa-receipt"></i></a></td>
+                    <td>
+                        <a href="{{ url_for('fee_receipt', id=p.id) }}" class="btn btn-sm btn-secondary" title="View Receipt"><i class="fas fa-receipt"></i></a>
+                        <a href="{{ url_for('fee_receipt_print', id=p.id) }}" class="btn btn-sm btn-success" title="Print Receipt (Thermal / Any Printer)" target="_blank"><i class="fas fa-print"></i></a>
+                        {% if can_record_payments %}
+                        <a href="{{ url_for('payment_edit_request', id=p.id) }}" class="btn btn-sm btn-warning" title="Request change to this payment (needs Super Admin approval)"><i class="fas fa-edit"></i></a>
+                        {% endif %}
+                        {% set pending_req = p.edit_requests|selectattr('status', 'equalto', 'pending')|list %}
+                        {% if pending_req %}
+                        <span class="badge badge-warning" title="Change pending approval">pending</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% else %}
                 <tr><td colspan="7" class="text-center" style="padding:20px;color:var(--text-light);">No payments found</td></tr>

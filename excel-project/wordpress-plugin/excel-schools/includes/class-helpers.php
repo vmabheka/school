@@ -4,21 +4,21 @@
  * Flask app's helper functions (app.py: is_primary_level, get_fee_level_name,
  * PRIMARY_LEARNING_AREAS, DEFAULT_THEME, effective_fee_multiplier, etc.)
  *
- * Author: Valentine T Mabheka | Version: 3.0.0
+ * Author: Edutechweb
  */
 if (!defined('ABSPATH')) exit;
 
 class ESM_Helpers {
 
-    // Heritage-Based Curriculum (HBC) — 6 learning areas for primary level
-    // (ECD A through Grade 7), mirrored from app.py: PRIMARY_LEARNING_AREAS.
+    // School-approved subjects for primary level (ECD A through Grade 7),
+    // mirrored exactly from app.py: PRIMARY_LEARNING_AREAS.
     const PRIMARY_LEARNING_AREAS = [
-        'Language, Literacy and Communication',
-        'Mathematical Concepts and Numerical Activities',
+        'English',
+        'ChiShona',
+        'Mathematics',
+        'Social Science',
+        'PE and Arts',
         'Science and Technology',
-        'Heritage Studies',
-        'Physical Education, Health and Wellbeing',
-        'Visual and Performing Arts',
     ];
 
     // ─── Number generators (mirror app.py admission/employee/receipt
@@ -163,7 +163,7 @@ class ESM_Helpers {
         return [
             'esm_super_admin' => 'Directors & Principals — Full system access',
             'esm_accountant'  => 'Financial management — Fees, payments, reports',
-            'esm_bursar'      => 'Student admissions & financial oversight',
+            'esm_bursar'      => 'Student admissions, financial oversight & sync management',
             'esm_teacher'     => 'Academic access — Exams, class management',
             'esm_parent'      => 'View child information — Fees, results, attendance',
             'esm_student'     => 'Personal portal — Results, timetable, attendance',
@@ -175,7 +175,7 @@ class ESM_Helpers {
         return [
             'esm_super_admin' => ['main', 'people', 'academic', 'finance', 'resources', 'communication', 'analytics', 'system'],
             'esm_accountant'  => ['main', 'finance', 'analytics', 'communication'],
-            'esm_bursar'      => ['main', 'people', 'finance', 'communication', 'analytics'],
+            'esm_bursar'      => ['main', 'people', 'finance', 'communication', 'analytics', 'system'],
             'esm_teacher'     => ['main', 'people', 'academic', 'resources', 'communication', 'analytics'],
             'esm_parent'      => ['main', 'communication'],
             'esm_student'     => ['main', 'academic', 'communication'],
@@ -186,14 +186,14 @@ class ESM_Helpers {
     // app.py ROLE_NAV_ITEMS, translated to this plugin's /sms/ page slugs)
     public static function role_nav_items() {
         return [
-            'esm_super_admin' => ['dashboard', 'students', 'staff', 'exams', 'timetable',
+            'esm_super_admin' => ['dashboard', 'students', 'classes', 'staff', 'exams', 'timetable',
                                    'fees', 'invoices', 'debtors', 'fee-levels', 'hostel',
                                    'communication', 'reports', 'sync', 'settings',
                                    'parent-portal', 'student-portal', 'users'],
             'esm_accountant'  => ['dashboard', 'fees', 'invoices', 'debtors', 'fee-levels',
                                    'reports', 'communication', 'users'],
-            'esm_bursar'      => ['dashboard', 'students', 'fees', 'invoices', 'debtors',
-                                   'communication', 'reports'],
+            'esm_bursar'      => ['dashboard', 'students', 'classes', 'fees', 'invoices', 'debtors',
+                                   'communication', 'reports', 'sync'],
             'esm_teacher'     => ['dashboard', 'students', 'exams', 'timetable',
                                    'communication', 'reports'],
             'esm_parent'      => ['dashboard', 'parent-portal', 'communication'],

@@ -361,3 +361,14 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Local Python environments and production secrets
+.venv/
+venv/
+.env
+.env.production
+.env.*.local
+excel-project/flask-backend/backups/
+excel-project/flask-backend/.build-venv/
+excel-project/flask-backend/build/
+excel-project/flask-backend/dist/

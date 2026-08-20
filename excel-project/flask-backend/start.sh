@@ -1,43 +1,33 @@
-#!/bin/bash
-# Excel Schools - Flask Backend Startup Script
-# This script installs dependencies and starts the server
+#!/bin/sh
+# MobiSchola launcher for Linux/macOS.
+# Installs Gunicorn in .venv, initializes the database, then serves wsgi:app.
+set -eu
 
-set -e
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$ROOT"
 
-echo "=================================================="
-echo "  Excel Group of Schools - Starting Flask Backend"
-echo "=================================================="
+printf '%s\n' '=================================================='
+printf '%s\n' '  MobiSchola - WSGI Startup'
+printf '%s\n' '=================================================='
 
-cd "$(dirname "$0")"
+printf '\n[1/3] Installing/updating the Gunicorn WSGI server...\n'
+./install-wsgi-server.sh
 
-echo ""
-echo "[1/4] Installing Python dependencies..."
-pip install -r requirements.txt --quiet
+printf '\n[2/3] Initializing/upgrading the database...\n'
+.venv/bin/python - <<'PY'
+from app import app, init_db
 
-echo ""
-echo "[2/4] Installing Flask-CORS (for cross-origin handshake)..."
-pip install Flask-CORS --quiet
-
-echo ""
-echo "[3/4] Initializing database..."
-python -c "
-from app import app, db, init_db
 with app.app_context():
     init_db()
 print('Database initialized successfully.')
-"
+PY
 
-echo ""
-echo "[4/4] Starting Flask server..."
-echo ""
-echo "Server will be available at:"
-echo "  → http://127.0.0.1:5000"
-echo "  → http://127.0.0.1:5000/sync"
-echo ""
-echo "Default login: edusync / edusync26"
-echo ""
-echo "Press Ctrl+C to stop the server."
-echo "=================================================="
-echo ""
+# The shared Gunicorn configuration defaults to localhost:8000 for production.
+# This convenience launcher retains the historical local-network port 5000.
+GUNICORN_BIND=${GUNICORN_BIND:-0.0.0.0:5000}
+export GUNICORN_BIND
 
-python run.py --host 0.0.0.0 --port 5000 --debug
+printf '\n[3/3] Starting Gunicorn WSGI server at http://%s ...\n' "$GUNICORN_BIND"
+printf '%s\n' 'Press Ctrl+C to stop the server.'
+printf '%s\n' '=================================================='
+exec .venv/bin/gunicorn --config gunicorn.conf.py wsgi:app

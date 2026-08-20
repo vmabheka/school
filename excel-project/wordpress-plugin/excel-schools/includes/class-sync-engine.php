@@ -14,7 +14,7 @@
  * truth, unlike the previous build which split them between esm_* and
  * ess_* and silently broke authentication.
  *
- * Author: Valentine T Mabheka | Version: 3.0.0
+ * Author: Edutechweb
  */
 if (!defined('ABSPATH')) exit;
 
@@ -35,6 +35,18 @@ class ESM_Sync_Engine {
         'AcademicYear' => 'esm_academic_years',
         'Term'         => 'esm_terms',
         'Invoice'      => 'esm_invoices',
+        'InvoiceItem'  => 'esm_invoice_items',
+        'Parent'       => 'esm_parents',
+        'StudentParent'=> 'esm_student_parent',
+        'StaffSubject' => 'esm_staff_subjects',
+        'Exam'         => 'esm_exams',
+        'Hostel'       => 'esm_hostels',
+        'Room'         => 'esm_rooms',
+        'RoomAllocation' => 'esm_room_allocations',
+        'TimetableSlot'=> 'esm_timetable_slots',
+        'Message'      => 'esm_messages',
+        'SchoolSetting'=> 'esm_school_settings',
+        'CostCenter'   => 'esm_cost_centers',
     ];
 
     // Entities exposed via /api/export/<entity> and /api/import/<entity>
@@ -42,9 +54,12 @@ class ESM_Sync_Engine {
     // plus invoices/invoice_items which the offline app also has but the
     // previous plugin build never wired up.
     public static $exportable_entities = [
-        'academic_years', 'terms', 'classes', 'subjects', 'fee_levels',
-        'fee_structures', 'students', 'staff', 'fee_payments',
-        'invoices', 'invoice_items', 'exam_results', 'notices',
+        'academic_years', 'terms', 'staff', 'classes', 'subjects',
+        'staff_subjects', 'parents', 'students', 'student_parent',
+        'exams', 'exam_results', 'fee_levels', 'fee_structures',
+        'fee_payments', 'invoices', 'invoice_items', 'hostels', 'rooms',
+        'room_allocations', 'timetable_slots', 'notices', 'messages',
+        'school_settings', 'cost_centers',
     ];
 
     public static function run_sync() {
@@ -209,6 +224,133 @@ class ESM_Sync_Engine {
     }
 
     /**
+     * Apply an uploaded manual JSON export. Supports both the event-list
+     * format produced by Flask's Sync Center and full exports grouped under
+     * a data object. The same entity map is used by automatic sync, ensuring
+     * classes and related foreign keys behave consistently in both modes.
+     */
+    public static function import_json_payload($payload) {
+        global $wpdb;
+        $pfx = $wpdb->prefix;
+        $events = [];
+
+        if (isset($payload['data']) && is_array($payload['data'])) {
+            $type_map = [
+                'academic_years' => 'AcademicYear', 'terms' => 'Term',
+                'staff' => 'Staff', 'classes' => 'Class', 'subjects' => 'Subject',
+                'staff_subjects' => 'StaffSubject', 'parents' => 'Parent',
+                'students' => 'Student', 'student_parent' => 'StudentParent',
+                'exams' => 'Exam', 'exam_results' => 'ExamResult',
+                'fee_levels' => 'FeeLevel', 'fee_structures' => 'FeeStructure',
+                'fee_payments' => 'FeePayment', 'invoices' => 'Invoice',
+                'invoice_items' => 'InvoiceItem', 'hostels' => 'Hostel',
+                'rooms' => 'Room', 'room_allocations' => 'RoomAllocation',
+                'timetable_slots' => 'TimetableSlot', 'notices' => 'Notice',
+                'messages' => 'Message', 'school_settings' => 'SchoolSetting',
+                'cost_centers' => 'CostCenter',
+            ];
+            // Keep parent records ahead of rows that refer to them.
+            foreach (self::$exportable_entities as $entity) {
+                if (!isset($type_map[$entity]) || empty($payload['data'][$entity])) continue;
+                foreach ($payload['data'][$entity] as $record) {
+                    $events[] = ['entity_type' => $type_map[$entity], 'action' => 'UPDATE', 'data' => $record, 'preserve_id' => true];
+                }
+            }
+        } elseif (empty($payload) || array_keys($payload) === range(0, count($payload) - 1)) {
+            $events = $payload;
+        } else {
+            return ['error' => 'Unsupported JSON format. Upload a Sync Center event export or a full data export.'];
+        }
+
+        $imported = $skipped = $failed = 0;
+        $wpdb->query('START TRANSACTION');
+        foreach ($events as $event) {
+            $entity_type = sanitize_text_field($event['entity_type'] ?? '');
+            $action = strtoupper(sanitize_text_field($event['action'] ?? 'UPDATE'));
+            $data = $event['data'] ?? [];
+            if (is_string($data)) $data = json_decode($data, true);
+            if (!isset(self::$entity_tables[$entity_type]) || !is_array($data)) {
+                $skipped++;
+                continue;
+            }
+
+            $table = $pfx . self::$entity_tables[$entity_type];
+            $sync_id = sanitize_text_field($data['sync_id'] ?? ($event['sync_id'] ?? ''));
+            $existing = $sync_id && self::table_has_column($table, 'sync_id')
+                ? $wpdb->get_var($wpdb->prepare("SELECT id FROM $table WHERE sync_id=%s", $sync_id))
+                : null;
+            if (!$existing && !empty($event['preserve_id']) && !empty($data['id']) && self::table_has_column($table, 'id')) {
+                $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM $table WHERE id=%d", intval($data['id'])));
+            }
+            if (!$existing && $entity_type === 'Class' && !empty($data['name'])) {
+                $existing = $wpdb->get_var($wpdb->prepare(
+                    "SELECT id FROM $table WHERE name=%s AND (academic_year_id=%d OR (%d=0 AND academic_year_id IS NULL))",
+                    sanitize_text_field($data['name']), intval($data['academic_year_id'] ?? 0), intval($data['academic_year_id'] ?? 0)
+                ));
+            }
+            if (!$existing && $entity_type === 'StudentParent' && isset($data['student_id'], $data['parent_id'])) {
+                $existing = $wpdb->get_var($wpdb->prepare(
+                    "SELECT student_id FROM $table WHERE student_id=%d AND parent_id=%d",
+                    intval($data['student_id']), intval($data['parent_id'])
+                ));
+            }
+
+            if ($action === 'DELETE') {
+                if ($entity_type === 'StudentParent' && isset($data['student_id'], $data['parent_id'])) {
+                    $wpdb->delete($table, [
+                        'student_id' => intval($data['student_id']),
+                        'parent_id' => intval($data['parent_id']),
+                    ]);
+                    $imported++;
+                    continue;
+                }
+                $delete_id = $existing ?: intval($event['entity_id'] ?? 0);
+                if ($delete_id) {
+                    $wpdb->delete($table, ['id' => $delete_id]);
+                    $imported++;
+                } else {
+                    $skipped++;
+                }
+                continue;
+            }
+            if (!in_array($action, ['CREATE', 'UPDATE'], true)) {
+                $skipped++;
+                continue;
+            }
+
+            $clean = [];
+            foreach ($data as $key => $value) {
+                $key = sanitize_key($key);
+                if (!$key || !self::table_has_column($table, $key)) continue;
+                $clean[$key] = is_string($value) ? sanitize_text_field($value) : $value;
+            }
+            if (!$clean) {
+                $skipped++;
+                continue;
+            }
+
+            if ($existing && $entity_type === 'StudentParent') {
+                $skipped++;
+                continue;
+            } elseif ($existing) {
+                unset($clean['id']);
+                $ok = $wpdb->update($table, $clean, ['id' => $existing]);
+            } else {
+                if (empty($event['preserve_id'])) unset($clean['id']);
+                $ok = $wpdb->insert($table, $clean);
+            }
+            if ($ok === false) $failed++; else $imported++;
+        }
+
+        if ($failed) {
+            $wpdb->query('ROLLBACK');
+            return ['error' => "Import rolled back because $failed record(s) could not be saved.", 'imported' => 0, 'skipped' => $skipped, 'failed' => $failed];
+        }
+        $wpdb->query('COMMIT');
+        return ['imported' => $imported, 'skipped' => $skipped, 'failed' => 0];
+    }
+
+    /**
      * Full import — pull every entity (including invoices/invoice_items,
      * which the previous plugin build could not import at all) from the
      * Flask app's /api/export/<entity> endpoints into WordPress.
@@ -370,10 +512,9 @@ class ESM_Sync_Engine {
             return strtotime($timestamp_str);
         }
     }
-}
 
     /**
-     * New: Test handshake with Flask offline app
+     * Test handshake with Flask offline app
      */
     public static function handshake($endpoint, $api_key = '') {
         $url = rtrim($endpoint, '/') . '/api/sync/handshake';
@@ -397,3 +538,4 @@ class ESM_Sync_Engine {
             'timestamp'     => $body['timestamp'] ?? ''
         ];
     }
+}
