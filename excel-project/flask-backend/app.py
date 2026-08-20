@@ -2155,7 +2155,8 @@ def generate_student_invoice(student, term=None, academic_year=None):
         academic_year_id=academic_year.id,
         term_id=term.id,
         issue_date=date.today(),
-        due_date=term.end_date if term and term.end_date else date.today(),
+        # Invoices are due the day after they are created.
+        due_date=date.today() + timedelta(days=1),
         subtotal=subtotal,
         discount_amount=discount,
         total_amount=total

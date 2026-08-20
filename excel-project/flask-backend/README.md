@@ -127,7 +127,7 @@ data into the database on that server computer.
 
 1. Build the Windows package with `build-windows-exe.bat`, or copy these three
    files from `dist` to the computer selected as the server:
-   - `ExcelSchools-Offline.exe` — the server itself
+   - `MobiSchola.exe` — the server itself
    - `setup-lan-server.bat` — opens the firewall and starts the server
    - `test-client.bat` — connection test to run on any device that cannot connect
 2. Connect the server computer to the school router, preferably by Ethernet.
@@ -226,7 +226,7 @@ Run these checks in order:
    once. It recreates the port-based allow rule. Check antivirus firewalls
    (Avast, Kaspersky, McAfee, Bitdefender…) for extra blocking rules.
 4. **Network profile**: the server's network must be **Private**. Run
-   `ExcelSchools-Offline.exe --diagnose` on the server to see every network
+   `MobiSchola.exe --diagnose` on the server to see every network
    profile, the firewall rule state, and the port status in one place.
 5. **Router**: disable **AP isolation / client isolation** on the router, or
    connect the server by Ethernet cable. Guest Wi-Fi cannot reach the server.

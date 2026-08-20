@@ -7,6 +7,8 @@ project_root = Path(SPECPATH)
 datas = [
     (str(project_root / 'templates'), 'templates'),
     (str(project_root / 'static'), 'static'),
+    # MobiSchola icon + branding shown in the browser tab and bundled assets.
+    (str(project_root / 'static' / 'images' / 'mobischola-icon.svg'), 'static/images'),
 ]
 binaries = []
 hiddenimports = collect_submodules('flask') + collect_submodules('flask_sqlalchemy')
@@ -38,12 +40,15 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='ExcelSchools-Offline',
+    name='MobiSchola',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     console=True,
+    # The MobiSchola icon is embedded into the EXE itself (falls back to
+    # PyInstaller's default if the .ico is missing).
+    icon=str(project_root / 'static' / 'images' / 'mobischola.ico'),
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

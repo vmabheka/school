@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.8.3] — 2026-08-20
+
+### Changed (Flask app)
+
+- **Invoice due date automated**: every new invoice is now due **one day
+  after it is created** (previously the term end date). Refreshing an invoice
+  keeps the due date. Verified: issue 2026-08-20 → due 2026-08-21.
+- **MobiSchola icon added**: the official MobiSchola SVG mark is bundled as
+  `static/images/mobischola-icon.svg` (+ PNG + ICO) and used as the browser
+  favicon on every page. The **Windows EXE** is now built with the MobiSchola
+  icon embedded and named `MobiSchola.exe`; the icon SVG is included in the
+  PyInstaller bundle so it can be shown in-app. The launcher banner shows the
+  MobiSchola name + tagline, and the system still loads as MobiSchola while
+  displaying the institution's customised school name/logo inside the app.
+
+---
+
 ## [2.8.2] — 2026-08-19
 
 ### Changed (Flask app — payslip now matches the official template)

@@ -379,6 +379,7 @@ def main() -> int:
 
     print('=' * 62)
     print(' MobiSchola - Waitress Production WSGI Server')
+    print(' Manage smarter - even offline.')
     print(' Running independently of a browser - client devices use their own.')
     print(f' PERMANENT SERVER ADDRESS: {permanent_url}')
     print(f' This computer: {url}')

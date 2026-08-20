@@ -6,7 +6,7 @@
 |----------|---------------|--------|
 | **Linux** | `./build.sh` | `dist/ExcelSchools/ExcelSchools` |
 | **Linux (portable)** | `./build.sh --portable` | `dist/ExcelSchools-portable` |
-| **Windows (portable)** | `build-windows-exe.bat` | `dist\ExcelSchools-Offline.exe` |
+| **Windows (portable)** | `build-windows-exe.bat` | `dist\MobiSchola.exe` |
 | **Windows (GitHub Actions)** | Workflow: Build Windows Offline EXE | Downloadable artifact |
 | **macOS** | `./build_macos.sh` | `dist/ExcelSchools/ExcelSchools` |
 | **Docker** | `docker build -t excel-schools .` | Docker image |
@@ -47,8 +47,8 @@ build-windows-exe.bat
 ```
 
 Outputs:
-- `dist\ExcelSchools-Offline.exe`
-- `dist\ExcelSchools-Offline.exe.sha256`
+- `dist\MobiSchola.exe`
+- `dist\MobiSchola.exe.sha256`
 - `dist\production-server.txt`
 - `dist\setup-lan-server.bat`
 - `dist\test-client.bat`
@@ -63,13 +63,13 @@ cannot reach the server.
 Diagnose server-side network problems with:
 
 ```cmd
-dist\ExcelSchools-Offline.exe --diagnose
+dist\MobiSchola.exe --diagnose
 ```
 
 Verify the embedded server manually with:
 
 ```cmd
-dist\ExcelSchools-Offline.exe --verify-production-server
+dist\MobiSchola.exe --verify-production-server
 ```
 
 The executable bundles Python, templates, static files, the application, and the **Waitress production WSGI server**. The build fails unless the frozen EXE confirms `PRODUCTION_WSGI_STATUS=embedded-and-ready`; verification details are written to `dist\production-server.txt`. School data is stored persistently under `%LOCALAPPDATA%\ExcelSchools`, not inside the EXE.

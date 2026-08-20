@@ -15,10 +15,10 @@ cd /d "%~dp0"
 ::    EXCEL_SCHOOLS_ALLOW_PUBLIC_PROFILE=1   also allow Public networks
 :: ============================================================
 
-set "APP_EXE=%~dp0ExcelSchools-Offline.exe"
-if not exist "%APP_EXE%" set "APP_EXE=%~dp0dist\ExcelSchools-Offline.exe"
+set "APP_EXE=%~dp0MobiSchola.exe"
+if not exist "%APP_EXE%" set "APP_EXE=%~dp0dist\MobiSchola.exe"
 if not exist "%APP_EXE%" (
-    echo ERROR: ExcelSchools-Offline.exe was not found next to this script or in dist.
+    echo ERROR: MobiSchola.exe was not found next to this script or in dist.
     pause
     exit /b 1
 )
